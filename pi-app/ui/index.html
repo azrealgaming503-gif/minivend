@@ -56,8 +56,17 @@
     // video element warms up, swaps z-index, and starts playing from
     // exactly that frame — so the transition from "static cover image"
     // to "playing video" is visually invisible.
+    cover.addEventListener('error', () => {
+      console.warn('[idle] cover image failed to load:', cover.src);
+    });
+    cover.addEventListener('load', () => {
+      console.log('[idle] cover loaded:', cover.currentSrc);
+    });
     function showCoverWithUrl(url) {
       if (!url) return false;
+      // Clear src first so the browser doesn't keep a previously-broken
+      // image state when we reassign the same URL later.
+      cover.removeAttribute('src');
       cover.src = url;
       cover.hidden = false;
       return true;
@@ -68,6 +77,7 @@
     function preloadCover(url) {
       if (!url) return;
       const img = new Image();
+      img.onerror = () => console.warn('[idle] preload cover failed:', url);
       img.src = url;
     }
 

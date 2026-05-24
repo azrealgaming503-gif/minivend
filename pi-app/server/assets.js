@@ -111,10 +111,11 @@ function extractFirstFrame(videoPath, jpgPath) {
   });
 }
 
-// For a cat-cycle pack, eagerly extract first-frame thumbnails of every
-// clip into the pack's `_frames/` dir so the UI can use them as cover
-// images during clip swaps. Runs in the background (fire-and-forget) —
-// the UI tolerates a missing frame and just shows a brief blank cover.
+// For a cat-cycle pack, extract first-frame thumbnails of every clip
+// into the pack's `_frames/` dir so the UI can use them as cover images
+// during clip swaps. Returns a promise that resolves once every frame
+// is on disk. Idempotent and cheap on second call (existing JPGs are
+// skipped instantly).
 function ensurePackFrames(packDir, manifest) {
   const framesDir = path.join(packDir, '_frames');
   ensureDir(framesDir);
@@ -123,14 +124,18 @@ function ensurePackFrames(packDir, manifest) {
     if (step.loop) clips.add(step.loop);
     if (step.transition) clips.add(step.transition);
   }
+  const jobs = [];
   for (const clip of clips) {
     const src = path.join(packDir, clip);
     const dst = path.join(framesDir, clip + '.jpg');
     if (!fs.existsSync(src) || fs.existsSync(dst)) continue;
-    extractFirstFrame(src, dst).catch((e) => {
-      console.warn(`[assets] first-frame extract failed for ${clip}: ${e.message}`);
-    });
+    jobs.push(
+      extractFirstFrame(src, dst).catch((e) => {
+        console.warn(`[assets] first-frame extract failed for ${clip}: ${e.message}`);
+      })
+    );
   }
+  return Promise.all(jobs);
 }
 
 function listFolderFlat(dir) {
@@ -218,7 +223,7 @@ function mount(app, { store, broadcast }) {
   app.use('/assets/alerts', express.static(store.alertsDir, { fallthrough: false }));
 
   // Full description of the active idle pick. Replaces the old 302 endpoint.
-  app.get('/api/assets/idle/active', (_req, res) => {
+  app.get('/api/assets/idle/active', async (_req, res) => {
     const d = store.getActiveIdleDescription();
     if (!d) return res.status(404).json({ ok: false, err: 'no_active_idle' });
     if (d.kind === 'file') {
@@ -230,10 +235,12 @@ function mount(app, { store, broadcast }) {
       });
     }
     // pack
-    // Make sure first-frame thumbnails are kicking off (no-op if already
-    // extracted). Useful in case the server has been restarted but the
-    // active pack was set in a previous boot.
-    ensurePackFrames(path.join(store.idleDir, d.name), d.manifest);
+    // Make sure all first-frame thumbnails exist on disk BEFORE we tell
+    // the UI to start playing. This avoids the race where the UI fetches
+    // /assets/.../_frames/foo.jpg before ffmpeg has finished writing it,
+    // ends up with a broken <img> cached for the rest of the session,
+    // and shows blank flashes on every swap. Cheap on subsequent calls.
+    await ensurePackFrames(path.join(store.idleDir, d.name), d.manifest);
     return res.json({
       ok: true,
       kind: 'pack',
