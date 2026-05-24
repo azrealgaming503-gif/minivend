@@ -26,6 +26,11 @@ RuntimeDirectory=minivend
 RuntimeDirectoryMode=0700
 Environment=XDG_RUNTIME_DIR=/run/minivend
 Environment=WLR_LIBINPUT_NO_DEVICES=1
+# Hide the compositor cursor. The installer ships /usr/share/icons/blank/
+# with a 1x1 fully-transparent cursor, so any pointer event from a
+# touchscreen (or a development USB mouse) renders nothing.
+Environment=XCURSOR_THEME=blank
+Environment=XCURSOR_SIZE=1
 # Rotate the kiosk display. Valid values: normal, 90, 180, 270, flipped-180.
 # (Applied via wlr-randr after cage launches — Trixie's cage build doesn't
 #  honor WLR_OUTPUT_TRANSFORM at startup, and the minimal cage CLI has no

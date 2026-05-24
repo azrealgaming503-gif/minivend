@@ -240,6 +240,51 @@ sed "s|__MATRIX__|${ts_matrix}|" "${PI_APP_DIR}/systemd/99-minivend-touchscreen.
 udevadm control --reload-rules
 udevadm trigger
 
+# ---------- 6b. Blank cursor theme (touchscreen kiosk) ----------
+# Cage / wlroots draws its own mouse cursor as soon as anything emits a
+# pointer event (touchscreens often produce pointer-emulated events even
+# though we want pure touch). The minimal cage CLI has no `--hide-cursor`
+# flag, so the standard fix is to ship a cursor theme whose only cursor
+# is a 1x1 fully-transparent image and point XCURSOR_THEME at it.
+echo "==> Installing blank cursor theme (XCURSOR_THEME=blank) for kiosk"
+install -d -m 0755 /usr/share/icons/blank/cursors
+cat >/usr/share/icons/blank/index.theme <<'EOF'
+[Icon Theme]
+Name=blank
+Comment=1x1 transparent cursor — used by the MiniVend kiosk to hide
+ the compositor cursor on touchscreen-only hardware.
+Inherits=blank
+EOF
+cat >/usr/share/icons/blank/cursor.theme <<'EOF'
+[Icon Theme]
+Name=blank
+Inherits=blank
+EOF
+# Write the actual Xcursor file. Format reference:
+#   https://man.archlinux.org/man/Xcursor.3.en
+python3 - <<'PYEOF'
+import struct
+HEADER_MAGIC = b'Xcur'
+TYPE_IMAGE   = 0xfffd0002
+NOMINAL      = 1
+buf = bytearray()
+buf += HEADER_MAGIC
+buf += struct.pack('<III', 16, 0x10000, 1)
+buf += struct.pack('<III', TYPE_IMAGE, NOMINAL, 28)
+buf += struct.pack('<IIIIIIIII', 36, TYPE_IMAGE, NOMINAL, 1, 1, 1, 0, 0, 0)
+buf += struct.pack('<I', 0)
+open('/usr/share/icons/blank/cursors/left_ptr', 'wb').write(bytes(buf))
+PYEOF
+chmod 0644 /usr/share/icons/blank/cursors/left_ptr
+# Make every other common cursor name resolve to the blank one too —
+# wlroots reads names like "default", "pointer", "watch", "text", etc.
+for alias in default pointer arrow text watch hand1 hand2 crosshair \
+             xterm wait progress help size_all sb_h_double_arrow \
+             sb_v_double_arrow top_left_corner top_right_corner \
+             bottom_left_corner bottom_right_corner left_side right_side; do
+  ln -sf left_ptr "/usr/share/icons/blank/cursors/${alias}"
+done
+
 # ---------- 7. sudoers drop-in ----------
 echo "==> Installing sudoers drop-in for OTA + Wi-Fi management"
 install -m 0440 "${PI_APP_DIR}/scripts/sudoers-minivend" /etc/sudoers.d/minivend
