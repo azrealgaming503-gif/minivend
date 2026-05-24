@@ -85,7 +85,7 @@ else
 fi
 apt install -y \
   ca-certificates curl gnupg git rsync \
-  ${CHROMIUM_PKG} cage \
+  ${CHROMIUM_PKG} cage wlr-randr \
   libnss3 libatk-bridge2.0-0 libgtk-3-0 \
   ffmpeg \
   build-essential \

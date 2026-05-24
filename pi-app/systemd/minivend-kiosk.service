@@ -1,7 +1,9 @@
 [Unit]
 Description=MiniVend Chromium kiosk (Wayland / cage)
-After=minivend-server.service systemd-user-sessions.service
+After=minivend-server.service systemd-user-sessions.service getty@tty1.service
 Wants=minivend-server.service
+# Conflict cleanly with the getty (in case it ever re-enables).
+Conflicts=getty@tty1.service
 
 [Service]
 Type=simple
@@ -18,31 +20,42 @@ TTYVTDisallocate=yes
 StandardInput=tty
 StandardOutput=journal
 StandardError=journal
-# Make sure we conflict cleanly with the getty (in case it ever re-enables).
-Conflicts=getty@tty1.service
-After=getty@tty1.service
 # Let systemd own a runtime dir for the minivend user instead of
 # assuming /run/user/<uid> exists (it doesn't for system users).
 RuntimeDirectory=minivend
 RuntimeDirectoryMode=0700
 Environment=XDG_RUNTIME_DIR=/run/minivend
 Environment=WLR_LIBINPUT_NO_DEVICES=1
-# Rotate the kiosk display. Valid values: normal, 90, 180, 270, flipped,
-# flipped-90, flipped-180, flipped-270. Override per-device by editing
-# /etc/systemd/system/minivend-kiosk.service.d/override.conf with
-# `Environment=KIOSK_ROTATE=90` (or whichever) and `systemctl daemon-reload
-# && systemctl restart minivend-kiosk`.
+# Rotate the kiosk display. Valid values: normal, 90, 180, 270, flipped-180.
+# (Applied via wlr-randr after cage launches — Trixie's cage build doesn't
+#  honor WLR_OUTPUT_TRANSFORM at startup, and the minimal cage CLI has no
+#  rotation flag.) Override per-device with a drop-in:
+#    sudo systemctl edit minivend-kiosk
+#    [Service]
+#    Environment=KIOSK_ROTATE=90
 Environment=KIOSK_ROTATE=normal
+# Output name to rotate. Defaults to the only connected HDMI port; override
+# in the drop-in above if you have an unusual setup (eg. DSI/DPI display).
+Environment=KIOSK_OUTPUT=HDMI-A-1
 
 # cage is a minimal Wayland compositor that launches a single full-screen
 # client and exits when the client exits. We wait for the local server to
 # come up first so Chromium loads the UI on the very first try.
 ExecStartPre=/bin/sh -c 'until curl -fs http://localhost:${PORT:-3000}/ > /dev/null; do sleep 1; done'
-# Prefer `chromium` (current Pi OS) and fall back to `chromium-browser`
-# (older images that still ship the transitional package).
+
+# Launch cage in the foreground. A sidecar shell waits for cage's Wayland
+# socket to appear, then asks wlr-randr to apply the rotation. Cage itself
+# (under wlroots) is what enacts the transform — `wlr-randr` is just the
+# IPC tool to tell the running compositor what to do.
 ExecStart=/bin/sh -c '\
   BIN=$(command -v chromium || command -v chromium-browser); \
-  export WLR_OUTPUT_TRANSFORM="${KIOSK_ROTATE:-normal}"; \
+  ( \
+    for i in 1 2 3 4 5 6 7 8 9 10; do \
+      sleep 1; \
+      [ -S "${XDG_RUNTIME_DIR}/wayland-1" ] || continue; \
+      WAYLAND_DISPLAY=wayland-1 wlr-randr --output "${KIOSK_OUTPUT}" --transform "${KIOSK_ROTATE}" 2>/dev/null && exit 0; \
+    done \
+  ) & \
   exec /usr/bin/cage -- "$BIN" \
     --kiosk \
     --noerrdialogs --disable-infobars \
