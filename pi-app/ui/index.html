@@ -14,10 +14,12 @@
     <div class="idle-stage">
       <video  id="idle-video-a"  class="idle-media" muted playsinline preload="auto"></video>
       <video  id="idle-video-b"  class="idle-media" muted playsinline preload="auto"></video>
-      <!-- Cover layer: holds a snapshot of the current frame during clip
-           swaps so the user never sees a decoder/compositor hand-off
-           artifact between videos. -->
-      <canvas id="idle-cover"    class="idle-cover" hidden></canvas>
+      <!-- Cover layer: a plain DIV (not a canvas) tinted bright red while
+           active. We're using this to confirm whether ANY element can be
+           composited on top of the videos at swap time on Pi 5 / cage.
+           Once we confirm visibility, we'll switch back to a frame
+           snapshot or image. -->
+      <div    id="idle-cover"    class="idle-cover" hidden></div>
       <img    id="idle-image"    class="idle-image" alt="" hidden />
     </div>
 
@@ -45,51 +47,27 @@
     const videoB    = document.getElementById('idle-video-b');
     const image     = document.getElementById('idle-image');
     const cover     = document.getElementById('idle-cover');
-    const coverCtx  = cover.getContext('2d');
     const empty     = document.getElementById('idle-empty');
     const swipeHint = document.getElementById('swipe-hint');
 
-    // ===== Cover layer (mask out clip-swap artifacts) =====
-    // Capture the active video's current frame onto the cover canvas and
-    // show it on top of both videos. While the cover is visible, you can
-    // do whatever you want underneath (swap z-index, recycle buffers,
-    // warm up decoders) and the user will not see a single black frame.
-    // Hide the cover once the new video is solidly playing.
-    //
-    // DIAGNOSTIC: this version paints a subtle red tint into the corner
-    // pixels of the cover canvas so we can visually confirm the cover IS
-    // rendering. If you see a tiny red square pop in the corner during
-    // clip swaps, the cover is doing its job and the flash you see is
-    // happening somewhere OTHER than the swap moment. If you never see
-    // any red AND still see a flash, the cover never renders and we need
-    // a different mitigation entirely.
-    function showCoverFromActive(srcEl) {
-      if (!srcEl || srcEl.readyState < 2 || !srcEl.videoWidth) {
-        console.warn('[idle] cover not painted: srcEl readyState=' + (srcEl && srcEl.readyState));
-        return false;
-      }
-      try {
-        cover.width  = srcEl.videoWidth;
-        cover.height = srcEl.videoHeight;
-        coverCtx.drawImage(srcEl, 0, 0, cover.width, cover.height);
-        // Diagnostic corner — paint a 40px red square top-left so we can
-        // see whether the canvas was actually composited. Remove later.
-        coverCtx.fillStyle = '#ff2a4a';
-        coverCtx.fillRect(0, 0, 40, 40);
-        cover.hidden = false;
-        // Quick sanity check that we got actual pixels (not blackbox from
-        // a hardware-overlay video that drawImage can't read).
-        try {
-          const sample = coverCtx.getImageData(cover.width / 2, cover.height / 2, 1, 1).data;
-          console.log(`[idle] cover sample pixel (center): rgba(${sample[0]},${sample[1]},${sample[2]},${sample[3]})`);
-        } catch (_) { /* ignore CORS-style errors */ }
-        return true;
-      } catch (e) {
-        console.warn('[idle] cover snapshot failed', e);
-        return false;
-      }
+    // ===== Cover layer (DIAGNOSTIC) =====
+    // Plain solid-red div. If you see a bright red flash between clips,
+    // the cover IS being composited on top of the videos — meaning we
+    // can use this technique to mask the swap artifact (next step: paint
+    // a video snapshot or pre-rendered frame here instead of solid red).
+    // If you still see a black flash and NO red, then nothing we put on
+    // top of the videos shows up — the swap artifact is happening below
+    // the regular compositor stack and we need a different approach
+    // (MediaSource API, ffmpeg-concat single stream).
+    function showCoverFromActive(_srcEl) {
+      console.log('[idle] cover SHOW (red diagnostic)');
+      cover.hidden = false;
+      return true;
     }
-    function hideCover() { cover.hidden = true; }
+    function hideCover() {
+      console.log('[idle] cover HIDE');
+      cover.hidden = true;
+    }
 
     // ===== Swipe-up to /menu, swipe-down to no-op (we're already on idle) =====
     // Captures touch *and* mouse drag (helps when developing on a non-touch
