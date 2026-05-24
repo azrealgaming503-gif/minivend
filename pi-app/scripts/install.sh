@@ -240,6 +240,16 @@ systemctl enable minivend-server.service
 systemctl enable minivend-kiosk.service
 systemctl enable minivend-updater.timer
 
+# Free up tty1 so the kiosk service can grab the active VT (HDMI default).
+# Without this, getty + any autologin on tty1 keep the display, and cage
+# silently ends up on an inactive VT (tty7) — kiosk runs but nothing shows
+# on the HDMI screen.
+systemctl disable --now getty@tty1.service 2>/dev/null || true
+# Pi OS Bookworm/Trixie may also have raspi-config's autologin override
+# pointing at a different user/tty — clear it if present so it can't fight us.
+rm -f /etc/systemd/system/getty@tty1.service.d/autologin.conf 2>/dev/null || true
+systemctl daemon-reload
+
 cat <<EOF
 
 ==> Install complete.

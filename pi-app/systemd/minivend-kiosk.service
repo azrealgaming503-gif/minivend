@@ -7,13 +7,20 @@ Wants=minivend-server.service
 Type=simple
 User=minivend
 PAMName=login
-TTYPath=/dev/tty7
+# Run on tty1 — the VT the HDMI display shows by default at boot. The
+# installer disables getty@tty1 so this service has exclusive ownership;
+# otherwise the login prompt would steal focus and cage would render to
+# an inactive VT (visible in `loginctl` as a session on tty7).
+TTYPath=/dev/tty1
 TTYReset=yes
 TTYVHangup=yes
 TTYVTDisallocate=yes
 StandardInput=tty
 StandardOutput=journal
 StandardError=journal
+# Make sure we conflict cleanly with the getty (in case it ever re-enables).
+Conflicts=getty@tty1.service
+After=getty@tty1.service
 # Let systemd own a runtime dir for the minivend user instead of
 # assuming /run/user/<uid> exists (it doesn't for system users).
 RuntimeDirectory=minivend
