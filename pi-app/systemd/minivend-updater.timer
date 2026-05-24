@@ -1,0 +1,13 @@
+[Unit]
+Description=Periodic MiniVend update check
+
+[Timer]
+# Run ~10 minutes after boot and then once a day. The randomized delay
+# keeps a fleet of devices from hammering the git host at the same instant.
+OnBootSec=10min
+OnUnitActiveSec=24h
+RandomizedDelaySec=30min
+Persistent=true
+
+[Install]
+WantedBy=timers.target

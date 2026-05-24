@@ -1,0 +1,91 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=1024, initial-scale=1, user-scalable=no" />
+  <title>MiniVend</title>
+  <link rel="stylesheet" href="/css/styles.css" />
+</head>
+<body>
+  <div class="kiosk-root">
+    <!-- Idle background: video if mp4/webm, image if gif/webp/png. We try
+         video first and swap to <img> if it errors. -->
+    <video id="idle-video" class="idle-media" autoplay muted loop playsinline></video>
+    <img   id="idle-image" class="idle-media" alt="" hidden />
+    <div   id="idle-empty" class="idle-empty" hidden>
+      <div>
+        <p>No idle animation set yet.</p>
+        <p>Open <a href="/settings">Settings</a> to upload one.</p>
+      </div>
+    </div>
+
+    <div class="kiosk-topbar">
+      <span class="status-pill"><span id="motor-dot" class="dot"></span><span id="motor-label">motor: ...</span></span>
+      <span></span>
+    </div>
+
+    <div class="kiosk-bottombar">
+      <a href="/games"><button>Games</button></a>
+      <a href="/settings"><button class="ghost">Settings</button></a>
+    </div>
+  </div>
+
+  <script type="module">
+    import { onMessage } from '/js/ws-client.js';
+    import '/js/alerts.js';
+
+    const video = document.getElementById('idle-video');
+    const image = document.getElementById('idle-image');
+    const empty = document.getElementById('idle-empty');
+    const dot   = document.getElementById('motor-dot');
+    const label = document.getElementById('motor-label');
+
+    function setActiveIdle(name) {
+      if (!name) {
+        video.hidden = true;
+        image.hidden = true;
+        empty.hidden = false;
+        return;
+      }
+      empty.hidden = true;
+      const url = `/assets/idle/${encodeURIComponent(name)}?v=${Date.now()}`;
+      // Decide by extension; if the video can't play, fall back to <img>.
+      const ext = name.split('.').pop().toLowerCase();
+      const isVideo = ['mp4', 'webm', 'mov', 'm4v'].includes(ext);
+      if (isVideo) {
+        image.hidden = true;
+        video.hidden = false;
+        video.src = url;
+        video.play().catch(() => { /* autoplay may need user gesture */ });
+      } else {
+        video.hidden = true;
+        video.removeAttribute('src');
+        image.hidden = false;
+        image.src = url;
+      }
+    }
+
+    function setMotorStatus(connected, fw) {
+      dot.classList.toggle('ok', !!connected);
+      dot.classList.toggle('warn', !connected);
+      label.textContent = connected ? `motor: ok${fw ? ' · ' + fw : ''}` : 'motor: offline';
+    }
+
+    async function bootstrap() {
+      try {
+        const r = await fetch('/api/state');
+        const j = await r.json();
+        if (j && j.ok) {
+          setActiveIdle(j.activeIdle);
+          setMotorStatus(j.motorConnected, j.motorFw);
+        }
+      } catch (_) { /* offline */ }
+    }
+    bootstrap();
+
+    onMessage('idle_changed',  (m) => setActiveIdle(m.active));
+    onMessage('motor_status',  (m) => setMotorStatus(m.connected));
+    onMessage('motor_ready',   (m) => setMotorStatus(true, m.fw));
+  </script>
+</body>
+</html>

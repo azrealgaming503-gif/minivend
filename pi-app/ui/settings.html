@@ -1,0 +1,338 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=1024, initial-scale=1, user-scalable=no" />
+  <title>MiniVend · Settings</title>
+  <link rel="stylesheet" href="/css/styles.css" />
+</head>
+<body>
+  <div class="page">
+    <header class="page-header">
+      <h1>Settings</h1>
+      <a href="/"><button class="ghost">Back</button></a>
+    </header>
+
+    <div class="page-body">
+      <section class="section">
+        <h2>Status</h2>
+        <div class="row">
+          <span class="status-pill"><span id="motor-dot" class="dot"></span><span id="motor-label">motor: ...</span></span>
+        </div>
+      </section>
+
+      <section class="section">
+        <h2>Test dispense</h2>
+        <div class="row">
+          <button class="primary" data-dispense="1">Dispense — Motor 1</button>
+          <button class="primary" data-dispense="2">Dispense — Motor 2</button>
+          <button class="danger"  data-stop>Emergency stop</button>
+        </div>
+        <p id="dispense-result" class="meta" style="margin-top:8px; color: var(--text-2); min-height: 1.2em;"></p>
+      </section>
+
+      <section class="section">
+        <h2>Test donation</h2>
+        <div class="row">
+          <button data-test-tip="1">$1</button>
+          <button data-test-tip="5">$5</button>
+          <button data-test-tip="20">$20</button>
+          <button data-test-tip="100">$100</button>
+        </div>
+      </section>
+
+      <section class="section">
+        <h2>Wi-Fi</h2>
+        <div id="wifi-info" class="row" style="justify-content: space-between;">
+          <div>
+            <div id="wifi-summary">checking...</div>
+            <div id="wifi-detail" class="meta" style="color: var(--text-2); font-size: 13px;"></div>
+          </div>
+          <div class="row">
+            <button id="wifi-refresh" class="ghost">Refresh</button>
+            <button id="wifi-forget" class="danger">Forget Wi-Fi</button>
+          </div>
+        </div>
+        <p class="meta" style="color: var(--text-2); font-size: 13px; margin-top: 10px;">
+          "Forget Wi-Fi" disconnects from the current network and re-opens
+          the setup access point so a phone or laptop can re-provision the
+          device. Use this when moving the unit to a new location.
+        </p>
+      </section>
+
+      <section class="section">
+        <h2>Software updates</h2>
+        <div class="row" style="justify-content: space-between;">
+          <div>
+            <div>Current: <span id="sw-current">...</span></div>
+            <div id="sw-latest" class="meta" style="color: var(--text-2); font-size: 13px;"></div>
+          </div>
+          <div class="row">
+            <button id="sw-check">Check for updates</button>
+            <button id="sw-apply" class="primary" disabled>Apply update</button>
+          </div>
+        </div>
+        <pre id="sw-log" style="margin-top: 12px; max-height: 160px; overflow:auto; background: var(--bg); color: var(--text-2); font-size: 12px; padding: 10px; border-radius: 8px; border: 1px solid var(--stroke); display: none; white-space: pre-wrap;"></pre>
+      </section>
+
+      <section class="section">
+        <h2>Idle animation</h2>
+        <form id="upload-form">
+          <label for="upload-input" class="upload-zone" id="upload-zone">
+            Tap to choose a file, or drag-drop here.<br />
+            <small>mp4, webm, gif, webp, png, jpg — up to 200 MB</small>
+          </label>
+          <input id="upload-input" type="file" accept="video/*,image/*" hidden />
+        </form>
+        <p id="upload-status" style="color: var(--text-2); margin: 10px 0 0;"></p>
+        <div id="idle-list" class="asset-list" style="margin-top:14px;"></div>
+      </section>
+    </div>
+  </div>
+
+  <script type="module">
+    import { onMessage } from '/js/ws-client.js';
+    import '/js/alerts.js';
+
+    const dot   = document.getElementById('motor-dot');
+    const label = document.getElementById('motor-label');
+    const result = document.getElementById('dispense-result');
+    const idleList = document.getElementById('idle-list');
+    const uploadZone = document.getElementById('upload-zone');
+    const uploadInput = document.getElementById('upload-input');
+    const uploadStatus = document.getElementById('upload-status');
+
+    function setMotorStatus(connected, fw) {
+      dot.classList.toggle('ok', !!connected);
+      dot.classList.toggle('warn', !connected);
+      label.textContent = connected ? `motor: ok${fw ? ' · ' + fw : ''}` : 'motor: offline';
+    }
+
+    async function refreshIdleList() {
+      const r = await fetch('/api/assets/idle');
+      const j = await r.json();
+      if (!j.ok) return;
+      idleList.innerHTML = '';
+      for (const f of j.files) {
+        const row = document.createElement('div');
+        row.className = 'asset-row' + (f.name === j.active ? ' active' : '');
+        row.innerHTML = `
+          <div>
+            <div class="name"></div>
+            <div class="meta"></div>
+          </div>
+          <div class="actions">
+            <button data-activate>Use</button>
+            <button class="danger" data-delete>Delete</button>
+          </div>
+        `;
+        row.querySelector('.name').textContent = f.name;
+        row.querySelector('.meta').textContent =
+          `${(f.size / 1024 / 1024).toFixed(2)} MB` +
+          (f.name === j.active ? ' · active' : '');
+        row.querySelector('[data-activate]').addEventListener('click', async () => {
+          await fetch('/api/assets/idle/active', {
+            method: 'POST', headers: { 'content-type': 'application/json' },
+            body: JSON.stringify({ name: f.name }),
+          });
+          refreshIdleList();
+        });
+        row.querySelector('[data-delete]').addEventListener('click', async () => {
+          await fetch(`/api/assets/idle/${encodeURIComponent(f.name)}`, { method: 'DELETE' });
+          refreshIdleList();
+        });
+        idleList.appendChild(row);
+      }
+      if (j.files.length === 0) {
+        idleList.innerHTML = '<div class="meta" style="color: var(--text-2);">No idle animations uploaded yet.</div>';
+      }
+    }
+
+    async function bootstrap() {
+      try {
+        const r = await fetch('/api/state');
+        const j = await r.json();
+        if (j && j.ok) setMotorStatus(j.motorConnected, j.motorFw);
+      } catch (_) { /* offline */ }
+      refreshIdleList();
+    }
+    bootstrap();
+
+    onMessage('motor_status', (m) => setMotorStatus(m.connected));
+    onMessage('motor_ready',  (m) => setMotorStatus(true, m.fw));
+    onMessage('idle_changed', () => refreshIdleList());
+    onMessage('dispense_done', (m) => {
+      const detail = m.kind === 'dropped' ? `dropped in ${m.ms}ms`
+                   : m.kind === 'jam'     ? 'JAM — no drop detected'
+                   : 'done';
+      result.textContent = `Motor ${m.motor}: ${detail}`;
+    });
+
+    document.querySelectorAll('[data-dispense]').forEach((btn) => {
+      btn.addEventListener('click', async () => {
+        const motor = parseInt(btn.dataset.dispense, 10);
+        result.textContent = `Motor ${motor}: dispensing...`;
+        await fetch('/api/dispense', {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ motor }),
+        });
+      });
+    });
+    document.querySelector('[data-stop]').addEventListener('click', async () => {
+      await fetch('/api/stop', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({}),
+      });
+      result.textContent = 'STOP sent';
+    });
+    document.querySelectorAll('[data-test-tip]').forEach((btn) => {
+      btn.addEventListener('click', async () => {
+        const amount = parseInt(btn.dataset.testTip, 10);
+        await fetch('/hooks/test', {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ name: 'TestViewer', amount, message: 'thanks for the stream!' }),
+        });
+      });
+    });
+
+    uploadZone.addEventListener('click', () => uploadInput.click());
+    uploadZone.addEventListener('dragover', (e) => {
+      e.preventDefault(); uploadZone.classList.add('hover');
+    });
+    uploadZone.addEventListener('dragleave', () => uploadZone.classList.remove('hover'));
+    uploadZone.addEventListener('drop', (e) => {
+      e.preventDefault(); uploadZone.classList.remove('hover');
+      if (e.dataTransfer.files && e.dataTransfer.files[0]) upload(e.dataTransfer.files[0]);
+    });
+    uploadInput.addEventListener('change', () => {
+      if (uploadInput.files && uploadInput.files[0]) upload(uploadInput.files[0]);
+    });
+
+    // ===== Wi-Fi =====
+    const wifiSummary = document.getElementById('wifi-summary');
+    const wifiDetail  = document.getElementById('wifi-detail');
+    async function refreshWifi() {
+      wifiSummary.textContent = 'checking...';
+      wifiDetail.textContent = '';
+      try {
+        const j = await (await fetch('/api/wifi')).json();
+        if (!j.ok) { wifiSummary.textContent = 'unknown'; return; }
+        if (j.setupMode) {
+          wifiSummary.textContent = `Setup AP active — connect a phone to "${j.ssid}"`;
+        } else if (j.connected) {
+          wifiSummary.textContent = `Connected to ${j.ssid}`;
+        } else {
+          wifiSummary.textContent = 'Not connected to Wi-Fi';
+        }
+        const bits = [];
+        if (j.hostname) bits.push(`hostname: ${j.hostname}`);
+        if (j.ip)       bits.push(`ip: ${j.ip}` + (j.iface ? ` (${j.iface})` : ''));
+        wifiDetail.textContent = bits.join(' · ');
+      } catch (_) {
+        wifiSummary.textContent = 'unknown';
+      }
+    }
+    document.getElementById('wifi-refresh').addEventListener('click', refreshWifi);
+    document.getElementById('wifi-forget').addEventListener('click', async () => {
+      if (!confirm('Forget current Wi-Fi network? The device will reboot into setup mode.')) return;
+      await fetch('/api/wifi/forget', { method: 'POST' });
+      wifiSummary.textContent = 'Forget command sent — device will switch to setup mode shortly.';
+    });
+    refreshWifi();
+
+    // ===== Software updates =====
+    const swCurrent = document.getElementById('sw-current');
+    const swLatest  = document.getElementById('sw-latest');
+    const swCheck   = document.getElementById('sw-check');
+    const swApply   = document.getElementById('sw-apply');
+    const swLog     = document.getElementById('sw-log');
+
+    async function refreshVersion() {
+      try {
+        const j = await (await fetch('/api/version')).json();
+        if (j.ok) {
+          const label = j.tag || j.shortCommit || j.commit || '(unknown)';
+          swCurrent.textContent = `${label}${j.branch ? ' · ' + j.branch : ''}`;
+          if (j.lastUpdate) {
+            swLatest.textContent = `Last update: ${j.lastUpdate.status} (${j.lastUpdate.when})`;
+          }
+        } else {
+          swCurrent.textContent = `(not a git checkout — OTA disabled)`;
+          swCheck.disabled = true;
+        }
+      } catch (_) {
+        swCurrent.textContent = '(offline)';
+      }
+    }
+
+    swCheck.addEventListener('click', async () => {
+      swCheck.disabled = true;
+      swLatest.textContent = 'checking...';
+      try {
+        const j = await (await fetch('/api/update/check')).json();
+        if (!j.ok) {
+          swLatest.textContent = `Check failed: ${j.err}`;
+          swApply.disabled = true;
+        } else if (!j.hasUpdate) {
+          swLatest.textContent = `Up to date.`;
+          swApply.disabled = true;
+        } else {
+          const date = j.latestDate ? new Date(j.latestDate).toLocaleString() : '';
+          swLatest.textContent =
+            `Update available: ${j.latest.slice(0, 7)} — ${j.latestMessage || ''} ${date}`;
+          swApply.disabled = false;
+        }
+      } catch (e) {
+        swLatest.textContent = `Check error: ${e.message}`;
+      } finally {
+        swCheck.disabled = false;
+      }
+    });
+
+    swApply.addEventListener('click', async () => {
+      if (!confirm('Apply update? The server will restart. If the new revision fails its health check, it will be rolled back automatically.')) return;
+      swApply.disabled = true;
+      swCheck.disabled = true;
+      swLog.style.display = 'block';
+      swLog.textContent = 'starting update...\n';
+      try {
+        await fetch('/api/update/apply', { method: 'POST' });
+      } catch (_) { /* server restart races us; ignore */ }
+    });
+
+    onMessage('update', (m) => {
+      if (m.phase === 'starting') {
+        swLog.style.display = 'block';
+        swLog.textContent += '> starting\n';
+      } else if (m.phase === 'log') {
+        swLog.textContent += m.line + '\n';
+        swLog.scrollTop = swLog.scrollHeight;
+      }
+    });
+    // When WS reconnects after the server restart, refresh the version.
+    onMessage('_open', () => { refreshVersion(); });
+    refreshVersion();
+
+    async function upload(file) {
+      uploadStatus.textContent = `Uploading ${file.name} (${(file.size/1024/1024).toFixed(1)} MB)...`;
+      const fd = new FormData();
+      fd.append('file', file);
+      try {
+        const r = await fetch('/api/assets/idle', { method: 'POST', body: fd });
+        const j = await r.json();
+        if (j.ok) {
+          uploadStatus.textContent = `Uploaded ${j.file}, set as active.`;
+          refreshIdleList();
+        } else {
+          uploadStatus.textContent = `Error: ${j.err}`;
+        }
+      } catch (e) {
+        uploadStatus.textContent = `Upload failed: ${e.message}`;
+      }
+    }
+  </script>
+</body>
+</html>

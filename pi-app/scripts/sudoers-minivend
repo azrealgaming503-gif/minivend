@@ -1,0 +1,19 @@
+# sudoers drop-in installed at /etc/sudoers.d/minivend
+#
+# Lets the `minivend` service user perform exactly the privileged
+# operations the app needs (update script, kiosk restart, comitup
+# Wi-Fi forget) without a password and without granting general sudo.
+#
+# Install with:   sudo install -m 0440 sudoers-minivend /etc/sudoers.d/minivend
+# Validate with:  sudo visudo -cf /etc/sudoers.d/minivend
+
+Cmnd_Alias MINIVEND_UPDATE = /opt/minivend/pi-app/scripts/update.sh
+Cmnd_Alias MINIVEND_WIFI   = /usr/bin/comitup-cli d, \
+                             /usr/bin/comitup-cli i, \
+                             /usr/bin/nmcli connection delete *
+Cmnd_Alias MINIVEND_SVC    = /bin/systemctl restart minivend-server.service, \
+                             /bin/systemctl restart minivend-kiosk.service, \
+                             /bin/systemctl status  minivend-server.service, \
+                             /bin/systemctl status  minivend-kiosk.service
+
+minivend ALL=(root) NOPASSWD: MINIVEND_UPDATE, MINIVEND_WIFI, MINIVEND_SVC

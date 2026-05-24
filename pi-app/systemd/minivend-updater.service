@@ -1,0 +1,21 @@
+[Unit]
+Description=MiniVend automatic update check
+After=network-online.target minivend-server.service
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=minivend
+WorkingDirectory=/opt/minivend/pi-app
+EnvironmentFile=-/opt/minivend/pi-app/.env
+
+# Two behaviors:
+#   AUTO_APPLY_UPDATES=true  -> run the update script directly (atomic + rollback).
+#   anything else            -> just `git fetch` so the UI can show "update available".
+ExecStart=/bin/sh -c '\
+  if [ "$AUTO_APPLY_UPDATES" = "true" ]; then \
+    sudo -n /opt/minivend/pi-app/scripts/update.sh; \
+  else \
+    BR=$(git -C /opt/minivend/pi-app rev-parse --abbrev-ref HEAD); \
+    git -C /opt/minivend/pi-app fetch --quiet origin "$BR"; \
+  fi'

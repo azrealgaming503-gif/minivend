@@ -1,0 +1,281 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=1024, initial-scale=1, user-scalable=no" />
+  <title>2048 · MiniVend</title>
+  <link rel="stylesheet" href="/css/styles.css" />
+  <style>
+    .g2-page { display: flex; flex-direction: column; height: 100vh; }
+    .g2-header {
+      display: flex; align-items: center; justify-content: space-between;
+      padding: 14px 18px; border-bottom: 1px solid var(--stroke);
+    }
+    .g2-stats { display: flex; gap: 22px; align-items: baseline; font-size: 20px; }
+    .g2-stats b { font-weight: 600; color: var(--accent); }
+    .g2-stage { flex: 1; display: flex; align-items: center; justify-content: center; touch-action: none; }
+    .g2-grid {
+      position: relative;
+      width: 520px; height: 520px;
+      background: #181820;
+      border: 1px solid var(--stroke);
+      border-radius: 16px;
+      padding: 12px;
+    }
+    .g2-cell-bg, .g2-tile {
+      position: absolute;
+      width: 116px; height: 116px;
+      border-radius: 10px;
+      display: flex; align-items: center; justify-content: center;
+      font-weight: 700;
+    }
+    .g2-cell-bg { background: #20202a; }
+    .g2-tile {
+      transition: transform 0.12s ease, background 0.05s ease;
+      will-change: transform;
+      color: #f0f0f4;
+    }
+    .g2-tile[data-v="2"]    { background: #3a3a48; color: #d7d7e0; }
+    .g2-tile[data-v="4"]    { background: #424256; }
+    .g2-tile[data-v="8"]    { background: #5b6f8a; }
+    .g2-tile[data-v="16"]   { background: #6e8aa6; }
+    .g2-tile[data-v="32"]   { background: #62b6cb; color: #07242b; }
+    .g2-tile[data-v="64"]   { background: #5fc5b8; color: #07242b; }
+    .g2-tile[data-v="128"]  { background: #d4c66f; color: #2a260e; }
+    .g2-tile[data-v="256"]  { background: #d9b25b; color: #2a1f08; }
+    .g2-tile[data-v="512"]  { background: #de9c52; color: #2a1808; }
+    .g2-tile[data-v="1024"] { background: #d97a7a; color: #2b0d0d; font-size: 30px; }
+    .g2-tile[data-v="2048"] { background: #b86fd9; color: #220a2a; font-size: 30px; }
+    .g2-tile { font-size: 36px; }
+    .g2-tile.small  { font-size: 28px; }
+
+    .g2-overlay {
+      position: absolute; inset: 0;
+      display: flex; align-items: center; justify-content: center;
+      background: rgba(10,10,15,0.7);
+      border-radius: 16px;
+      flex-direction: column; gap: 14px;
+    }
+    .g2-overlay h2 { margin: 0; font-size: 36px; }
+  </style>
+</head>
+<body>
+  <div class="g2-page">
+    <header class="g2-header">
+      <a href="/games"><button class="ghost">← Back</button></a>
+      <div class="g2-stats">
+        <span>Score <b id="score">0</b></span>
+        <span>Best <b id="best">0</b></span>
+      </div>
+      <button id="restart">Restart</button>
+    </header>
+    <main class="g2-stage">
+      <div class="g2-grid" id="grid">
+        <div id="overlay" class="g2-overlay" hidden>
+          <h2 id="overlay-title">Game over</h2>
+          <button class="primary" id="overlay-restart">Play again</button>
+        </div>
+      </div>
+    </main>
+  </div>
+
+  <script type="module">
+    import '/js/alerts.js';
+
+    const SIZE = 4;
+    const CELL = 116;
+    const GAP  = 12;
+    const PAD  = 12;
+    const BEST_KEY = 'minivend.2048.best';
+
+    const gridEl = document.getElementById('grid');
+    const overlay = document.getElementById('overlay');
+    const overlayTitle = document.getElementById('overlay-title');
+    const scoreEl = document.getElementById('score');
+    const bestEl  = document.getElementById('best');
+
+    let best = parseInt(localStorage.getItem(BEST_KEY) || '0', 10);
+    bestEl.textContent = best;
+
+    // board[y][x] = { v, id, el }
+    let board, score, nextId, animating, alive, won;
+
+    function pos(x, y) {
+      return {
+        left: PAD + x * (CELL + GAP) + 'px',
+        top:  PAD + y * (CELL + GAP) + 'px',
+      };
+    }
+
+    function renderBackgrounds() {
+      for (let y = 0; y < SIZE; y++) {
+        for (let x = 0; x < SIZE; x++) {
+          const bg = document.createElement('div');
+          bg.className = 'g2-cell-bg';
+          Object.assign(bg.style, pos(x, y));
+          gridEl.appendChild(bg);
+        }
+      }
+    }
+
+    function makeTile(v, x, y) {
+      const el = document.createElement('div');
+      el.className = 'g2-tile';
+      el.dataset.v = v;
+      el.textContent = v;
+      const p = pos(x, y);
+      el.style.transform = `translate(${parseInt(p.left)-PAD}px, ${parseInt(p.top)-PAD}px)`;
+      el.style.left = PAD + 'px';
+      el.style.top  = PAD + 'px';
+      gridEl.appendChild(el);
+      return el;
+    }
+
+    function moveTileEl(t, x, y) {
+      t.el.style.transform = `translate(${x * (CELL + GAP)}px, ${y * (CELL + GAP)}px)`;
+    }
+    function setTileVal(t, v) {
+      t.v = v;
+      t.el.dataset.v = v;
+      t.el.textContent = v;
+    }
+
+    function emptyCells() {
+      const out = [];
+      for (let y = 0; y < SIZE; y++)
+        for (let x = 0; x < SIZE; x++)
+          if (!board[y][x]) out.push([x, y]);
+      return out;
+    }
+
+    function addRandomTile() {
+      const empties = emptyCells();
+      if (empties.length === 0) return;
+      const [x, y] = empties[(Math.random() * empties.length) | 0];
+      const v = Math.random() < 0.9 ? 2 : 4;
+      const t = { v, id: nextId++, el: makeTile(v, x, y) };
+      board[y][x] = t;
+    }
+
+    function reset() {
+      // wipe tiles
+      Array.from(gridEl.querySelectorAll('.g2-tile')).forEach((n) => n.remove());
+      board = Array.from({ length: SIZE }, () => Array.from({ length: SIZE }, () => null));
+      score = 0; nextId = 1; alive = true; won = false; animating = false;
+      scoreEl.textContent = score;
+      overlay.hidden = true;
+      addRandomTile();
+      addRandomTile();
+    }
+
+    function move(dx, dy) {
+      if (animating || !alive) return;
+      const xs = dx > 0 ? [3, 2, 1, 0] : [0, 1, 2, 3];
+      const ys = dy > 0 ? [3, 2, 1, 0] : [0, 1, 2, 3];
+      let moved = false;
+      const tilesToRemove = [];
+
+      for (const sy of ys) {
+        for (const sx of xs) {
+          const t = board[sy][sx];
+          if (!t) continue;
+          let nx = sx, ny = sy;
+          while (true) {
+            const tx = nx + dx, ty = ny + dy;
+            if (tx < 0 || tx >= SIZE || ty < 0 || ty >= SIZE) break;
+            if (board[ty][tx] && board[ty][tx].v !== t.v) break;
+            if (board[ty][tx] && board[ty][tx].v === t.v) {
+              // merge: schedule the moving tile to land on the same spot
+              // as the target, then remove the moving tile after the transition.
+              const target = board[ty][tx];
+              board[sy][sx] = null;
+              moveTileEl(t, tx, ty);
+              setTileVal(target, target.v * 2);
+              score += target.v;
+              if (target.v >= 2048 && !won) {
+                won = true;
+                overlayTitle.textContent = `You made 2048! Score ${score}`;
+                overlay.hidden = false;
+              }
+              tilesToRemove.push(t);
+              moved = true;
+              nx = tx; ny = ty;
+              break;
+            }
+            nx = tx; ny = ty;
+          }
+          if (board[sy][sx] === t && (nx !== sx || ny !== sy)) {
+            board[sy][sx] = null;
+            board[ny][nx] = t;
+            moveTileEl(t, nx, ny);
+            moved = true;
+          }
+        }
+      }
+
+      if (!moved) return;
+      animating = true;
+      setTimeout(() => {
+        tilesToRemove.forEach((t) => t.el.remove());
+        scoreEl.textContent = score;
+        if (score > best) {
+          best = score;
+          bestEl.textContent = best;
+          localStorage.setItem(BEST_KEY, String(best));
+        }
+        addRandomTile();
+        animating = false;
+        if (!hasMoves()) {
+          alive = false;
+          overlayTitle.textContent = `No more moves — score ${score}`;
+          overlay.hidden = false;
+        }
+      }, 130);
+    }
+
+    function hasMoves() {
+      if (emptyCells().length > 0) return true;
+      for (let y = 0; y < SIZE; y++) {
+        for (let x = 0; x < SIZE; x++) {
+          const v = board[y][x].v;
+          if (x + 1 < SIZE && board[y][x + 1].v === v) return true;
+          if (y + 1 < SIZE && board[y + 1][x].v === v) return true;
+        }
+      }
+      return false;
+    }
+
+    // ---- Input ----
+    window.addEventListener('keydown', (e) => {
+      switch (e.key) {
+        case 'ArrowUp': case 'w': case 'W': move(0, -1); break;
+        case 'ArrowDown': case 's': case 'S': move(0, 1); break;
+        case 'ArrowLeft': case 'a': case 'A': move(-1, 0); break;
+        case 'ArrowRight': case 'd': case 'D': move(1, 0); break;
+      }
+    });
+
+    let touchStart = null;
+    gridEl.addEventListener('touchstart', (e) => {
+      const t = e.touches[0];
+      touchStart = { x: t.clientX, y: t.clientY };
+    }, { passive: true });
+    gridEl.addEventListener('touchend', (e) => {
+      if (!touchStart) return;
+      const t = e.changedTouches[0];
+      const dx = t.clientX - touchStart.x;
+      const dy = t.clientY - touchStart.y;
+      touchStart = null;
+      if (Math.abs(dx) < 24 && Math.abs(dy) < 24) return;
+      if (Math.abs(dx) > Math.abs(dy)) move(dx > 0 ? 1 : -1, 0);
+      else                              move(0, dy > 0 ? 1 : -1);
+    }, { passive: true });
+
+    document.getElementById('restart').addEventListener('click', reset);
+    document.getElementById('overlay-restart').addEventListener('click', reset);
+
+    renderBackgrounds();
+    reset();
+  </script>
+</body>
+</html>

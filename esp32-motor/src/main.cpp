@@ -1,0 +1,424 @@
+// MiniVend motor controller (ESP32)
+//
+// Owns the two stepper drivers and the drop sensors. Talks to the
+// Raspberry Pi over USB-serial at 115200 baud, one ASCII line per
+// command, '\n' terminated.
+//
+// Protocol (Pi -> ESP32):
+//   PING                              -> "PONG <fw>"
+//   STATUS                            -> "STATUS M1_EN=.. M1_SPD=.. M2_EN=.. M2_SPD=.."
+//   SENSOR                            -> "SENSOR S1=<0|1> S2=<0|1>"
+//   ENABLE   <id> <0|1>               -> "OK" / "ERR ..."
+//   JOG      <id> <dir> <speed>       -> "OK"
+//   RUNFOR   <id> <dir> <speed> <ms>  -> "OK"
+//   DISPENSE <id> <dir> <speed> <max_ms>
+//                                     -> "OK" immediately; later one of
+//                                        "DROPPED <id> <ms>"  (sensor fired)
+//                                        "JAM     <id>"       (max_ms elapsed)
+//                                        "DONE    <id>"       (manually stopped)
+//   STOP [<id>]                       -> "OK"
+//
+// Async events (ESP32 -> Pi):
+//   READY <fw>                  on boot
+//   DROPPED <id> <ms>           drop sensor edge during a DISPENSE
+//   JAM <id>                    DISPENSE timeout
+//   DONE <id>                   DISPENSE ended without a drop (manual STOP)
+//
+// Wiring (defaults — change in the constants block below):
+//   M1   STEP=GPIO25  DIR=GPIO26
+//   M2   STEP=GPIO32  DIR=GPIO33
+//   EN   (shared)     GPIO27   (LOW = drivers enabled)
+//   DROP S1           GPIO19   (INPUT_PULLUP, active LOW)
+//   DROP S2           GPIO21   (INPUT_PULLUP, active LOW)
+//
+// Notes:
+//   - The drop sensor is debounced in software (10 ms) and is treated
+//     as a hard stop for the currently-active DISPENSE on that motor.
+//     A drop while no DISPENSE is active is still reported as an event
+//     line ("EVT SENSOR <id> <0|1>") so the UI can show "manual drop".
+
+#include <Arduino.h>
+
+// ---------------- Configuration ----------------
+static const char* FW_VERSION = "minivend-motor-1.0";
+
+// Stepper pins
+static const int M1_STEP_PIN = 25;
+static const int M1_DIR_PIN  = 26;
+static const int M2_STEP_PIN = 32;
+static const int M2_DIR_PIN  = 33;
+
+// Shared driver enable (LOW = enabled on most A4988/TMC2208 carriers).
+// Tie both drivers' EN pins together to this pin.
+static const int EN_PIN = 27;
+static const bool EN_ACTIVE_LOW = true;
+
+// Drop sensors (INPUT_PULLUP, edge = item dropped). Active LOW assumes
+// a typical photointerrupter or microswitch wired to GND when triggered.
+static const int DROP_PIN[2] = { 19, 21 };
+static const bool DROP_ACTIVE_LOW = true;
+
+// Debounce window for drop sensor in milliseconds.
+static const uint32_t DROP_DEBOUNCE_MS = 10;
+
+// Step pulse width (HIGH duration). A4988/TMC2208 datasheets say >=1us;
+// 2us is generously safe and easy to generate.
+static const uint32_t STEP_PULSE_US = 2;
+
+// Safety: ignore step rates above this. Tune to your mechanism.
+static const uint32_t MAX_STEPS_PER_SEC = 10000;
+
+// ---------------- Internal state ----------------
+struct Motor {
+  uint8_t id;            // 1 or 2
+  int stepPin;
+  int dirPin;
+  bool enabledRequested; // tracks the most recent ENABLE request
+  int  direction;        // -1 or +1
+  uint32_t speedStepsPerS;
+  // Active timed run (RUNFOR or DISPENSE backing store)
+  bool timedActive;
+  uint32_t runUntilMs;
+  // DISPENSE bookkeeping
+  bool dispenseActive;
+  uint32_t dispenseStartMs;
+  // Step generation
+  uint32_t intervalUs;     // computed from speedStepsPerS
+  uint32_t lastStepUs;
+};
+
+static Motor m1 { 1, M1_STEP_PIN, M1_DIR_PIN, false, +1, 0, false, 0, false, 0, 0, 0 };
+static Motor m2 { 2, M2_STEP_PIN, M2_DIR_PIN, false, +1, 0, false, 0, false, 0, 0, 0 };
+
+// Drop-sensor debounce state, indexed [0]=S1, [1]=S2.
+struct Sensor {
+  int pin;
+  int lastRawReading;     // last value read from digitalRead()
+  int stableState;        // current debounced logical state (1 = item present/triggered)
+  uint32_t lastChangeMs;  // when the raw reading last flipped
+};
+
+static Sensor sensors[2] = {
+  { DROP_PIN[0], HIGH, 0, 0 },
+  { DROP_PIN[1], HIGH, 0, 0 },
+};
+
+static String lineBuf;
+
+// ---------------- Helpers ----------------
+static void driverEnabled(bool en) {
+  if (EN_ACTIVE_LOW) digitalWrite(EN_PIN, en ? LOW : HIGH);
+  else               digitalWrite(EN_PIN, en ? HIGH : LOW);
+}
+
+static Motor* motorById(int id) {
+  if (id == 1) return &m1;
+  if (id == 2) return &m2;
+  return nullptr;
+}
+
+static void recomputeInterval(Motor& m) {
+  if (m.speedStepsPerS == 0) {
+    m.intervalUs = 0; // disabled
+  } else {
+    uint32_t spd = m.speedStepsPerS;
+    if (spd > MAX_STEPS_PER_SEC) spd = MAX_STEPS_PER_SEC;
+    m.intervalUs = 1000000UL / spd;
+  }
+}
+
+static void setJog(Motor& m, int dir, uint32_t speedStepsPerS) {
+  m.direction = (dir >= 0) ? +1 : -1;
+  digitalWrite(m.dirPin, (m.direction > 0) ? HIGH : LOW);
+  m.speedStepsPerS = speedStepsPerS;
+  recomputeInterval(m);
+  m.lastStepUs = micros();
+}
+
+static void stopMotor(Motor& m) {
+  m.speedStepsPerS = 0;
+  m.intervalUs = 0;
+  m.timedActive = false;
+  m.dispenseActive = false;
+}
+
+static void stopAll() {
+  stopMotor(m1);
+  stopMotor(m2);
+}
+
+// Drive a single step pulse on the active motor's STEP pin if it's time.
+static void serviceStepper(Motor& m) {
+  if (m.intervalUs == 0) return;
+  if (!m.enabledRequested) return;
+  uint32_t now = micros();
+  if ((uint32_t)(now - m.lastStepUs) < m.intervalUs) return;
+  m.lastStepUs = now;
+  digitalWrite(m.stepPin, HIGH);
+  delayMicroseconds(STEP_PULSE_US);
+  digitalWrite(m.stepPin, LOW);
+}
+
+// Handle the "timed" auto-stop for RUNFOR / DISPENSE max_ms.
+static void serviceTimedStop(Motor& m) {
+  if (!m.timedActive) return;
+  if ((int32_t)(millis() - m.runUntilMs) < 0) return;
+  // Time elapsed.
+  bool wasDispense = m.dispenseActive;
+  uint8_t id = m.id;
+  stopMotor(m);
+  if (wasDispense) {
+    Serial.print("JAM ");
+    Serial.println(id);
+  }
+}
+
+// Read & debounce a drop sensor. Returns true if a "drop edge"
+// (transition into triggered state) occurred this tick.
+static bool serviceSensor(uint8_t i) {
+  Sensor& s = sensors[i];
+  int raw = digitalRead(s.pin);
+  bool triggered;
+  if (raw != s.lastRawReading) {
+    s.lastRawReading = raw;
+    s.lastChangeMs = millis();
+    return false;
+  }
+  if ((uint32_t)(millis() - s.lastChangeMs) < DROP_DEBOUNCE_MS) return false;
+  triggered = DROP_ACTIVE_LOW ? (raw == LOW) : (raw == HIGH);
+  int newState = triggered ? 1 : 0;
+  if (newState != s.stableState) {
+    int prev = s.stableState;
+    s.stableState = newState;
+    // Rising edge = item dropped.
+    if (prev == 0 && newState == 1) return true;
+  }
+  return false;
+}
+
+// ---------------- Command parser ----------------
+static int parseTokens(const String& line, String* out, int maxTokens) {
+  int n = 0;
+  int start = 0;
+  while (start < (int)line.length() && n < maxTokens) {
+    while (start < (int)line.length() && isspace(line[start])) start++;
+    if (start >= (int)line.length()) break;
+    int end = start;
+    while (end < (int)line.length() && !isspace(line[end])) end++;
+    out[n++] = line.substring(start, end);
+    start = end;
+  }
+  return n;
+}
+
+static bool parseInt(const String& s, int32_t& out) {
+  if (s.length() == 0) return false;
+  char* endp = nullptr;
+  long v = strtol(s.c_str(), &endp, 10);
+  if (endp == s.c_str()) return false;
+  out = (int32_t)v;
+  return true;
+}
+
+static void replyErr(const char* code, const char* detail) {
+  Serial.print("ERR ");
+  Serial.print(code);
+  if (detail && *detail) {
+    Serial.print(' ');
+    Serial.print(detail);
+  }
+  Serial.println();
+}
+
+static void handleCommand(const String& line) {
+  String trimmed = line;
+  trimmed.trim();
+  if (trimmed.length() == 0) return;
+
+  String upper = trimmed;
+  upper.toUpperCase();
+  String tokens[6];
+  int n = parseTokens(trimmed, tokens, 6);
+  if (n == 0) return;
+  String cmd = tokens[0];
+  cmd.toUpperCase();
+
+  if (cmd == "PING") {
+    Serial.print("PONG ");
+    Serial.println(FW_VERSION);
+    return;
+  }
+  if (cmd == "STATUS") {
+    Serial.print("STATUS M1_EN=");
+    Serial.print(m1.enabledRequested ? 1 : 0);
+    Serial.print(" M1_SPD=");
+    Serial.print(m1.speedStepsPerS);
+    Serial.print(" M2_EN=");
+    Serial.print(m2.enabledRequested ? 1 : 0);
+    Serial.print(" M2_SPD=");
+    Serial.println(m2.speedStepsPerS);
+    return;
+  }
+  if (cmd == "SENSOR") {
+    Serial.print("SENSOR S1=");
+    Serial.print(sensors[0].stableState);
+    Serial.print(" S2=");
+    Serial.println(sensors[1].stableState);
+    return;
+  }
+  if (cmd == "ENABLE") {
+    if (n < 3) { replyErr("BAD_CMD", "usage: ENABLE <id> <0|1>"); return; }
+    int32_t id = 0, en = 0;
+    if (!parseInt(tokens[1], id) || !parseInt(tokens[2], en)) { replyErr("BAD_INT", "ENABLE"); return; }
+    Motor* m = motorById((int)id);
+    if (!m) { replyErr("BAD_MOTOR", "id must be 1 or 2"); return; }
+    m->enabledRequested = (en != 0);
+    // Drivers share one EN pin: enable if either motor requests it.
+    driverEnabled(m1.enabledRequested || m2.enabledRequested);
+    Serial.println("OK");
+    return;
+  }
+  if (cmd == "JOG") {
+    if (n < 4) { replyErr("BAD_CMD", "usage: JOG <id> <dir> <speed>"); return; }
+    int32_t id = 0, dir = 0, spd = 0;
+    if (!parseInt(tokens[1], id) || !parseInt(tokens[2], dir) || !parseInt(tokens[3], spd)) {
+      replyErr("BAD_INT", "JOG"); return;
+    }
+    Motor* m = motorById((int)id);
+    if (!m) { replyErr("BAD_MOTOR", "id must be 1 or 2"); return; }
+    m->timedActive = false;
+    m->dispenseActive = false;
+    setJog(*m, (dir >= 0) ? +1 : -1, (uint32_t)spd);
+    Serial.println("OK");
+    return;
+  }
+  if (cmd == "RUNFOR") {
+    if (n < 5) { replyErr("BAD_CMD", "usage: RUNFOR <id> <dir> <speed> <ms>"); return; }
+    int32_t id = 0, dir = 0, spd = 0, ms = 0;
+    if (!parseInt(tokens[1], id) || !parseInt(tokens[2], dir) || !parseInt(tokens[3], spd) || !parseInt(tokens[4], ms)) {
+      replyErr("BAD_INT", "RUNFOR"); return;
+    }
+    Motor* m = motorById((int)id);
+    if (!m) { replyErr("BAD_MOTOR", "id must be 1 or 2"); return; }
+    if (ms <= 0) { replyErr("BAD_ARG", "ms must be > 0"); return; }
+    setJog(*m, (dir >= 0) ? +1 : -1, (uint32_t)spd);
+    m->timedActive = true;
+    m->dispenseActive = false;
+    m->runUntilMs = millis() + (uint32_t)ms;
+    Serial.println("OK");
+    return;
+  }
+  if (cmd == "DISPENSE") {
+    if (n < 5) { replyErr("BAD_CMD", "usage: DISPENSE <id> <dir> <speed> <max_ms>"); return; }
+    int32_t id = 0, dir = 0, spd = 0, ms = 0;
+    if (!parseInt(tokens[1], id) || !parseInt(tokens[2], dir) || !parseInt(tokens[3], spd) || !parseInt(tokens[4], ms)) {
+      replyErr("BAD_INT", "DISPENSE"); return;
+    }
+    Motor* m = motorById((int)id);
+    if (!m) { replyErr("BAD_MOTOR", "id must be 1 or 2"); return; }
+    if (ms <= 0) { replyErr("BAD_ARG", "max_ms must be > 0"); return; }
+    setJog(*m, (dir >= 0) ? +1 : -1, (uint32_t)spd);
+    m->timedActive = true;
+    m->dispenseActive = true;
+    m->runUntilMs = millis() + (uint32_t)ms;
+    m->dispenseStartMs = millis();
+    Serial.println("OK");
+    return;
+  }
+  if (cmd == "STOP") {
+    if (n == 1) {
+      bool m1Disp = m1.dispenseActive;
+      bool m2Disp = m2.dispenseActive;
+      stopAll();
+      if (m1Disp) { Serial.print("DONE "); Serial.println(1); }
+      if (m2Disp) { Serial.print("DONE "); Serial.println(2); }
+      Serial.println("OK");
+      return;
+    }
+    int32_t id = 0;
+    if (!parseInt(tokens[1], id)) { replyErr("BAD_INT", "STOP"); return; }
+    Motor* m = motorById((int)id);
+    if (!m) { replyErr("BAD_MOTOR", "id must be 1 or 2"); return; }
+    bool wasDisp = m->dispenseActive;
+    stopMotor(*m);
+    if (wasDisp) {
+      Serial.print("DONE ");
+      Serial.println(m->id);
+    }
+    Serial.println("OK");
+    return;
+  }
+
+  replyErr("BAD_CMD", "unknown");
+}
+
+// ---------------- Arduino entrypoints ----------------
+void setup() {
+  Serial.begin(115200);
+  lineBuf.reserve(64);
+
+  pinMode(M1_STEP_PIN, OUTPUT);
+  pinMode(M1_DIR_PIN,  OUTPUT);
+  pinMode(M2_STEP_PIN, OUTPUT);
+  pinMode(M2_DIR_PIN,  OUTPUT);
+  pinMode(EN_PIN,      OUTPUT);
+  driverEnabled(false);
+
+  pinMode(DROP_PIN[0], INPUT_PULLUP);
+  pinMode(DROP_PIN[1], INPUT_PULLUP);
+
+  // Initialize sensor debouncers to the current raw state so we don't
+  // immediately fire a "drop" if a sensor is already asserted at boot.
+  for (uint8_t i = 0; i < 2; i++) {
+    int raw = digitalRead(sensors[i].pin);
+    sensors[i].lastRawReading = raw;
+    bool triggered = DROP_ACTIVE_LOW ? (raw == LOW) : (raw == HIGH);
+    sensors[i].stableState = triggered ? 1 : 0;
+    sensors[i].lastChangeMs = millis();
+  }
+
+  Serial.print("READY ");
+  Serial.println(FW_VERSION);
+}
+
+void loop() {
+  // Drain incoming command bytes.
+  while (Serial.available() > 0) {
+    char c = (char)Serial.read();
+    if (c == '\r') continue;
+    if (c == '\n') {
+      handleCommand(lineBuf);
+      lineBuf = "";
+    } else if (lineBuf.length() < 200) {
+      lineBuf += c;
+    }
+  }
+
+  // Stepper service.
+  serviceTimedStop(m1);
+  serviceTimedStop(m2);
+  serviceStepper(m1);
+  serviceStepper(m2);
+
+  // Drop sensor service.
+  for (uint8_t i = 0; i < 2; i++) {
+    bool edge = serviceSensor(i);
+    if (!edge) continue;
+    uint8_t motorId = i + 1; // S1 -> M1, S2 -> M2 by convention
+    Motor* m = motorById(motorId);
+    if (m && m->dispenseActive) {
+      uint32_t elapsed = millis() - m->dispenseStartMs;
+      stopMotor(*m);
+      Serial.print("DROPPED ");
+      Serial.print(motorId);
+      Serial.print(' ');
+      Serial.println(elapsed);
+    } else {
+      // Drop while no DISPENSE active -> still report as a generic event
+      // so the UI can show "manual drop detected".
+      Serial.print("EVT SENSOR ");
+      Serial.print(motorId);
+      Serial.println(" 1");
+    }
+  }
+}

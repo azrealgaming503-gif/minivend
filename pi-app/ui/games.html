@@ -1,0 +1,50 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=1024, initial-scale=1, user-scalable=no" />
+  <title>MiniVend · Games</title>
+  <link rel="stylesheet" href="/css/styles.css" />
+</head>
+<body>
+  <div class="page">
+    <header class="page-header">
+      <h1>Games</h1>
+      <a href="/"><button class="ghost">Back</button></a>
+    </header>
+    <div class="page-body">
+      <div id="games-grid" class="games-grid"></div>
+    </div>
+  </div>
+
+  <script type="module">
+    import '/js/alerts.js';
+
+    const grid = document.getElementById('games-grid');
+
+    async function load() {
+      try {
+        const r = await fetch('/api/games');
+        const j = await r.json();
+        if (!j.ok) return;
+        grid.innerHTML = '';
+        for (const g of j.games) {
+          const card = document.createElement('a');
+          card.className = 'game-card';
+          card.href = g.path;
+          card.innerHTML = `
+            <div class="game-title"></div>
+            <div class="game-sub">tap to play</div>
+          `;
+          card.querySelector('.game-title').textContent = g.name;
+          grid.appendChild(card);
+        }
+        if (j.games.length === 0) {
+          grid.innerHTML = '<div style="color: var(--text-2);">No games installed.</div>';
+        }
+      } catch (_) { /* offline */ }
+    }
+    load();
+  </script>
+</body>
+</html>

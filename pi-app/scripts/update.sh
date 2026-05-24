@@ -1,0 +1,104 @@
+#!/usr/bin/env bash
+# Atomic-ish OTA update for the MiniVend Pi app.
+#
+# Workflow:
+#   1. Snapshot the current commit -> /opt/minivend/pi-app/.last-good-commit
+#   2. `git fetch` + `git reset --hard origin/<branch>`
+#   3. `npm install --omit=dev`
+#   4. `systemctl restart minivend-server.service`
+#   5. Health-check the new revision via curl /api/state for up to 60s.
+#   6. If it never recovers, roll back to the snapshotted commit and
+#      restart the server again.
+#
+# State (success or rollback details) is written to .update-state.json
+# so the UI can display the outcome.
+#
+# Hosted on the same git repo the install used. Zero hosting cost.
+
+set -euo pipefail
+
+REPO_DIR=/opt/minivend/pi-app
+STATE_FILE="${REPO_DIR}/.update-state.json"
+LAST_GOOD="${REPO_DIR}/.last-good-commit"
+HEALTH_URL="http://localhost:${PORT:-3000}/api/state"
+HEALTH_TIMEOUT_S=60
+
+ts() { date -u +%Y-%m-%dT%H:%M:%SZ; }
+
+write_state() {
+  # $1=status $2=detail $3?=from $4?=to
+  local from="${3:-}" to="${4:-}"
+  cat > "${STATE_FILE}" <<JSON
+{
+  "status":  "$1",
+  "detail":  "$2",
+  "from":    "${from}",
+  "to":      "${to}",
+  "when":    "$(ts)"
+}
+JSON
+}
+
+cd "${REPO_DIR}"
+
+PREV="$(git rev-parse HEAD)"
+BRANCH="$(git rev-parse --abbrev-ref HEAD)"
+echo "STARTED prev=${PREV} branch=${BRANCH}"
+
+# Fetch + diff.
+git fetch --quiet origin "${BRANCH}"
+NEXT="$(git rev-parse "origin/${BRANCH}")"
+
+if [ "${PREV}" = "${NEXT}" ]; then
+  echo "Already up to date at ${PREV}"
+  write_state "noop" "already_up_to_date" "${PREV}" "${PREV}"
+  exit 0
+fi
+
+echo "Updating ${PREV} -> ${NEXT}"
+echo "${PREV}" > "${LAST_GOOD}"
+
+git reset --hard "${NEXT}"
+
+# Run npm install in the background-safe way (npm forks ssh-agent etc.,
+# which doesn't matter here, but isolate the env).
+echo "Installing dependencies..."
+sudo -u minivend -H bash -c "cd ${REPO_DIR} && npm install --omit=dev --no-audit --no-fund --loglevel=error"
+
+echo "Restarting minivend-server.service..."
+systemctl restart minivend-server.service
+
+# Health check.
+echo "Waiting for health check at ${HEALTH_URL} ..."
+HEALTHY=0
+for _ in $(seq 1 ${HEALTH_TIMEOUT_S}); do
+  if curl -fs --max-time 2 "${HEALTH_URL}" > /dev/null; then
+    HEALTHY=1
+    break
+  fi
+  sleep 1
+done
+
+if [ "${HEALTHY}" = "1" ]; then
+  echo "OK at ${NEXT}"
+  write_state "ok" "applied" "${PREV}" "${NEXT}"
+  exit 0
+fi
+
+# Rollback.
+echo "Health check failed; rolling back to ${PREV}"
+git reset --hard "${PREV}"
+sudo -u minivend -H bash -c "cd ${REPO_DIR} && npm install --omit=dev --no-audit --no-fund --loglevel=error"
+systemctl restart minivend-server.service
+
+# Verify the rollback came up healthy too.
+for _ in $(seq 1 ${HEALTH_TIMEOUT_S}); do
+  if curl -fs --max-time 2 "${HEALTH_URL}" > /dev/null; then
+    write_state "rolled_back" "new_revision_failed_health_check" "${PREV}" "${NEXT}"
+    exit 1
+  fi
+  sleep 1
+done
+
+write_state "failed" "rollback_also_failed_health_check" "${PREV}" "${NEXT}"
+exit 2

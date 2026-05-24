@@ -1,0 +1,7 @@
+node_modules/
+.env
+assets/state.json
+assets/idle/*
+assets/alerts/*
+!assets/idle/.gitkeep
+!assets/alerts/.gitkeep

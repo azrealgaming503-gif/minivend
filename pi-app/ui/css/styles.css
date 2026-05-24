@@ -1,0 +1,265 @@
+/* MiniVend kiosk UI — shared styles.
+   Designed for a 10.1" 1024x600 capacitive touchscreen. */
+
+:root {
+  --bg:        #0f0f12;
+  --bg-2:      #1a1a20;
+  --surface:   #20202a;
+  --stroke:    #2c2c38;
+  --text:      #e8e8ec;
+  --text-2:    #a0a0aa;
+  --accent:    #62b6cb;
+  --accent-2:  #5fc5b8;
+  --danger:    #d97a7a;
+  --success:   #7ed09a;
+}
+
+* { box-sizing: border-box; }
+
+html, body {
+  margin: 0;
+  padding: 0;
+  width: 100%;
+  height: 100%;
+  background: var(--bg);
+  color: var(--text);
+  font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  overflow: hidden;
+  user-select: none;
+  -webkit-user-select: none;
+  -webkit-touch-callout: none;
+  overscroll-behavior: none;
+}
+
+button {
+  font: inherit;
+  color: inherit;
+  background: var(--surface);
+  border: 1px solid var(--stroke);
+  border-radius: 10px;
+  padding: 14px 22px;
+  min-height: 52px;
+  min-width: 96px;
+  cursor: pointer;
+  transition: background 0.1s ease;
+}
+button:active { background: var(--bg-2); }
+button.primary { background: var(--accent); color: #07242b; border-color: transparent; font-weight: 600; }
+button.danger  { background: var(--danger);  color: #2b0d0d; border-color: transparent; font-weight: 600; }
+button.ghost   { background: transparent; }
+button:disabled { opacity: 0.5; cursor: not-allowed; }
+
+a { color: var(--accent); text-decoration: none; }
+
+/* ===== Idle screen ===== */
+.kiosk-root {
+  position: relative;
+  width: 100vw;
+  height: 100vh;
+  overflow: hidden;
+}
+.idle-media {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  background: var(--bg);
+}
+.idle-empty {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  color: var(--text-2);
+  padding: 40px;
+}
+.kiosk-topbar,
+.kiosk-bottombar {
+  position: absolute;
+  left: 0;
+  right: 0;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 14px 18px;
+  background: linear-gradient(to bottom, rgba(15,15,18,0.7), rgba(15,15,18,0));
+  pointer-events: none;
+}
+.kiosk-topbar { top: 0; }
+.kiosk-bottombar {
+  bottom: 0;
+  background: linear-gradient(to top, rgba(15,15,18,0.7), rgba(15,15,18,0));
+}
+.kiosk-bottombar > * { pointer-events: auto; }
+.kiosk-topbar    > * { pointer-events: auto; }
+
+.status-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  background: rgba(20,20,28,0.75);
+  border: 1px solid var(--stroke);
+  border-radius: 999px;
+  padding: 6px 12px;
+  font-size: 13px;
+  color: var(--text-2);
+}
+.dot {
+  width: 8px; height: 8px; border-radius: 50%;
+  background: var(--text-2);
+}
+.dot.ok   { background: var(--success); }
+.dot.warn { background: var(--danger);  }
+
+/* ===== Donation alert overlay ===== */
+.alert-overlay {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(0,0,0,0.55);
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.25s ease;
+  z-index: 20;
+}
+.alert-overlay.visible {
+  opacity: 1;
+  pointer-events: auto;
+}
+.alert-card {
+  background: var(--surface);
+  border: 1px solid var(--stroke);
+  border-radius: 18px;
+  padding: 32px 40px;
+  max-width: 86%;
+  text-align: center;
+  transform: scale(0.96);
+  transition: transform 0.25s ease;
+}
+.alert-overlay.visible .alert-card { transform: scale(1); }
+.alert-amount {
+  font-size: 56px;
+  font-weight: 700;
+  color: var(--accent);
+  line-height: 1;
+  margin: 0 0 10px;
+}
+.alert-name {
+  font-size: 28px;
+  font-weight: 600;
+  margin: 0 0 14px;
+}
+.alert-message {
+  font-size: 18px;
+  color: var(--text-2);
+  margin: 0;
+  max-height: 120px;
+  overflow: hidden;
+}
+.alert-source {
+  margin-top: 18px;
+  font-size: 12px;
+  color: var(--text-2);
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+}
+
+/* ===== Generic page chrome (settings, games launcher) ===== */
+.page {
+  width: 100vw;
+  height: 100vh;
+  display: flex;
+  flex-direction: column;
+}
+.page-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 16px 20px;
+  border-bottom: 1px solid var(--stroke);
+}
+.page-header h1 {
+  margin: 0;
+  font-size: 24px;
+  font-weight: 600;
+}
+.page-body {
+  flex: 1 1 auto;
+  overflow: auto;
+  padding: 18px 20px;
+}
+
+.row { display: flex; gap: 12px; align-items: center; }
+.col { display: flex; flex-direction: column; gap: 12px; }
+
+.section {
+  background: var(--bg-2);
+  border: 1px solid var(--stroke);
+  border-radius: 14px;
+  padding: 16px;
+  margin-bottom: 16px;
+}
+.section h2 {
+  margin: 0 0 12px;
+  font-size: 16px;
+  font-weight: 600;
+  color: var(--text-2);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.asset-list {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 8px;
+}
+.asset-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 12px;
+  border-radius: 10px;
+  background: var(--surface);
+  border: 1px solid var(--stroke);
+}
+.asset-row .name { font-weight: 500; }
+.asset-row .meta { color: var(--text-2); font-size: 13px; }
+.asset-row.active { border-color: var(--accent); }
+.asset-row .actions { display: flex; gap: 8px; }
+
+.upload-zone {
+  border: 2px dashed var(--stroke);
+  border-radius: 14px;
+  padding: 22px;
+  text-align: center;
+  color: var(--text-2);
+}
+.upload-zone.hover { border-color: var(--accent); color: var(--text); }
+
+.games-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+  gap: 16px;
+}
+.game-card {
+  background: var(--surface);
+  border: 1px solid var(--stroke);
+  border-radius: 14px;
+  padding: 24px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  min-height: 160px;
+  cursor: pointer;
+  transition: transform 0.08s ease, border-color 0.1s ease;
+}
+.game-card:active { transform: scale(0.98); border-color: var(--accent); }
+.game-card .game-title { font-size: 22px; font-weight: 600; }
+.game-card .game-sub   { font-size: 12px; color: var(--text-2); margin-top: 6px; text-transform: uppercase; letter-spacing: 0.06em; }

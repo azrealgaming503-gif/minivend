@@ -1,0 +1,27 @@
+[Unit]
+Description=MiniVend Pi-side server (webhooks, motor bridge, UI host)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=minivend
+WorkingDirectory=/opt/minivend/pi-app
+EnvironmentFile=-/opt/minivend/pi-app/.env
+ExecStart=/usr/bin/node /opt/minivend/pi-app/server/index.js
+Restart=always
+RestartSec=3
+
+# Allow access to the USB-serial adapter (the motor MCU).
+# We rely on group membership rather than capabilities so the udev rule
+# /etc/udev/rules.d/99-minivend.rules can set the device group to "dialout".
+SupplementaryGroups=dialout
+
+# Light sandboxing — tighten further once you've verified it boots.
+NoNewPrivileges=true
+ProtectSystem=full
+ProtectHome=true
+PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,47 @@
+[Unit]
+Description=MiniVend Chromium kiosk (Wayland / cage)
+After=minivend-server.service systemd-user-sessions.service
+Wants=minivend-server.service
+
+[Service]
+Type=simple
+User=minivend
+PAMName=login
+TTYPath=/dev/tty7
+TTYReset=yes
+TTYVHangup=yes
+TTYVTDisallocate=yes
+StandardInput=tty
+StandardOutput=journal
+StandardError=journal
+# Let systemd own a runtime dir for the minivend user instead of
+# assuming /run/user/<uid> exists (it doesn't for system users).
+RuntimeDirectory=minivend
+RuntimeDirectoryMode=0700
+Environment=XDG_RUNTIME_DIR=/run/minivend
+Environment=WLR_LIBINPUT_NO_DEVICES=1
+
+# cage is a minimal Wayland compositor that launches a single full-screen
+# client and exits when the client exits. We wait for the local server to
+# come up first so Chromium loads the UI on the very first try.
+ExecStartPre=/bin/sh -c 'until curl -fs http://localhost:${PORT:-3000}/ > /dev/null; do sleep 1; done'
+# Prefer `chromium` (current Pi OS) and fall back to `chromium-browser`
+# (older images that still ship the transitional package).
+ExecStart=/bin/sh -c '\
+  BIN=$(command -v chromium || command -v chromium-browser); \
+  exec /usr/bin/cage -- "$BIN" \
+    --kiosk \
+    --noerrdialogs --disable-infobars \
+    --no-first-run --no-default-browser-check \
+    --disable-pinch --overscroll-history-navigation=0 \
+    --disable-translate --disable-features=TranslateUI \
+    --autoplay-policy=no-user-gesture-required \
+    --start-fullscreen \
+    --app=http://localhost:${PORT:-3000}/'
+
+EnvironmentFile=-/opt/minivend/pi-app/.env
+Restart=always
+RestartSec=2
+
+[Install]
+WantedBy=graphical.target
