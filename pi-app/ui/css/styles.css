@@ -26,6 +26,10 @@
 
 * { box-sizing: border-box; }
 
+/* Touchscreen kiosk — never show a mouse cursor. Touch events from the
+   panel can otherwise briefly materialize a pointer in Chromium/cage. */
+*, *::before, *::after { cursor: none !important; }
+
 /* Force the HTML `hidden` attribute to win over component CSS that uses
    `display: flex`/`grid`. Without this override the UA's `[hidden]
    { display: none }` rule loses on specificity tie-breaks. */
