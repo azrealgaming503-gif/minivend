@@ -1,0 +1,21 @@
+# Rotate touchscreen input to match the kiosk display rotation.
+#
+# When the kiosk is rotated via wlr-randr (KIOSK_ROTATE=90), the display
+# pipeline shows everything rotated 90° CW but libinput is still reporting
+# touch coordinates in the panel's native (landscape) frame. The result is
+# that a finger tap registers somewhere completely different than expected.
+#
+# This rule applies a 2x3 affine transformation matrix to every touchscreen
+# at the libinput layer, before cage / Chromium ever see the event. The
+# values below correspond to the rotation directions used elsewhere in this
+# project; the installer picks the matching one based on $KIOSK_ROTATE.
+#
+# 90° CW    →  0 -1 1   1  0 0
+# 180°      → -1  0 1   0 -1 1
+# 270° CW   →  0  1 0  -1  0 1
+# normal    →  1  0 0   0  1 0
+#
+# The installer writes the active matrix to /etc/udev/rules.d/. We keep the
+# template here so it's versioned along with the rest of the kiosk config.
+ACTION=="add|change", KERNEL=="event[0-9]*", ENV{ID_INPUT_TOUCHSCREEN}=="1", \
+  ENV{LIBINPUT_CALIBRATION_MATRIX}="__MATRIX__"

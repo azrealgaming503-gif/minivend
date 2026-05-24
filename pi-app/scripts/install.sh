@@ -219,6 +219,24 @@ SUBSYSTEMS=="usb", ATTRS{idVendor}=="1a86", ATTRS{idProduct}=="55d4", \
 SUBSYSTEMS=="usb", ATTRS{idVendor}=="0403", ATTRS{idProduct}=="6001", \
   SYMLINK+="minivend-motor", GROUP="dialout", MODE="0660"
 EOF
+
+# Touchscreen rotation. Reads $KIOSK_ROTATE from /etc/systemd/system/
+# minivend-kiosk.service.d/override.conf so it always matches the display.
+echo "==> Installing touchscreen rotation udev rule"
+rotate_value="$( \
+  awk -F= '/^[[:space:]]*Environment=KIOSK_ROTATE=/ {gsub(/"|[[:space:]]/, "", $3); print $3}' \
+    /etc/systemd/system/minivend-kiosk.service.d/override.conf 2>/dev/null \
+    | tail -n1)"
+case "${rotate_value:-normal}" in
+  90)     ts_matrix="0 -1 1 1 0 0" ;;
+  180)    ts_matrix="-1 0 1 0 -1 1" ;;
+  270)    ts_matrix="0 1 0 -1 0 1" ;;
+  normal|*) ts_matrix="1 0 0 0 1 0" ;;
+esac
+echo "    using touch matrix '${ts_matrix}' for rotation '${rotate_value:-normal}'"
+sed "s|__MATRIX__|${ts_matrix}|" "${PI_APP_DIR}/systemd/99-minivend-touchscreen.rules" \
+  > /etc/udev/rules.d/99-minivend-touchscreen.rules
+
 udevadm control --reload-rules
 udevadm trigger
 
