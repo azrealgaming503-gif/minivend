@@ -76,6 +76,28 @@
       </section>
 
       <section class="section">
+        <h2>Kiosk behavior</h2>
+        <div class="row" style="justify-content: space-between; align-items: center;">
+          <div>
+            <div>Return to idle after</div>
+            <div class="meta" style="color: var(--text-2); font-size: 13px;">
+              How long the kiosk waits with no touch input on a non-idle
+              screen before switching back to the cat animation. 5 – 3600 seconds.
+            </div>
+          </div>
+          <div class="row" style="align-items: center; gap: 8px;">
+            <input id="idle-timeout-input" type="number" min="5" max="3600" step="5"
+                   style="width: 88px; padding: 8px 10px; font-size: 16px;
+                          background: var(--bg); color: var(--text);
+                          border: 1px solid var(--stroke); border-radius: 8px;" />
+            <span class="meta" style="color: var(--text-2);">sec</span>
+            <button id="idle-timeout-save" class="primary">Save</button>
+          </div>
+        </div>
+        <p id="idle-timeout-status" class="meta" style="color: var(--text-2); font-size: 13px; margin-top: 8px; min-height: 1.2em;"></p>
+      </section>
+
+      <section class="section">
         <h2>Idle animation</h2>
         <form id="upload-form">
           <label for="upload-input" class="upload-zone" id="upload-zone">
@@ -148,11 +170,64 @@
       }
     }
 
+    // ===== Kiosk idle timeout setting =====
+    const idleTimeoutInput  = document.getElementById('idle-timeout-input');
+    const idleTimeoutSave   = document.getElementById('idle-timeout-save');
+    const idleTimeoutStatus = document.getElementById('idle-timeout-status');
+
+    let kioskIdleTimeoutMs = 30_000;
+
+    function applySettings(s) {
+      if (!s) return;
+      if (Number.isFinite(s.kioskIdleTimeoutSec)) {
+        idleTimeoutInput.value = s.kioskIdleTimeoutSec;
+        kioskIdleTimeoutMs = s.kioskIdleTimeoutSec * 1000;
+        bumpAutoReturn();
+      }
+    }
+
+    idleTimeoutSave.addEventListener('click', async () => {
+      const sec = parseInt(idleTimeoutInput.value, 10);
+      idleTimeoutStatus.textContent = 'Saving...';
+      try {
+        const r = await fetch('/api/settings', {
+          method: 'PUT',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ kioskIdleTimeoutSec: sec }),
+        });
+        const j = await r.json();
+        if (!j.ok) {
+          idleTimeoutStatus.textContent = `Error: ${j.err || 'unknown'}`;
+          return;
+        }
+        applySettings(j.settings);
+        idleTimeoutStatus.textContent = `Saved · ${j.settings.kioskIdleTimeoutSec} sec`;
+      } catch (e) {
+        idleTimeoutStatus.textContent = `Save failed: ${e.message}`;
+      }
+    });
+
+    onMessage('settings_changed', (m) => applySettings(m.settings));
+
+    // ===== Auto-return to idle after inactivity =====
+    let autoReturnTimer = null;
+    function bumpAutoReturn() {
+      clearTimeout(autoReturnTimer);
+      autoReturnTimer = setTimeout(() => { location.href = '/'; }, kioskIdleTimeoutMs);
+    }
+    ['pointerdown', 'touchstart', 'keydown', 'mousemove'].forEach((evt) => {
+      window.addEventListener(evt, bumpAutoReturn, { passive: true });
+    });
+    bumpAutoReturn();
+
     async function bootstrap() {
       try {
         const r = await fetch('/api/state');
         const j = await r.json();
-        if (j && j.ok) setMotorStatus(j.motorConnected, j.motorFw);
+        if (j && j.ok) {
+          setMotorStatus(j.motorConnected, j.motorFw);
+          applySettings(j.settings);
+        }
       } catch (_) { /* offline */ }
       refreshIdleList();
     }

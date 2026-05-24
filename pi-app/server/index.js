@@ -20,6 +20,7 @@ const { AssetStore, mount: mountAssets, mountGames } = require('./assets');
 const { mount: mountDonations } = require('./donations');
 const { mount: mountWifi } = require('./wifi');
 const { mount: mountUpdater } = require('./updater');
+const { SettingsStore, mount: mountSettings } = require('./settings');
 
 const app = express();
 const server = http.createServer(app);
@@ -74,6 +75,11 @@ motor.on('sensor', (info) => {
 // ---------- Asset store ----------
 const store = new AssetStore({ assetsDir: config.assetsDir });
 
+// ---------- Settings store ----------
+const settings = new SettingsStore({
+  file: path.join(config.assetsDir, '..', 'settings.json'),
+});
+
 // ---------- Static UI ----------
 const uiDir = path.resolve(__dirname, '..', 'ui');
 app.use('/', express.static(uiDir, { extensions: ['html'] }));
@@ -87,6 +93,7 @@ app.get('/api/state', (_req, res) => {
     motorFw: motor.lastFw,
     activeIdle: store.getActiveIdle(),
     dispense: config.dispense,
+    settings: settings.getAll(),
   });
 });
 
@@ -131,9 +138,10 @@ mountDonations(app, {
 mountAssets(app, { store, broadcast });
 mountGames(app, { gamesDir: config.gamesDir });
 
-// ---------- Wi-Fi + Updater endpoints ----------
+// ---------- Wi-Fi + Updater + Settings endpoints ----------
 mountWifi(app);
 mountUpdater(app, { broadcast });
+mountSettings(app, { store: settings, broadcast });
 
 // ---------- Boot ----------
 server.listen(config.port, () => {

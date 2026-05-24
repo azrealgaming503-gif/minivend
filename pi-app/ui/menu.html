@@ -104,22 +104,36 @@
         ? `motor · ok${fw ? ' · ' + fw : ''}`
         : 'motor · offline';
     }
-    fetch('/api/state').then((r) => r.json()).then((j) => {
-      if (j && j.ok) setMotorStatus(j.motorConnected, j.motorFw);
-    }).catch(() => {});
-    onMessage('motor_status', (m) => setMotorStatus(m.connected));
-    onMessage('motor_ready',  (m) => setMotorStatus(true, m.fw));
-
-    // ===== Auto-return to idle after 30 sec of inactivity =====
+    // ===== Auto-return to idle after N sec of inactivity =====
+    // The N comes from /api/settings (kioskIdleTimeoutSec). Default 30s.
     let idleTimer = null;
+    let idleTimeoutMs = 30_000;
     function bumpIdle() {
       clearTimeout(idleTimer);
-      idleTimer = setTimeout(() => location.href = '/', 30000);
+      idleTimer = setTimeout(() => location.href = '/', idleTimeoutMs);
     }
     ['pointerdown', 'touchstart', 'keydown', 'mousemove'].forEach((evt) => {
       window.addEventListener(evt, bumpIdle, { passive: true });
     });
     bumpIdle();
+
+    fetch('/api/state').then((r) => r.json()).then((j) => {
+      if (j && j.ok) {
+        setMotorStatus(j.motorConnected, j.motorFw);
+        if (j.settings && Number.isFinite(j.settings.kioskIdleTimeoutSec)) {
+          idleTimeoutMs = j.settings.kioskIdleTimeoutSec * 1000;
+          bumpIdle();
+        }
+      }
+    }).catch(() => {});
+    onMessage('motor_status', (m) => setMotorStatus(m.connected));
+    onMessage('motor_ready',  (m) => setMotorStatus(true, m.fw));
+    onMessage('settings_changed', (m) => {
+      if (m.settings && Number.isFinite(m.settings.kioskIdleTimeoutSec)) {
+        idleTimeoutMs = m.settings.kioskIdleTimeoutSec * 1000;
+        bumpIdle();
+      }
+    });
   </script>
 </body>
 </html>
