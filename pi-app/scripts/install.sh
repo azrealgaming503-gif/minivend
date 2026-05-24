@@ -63,6 +63,16 @@ REPO_BRANCH="${REPO_BRANCH:-main}"
 echo "==> Using REPO_URL=${REPO_URL} branch=${REPO_BRANCH}"
 
 # ---------- 2. apt packages ----------
+# Scrub any leftover broken davesteele/comitup sources from a previous
+# partial install. On Trixie the .deb shipped a key in the legacy location
+# that apt no longer trusts, and the resulting "InRelease is not signed"
+# error breaks every subsequent `apt update` system-wide. install_comitup()
+# below will recreate the source list with a correctly-pinned keyring.
+rm -f /etc/apt/sources.list.d/davesteele-comitup.list \
+      /etc/apt/sources.list.d/davesteele-comitup.sources \
+      /etc/apt/trusted.gpg.d/davesteele-comitup-keyring.gpg \
+      /etc/apt/trusted.gpg.d/davesteele-comitup.gpg 2>/dev/null || true
+
 echo "==> Installing apt packages"
 apt update
 # Pi OS Bookworm ships `chromium-browser`; Trixie renamed it to plain `chromium`.
