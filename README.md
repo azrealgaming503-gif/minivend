@@ -43,8 +43,8 @@ Flash Raspberry Pi OS Lite 64-bit with Raspberry Pi Imager (set Wi-Fi,
 SSH, and your username up front). Then on the Pi:
 
 ```bash
-git clone <this repo>
-cd <repo>/pi-app
+git clone https://github.com/azrealgaming503-gif/minivend.git
+cd minivend/pi-app
 sudo bash scripts/install.sh
 sudo systemctl set-default graphical.target
 sudo reboot

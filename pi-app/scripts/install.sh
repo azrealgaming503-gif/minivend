@@ -5,7 +5,7 @@
 #   sudo bash pi-app/scripts/install.sh
 #
 # Or, from a fresh Pi with just the script:
-#   REPO_URL=https://github.com/youruser/minivend.git \
+#   REPO_URL=https://github.com/azrealgaming503-gif/minivend.git \
 #     sudo -E bash install.sh
 #
 # What it does:
