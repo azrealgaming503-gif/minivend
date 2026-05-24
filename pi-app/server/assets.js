@@ -14,6 +14,7 @@
 
 const fs = require('fs');
 const path = require('path');
+const { spawn } = require('child_process');
 const express = require('express');
 const multer = require('multer');
 
@@ -85,6 +86,53 @@ function describeIdle(idleDir, name) {
   return null;
 }
 
+// Extracts the first frame of `videoPath` to `jpgPath` using ffmpeg.
+// Returns a promise that resolves on success and rejects on failure.
+// Idempotent: if jpgPath already exists, resolves immediately.
+function extractFirstFrame(videoPath, jpgPath) {
+  if (fs.existsSync(jpgPath)) return Promise.resolve();
+  return new Promise((resolve, reject) => {
+    const args = [
+      '-y',
+      '-loglevel', 'error',
+      '-i', videoPath,
+      '-frames:v', '1',
+      '-q:v', '4',
+      jpgPath,
+    ];
+    const proc = spawn('ffmpeg', args, { stdio: ['ignore', 'ignore', 'pipe'] });
+    let stderr = '';
+    proc.stderr.on('data', (d) => { stderr += d.toString(); });
+    proc.on('error', (e) => reject(e));
+    proc.on('close', (code) => {
+      if (code === 0 && fs.existsSync(jpgPath)) resolve();
+      else reject(new Error(`ffmpeg exit ${code}: ${stderr.trim().slice(0, 200)}`));
+    });
+  });
+}
+
+// For a cat-cycle pack, eagerly extract first-frame thumbnails of every
+// clip into the pack's `_frames/` dir so the UI can use them as cover
+// images during clip swaps. Runs in the background (fire-and-forget) —
+// the UI tolerates a missing frame and just shows a brief blank cover.
+function ensurePackFrames(packDir, manifest) {
+  const framesDir = path.join(packDir, '_frames');
+  ensureDir(framesDir);
+  const clips = new Set();
+  for (const step of (manifest.sequence || [])) {
+    if (step.loop) clips.add(step.loop);
+    if (step.transition) clips.add(step.transition);
+  }
+  for (const clip of clips) {
+    const src = path.join(packDir, clip);
+    const dst = path.join(framesDir, clip + '.jpg');
+    if (!fs.existsSync(src) || fs.existsSync(dst)) continue;
+    extractFirstFrame(src, dst).catch((e) => {
+      console.warn(`[assets] first-frame extract failed for ${clip}: ${e.message}`);
+    });
+  }
+}
+
 function listFolderFlat(dir) {
   ensureDir(dir);
   return fs.readdirSync(dir, { withFileTypes: true })
@@ -131,6 +179,9 @@ class AssetStore {
     if (!desc) throw new Error(`no such idle asset: ${name}`);
     this.state.activeIdle = desc.name;
     this._save();
+    if (desc.kind === 'pack') {
+      ensurePackFrames(path.join(this.idleDir, desc.name), desc.manifest);
+    }
     return desc.name;
   }
 
@@ -179,12 +230,17 @@ function mount(app, { store, broadcast }) {
       });
     }
     // pack
+    // Make sure first-frame thumbnails are kicking off (no-op if already
+    // extracted). Useful in case the server has been restarted but the
+    // active pack was set in a previous boot.
+    ensurePackFrames(path.join(store.idleDir, d.name), d.manifest);
     return res.json({
       ok: true,
       kind: 'pack',
       name: d.name,
-      baseUrl:  `/assets/idle/${encodeURIComponent(d.name)}/`,
-      manifest: d.manifest,
+      baseUrl:   `/assets/idle/${encodeURIComponent(d.name)}/`,
+      framesUrl: `/assets/idle/${encodeURIComponent(d.name)}/_frames/`,
+      manifest:  d.manifest,
     });
   });
 

@@ -107,15 +107,16 @@ a { color: var(--accent); text-decoration: none; }
   transform: translateZ(0);
 }
 .idle-media.active { z-index: 2; }
-/* Cover layer: opaque div tinted bright red during swap windows. Sits
-   above both <video>s. If you see red flashes between clips, the cover
-   compositor path is working. */
+/* Cover layer: <img> that shows the first frame of the upcoming clip
+   during a swap, so the user sees a frame-perfect "pause → play" rather
+   than the underlying decoder/compositor hand-off. */
 .idle-cover {
   position: absolute;
   inset: 0;
   width: 100%;
   height: 100%;
-  background: #ff2a4a;
+  object-fit: fill;
+  background: var(--bg);
   z-index: 4;
   pointer-events: none;
 }

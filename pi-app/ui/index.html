@@ -12,15 +12,14 @@
        the menu page; swipe DOWN from the menu to return. -->
   <div class="kiosk-root" id="root">
     <div class="idle-stage">
-      <video  id="idle-video-a"  class="idle-media" muted playsinline preload="auto"></video>
-      <video  id="idle-video-b"  class="idle-media" muted playsinline preload="auto"></video>
-      <!-- Cover layer: a plain DIV (not a canvas) tinted bright red while
-           active. We're using this to confirm whether ANY element can be
-           composited on top of the videos at swap time on Pi 5 / cage.
-           Once we confirm visibility, we'll switch back to a frame
-           snapshot or image. -->
-      <div    id="idle-cover"    class="idle-cover" hidden></div>
-      <img    id="idle-image"    class="idle-image" alt="" hidden />
+      <video id="idle-video-a"  class="idle-media" muted playsinline preload="auto"></video>
+      <video id="idle-video-b"  class="idle-media" muted playsinline preload="auto"></video>
+      <!-- Cover layer: shows the first frame of the *upcoming* clip
+           as a static <img> during the swap. The image matches the
+           video element's first decoded frame, so visually the cover
+           and the video are indistinguishable — no flash, no jump. -->
+      <img   id="idle-cover"    class="idle-cover" alt="" hidden />
+      <img   id="idle-image"    class="idle-image" alt="" hidden />
     </div>
 
     <div id="idle-empty" class="idle-empty" hidden>
@@ -50,23 +49,26 @@
     const empty     = document.getElementById('idle-empty');
     const swipeHint = document.getElementById('swipe-hint');
 
-    // ===== Cover layer (DIAGNOSTIC) =====
-    // Plain solid-red div. If you see a bright red flash between clips,
-    // the cover IS being composited on top of the videos — meaning we
-    // can use this technique to mask the swap artifact (next step: paint
-    // a video snapshot or pre-rendered frame here instead of solid red).
-    // If you still see a black flash and NO red, then nothing we put on
-    // top of the videos shows up — the swap artifact is happening below
-    // the regular compositor stack and we need a different approach
-    // (MediaSource API, ffmpeg-concat single stream).
-    function showCoverFromActive(_srcEl) {
-      console.log('[idle] cover SHOW (red diagnostic)');
+    // ===== Cover layer =====
+    // Cover is an <img> that shows the FIRST FRAME of the upcoming clip
+    // (extracted server-side via ffmpeg). During the swap window we
+    // display this static image on top of the videos; the underlying
+    // video element warms up, swaps z-index, and starts playing from
+    // exactly that frame — so the transition from "static cover image"
+    // to "playing video" is visually invisible.
+    function showCoverWithUrl(url) {
+      if (!url) return false;
+      cover.src = url;
       cover.hidden = false;
       return true;
     }
-    function hideCover() {
-      console.log('[idle] cover HIDE');
-      cover.hidden = true;
+    function hideCover() { cover.hidden = true; }
+    // Pre-load a cover image into the browser's HTTP cache so showing
+    // it later is instant (no network round-trip during the swap).
+    function preloadCover(url) {
+      if (!url) return;
+      const img = new Image();
+      img.src = url;
     }
 
     // ===== Swipe-up to /menu, swipe-down to no-op (we're already on idle) =====
@@ -221,16 +223,18 @@
     // We always have the *next* clip loaded into bufferEl, so swaps are
     // frame-perfect: no `src` reassignment mid-playback.
     class CatCyclePlayer {
-      constructor(baseUrl, manifest) {
-        this.baseUrl = baseUrl;
-        this.manifest = manifest;
+      constructor(baseUrl, framesUrl, manifest) {
+        this.baseUrl   = baseUrl;
+        this.framesUrl = framesUrl || (baseUrl + '_frames/');
+        this.manifest  = manifest;
         this.index = 0;
         this.loopTimer = null;
         this.stopped = false;
       }
 
-      _absUrl(rel) { return this.baseUrl + encodeURIComponent(rel); }
-      _step()      { return this.manifest.sequence[this.index]; }
+      _absUrl(rel)      { return this.baseUrl   + encodeURIComponent(rel); }
+      _frameUrl(rel)    { return this.framesUrl + encodeURIComponent(rel) + '.jpg'; }
+      _step()           { return this.manifest.sequence[this.index]; }
 
       async start() {
         showVideoElements();
@@ -245,9 +249,10 @@
         if (this.stopped) return;
         safePlay(activeEl);
         this._scheduleTransition();
-        // In the background, preload the upcoming transition into bufferEl.
+        // Preload the upcoming transition video AND its cover image.
         if (step.transition) {
           preloadInto(bufferEl, this._absUrl(step.transition));
+          preloadCover(this._frameUrl(step.transition));
         }
       }
 
@@ -298,30 +303,23 @@
         });
       }
 
-      // Perform the swap behind a cover-canvas snapshot so the user
-      // never sees the underlying decoder/compositor hand-off.
-      async _swapWithCover(loop) {
-        // 1. Snapshot the currently-visible frame onto the cover canvas
-        //    and show it on top of everything.
-        const snapped = showCoverFromActive(activeEl);
-        // 2. CRITICAL: wait for the cover canvas to actually paint to the
-        //    framebuffer before doing anything underneath it. Without this
-        //    `await`, if the next video is already cached and the swap
-        //    happens within one paint cycle, the cover never gets a chance
-        //    to render and we see straight through to the swap artifact.
-        //    Two rAFs guarantees: rAF #1 = "next frame painted with cover
-        //    visible", rAF #2 = "cover frame has actually been presented
-        //    to the display compositor".
-        if (snapped) {
-          await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
-        }
-        // 3. Behind the (now-visible) cover, warm up the buffer element.
+      // Perform the swap behind a cover image showing the first frame of
+      // the *upcoming* clip. Because the cover frame == the new video's
+      // first frame, the transition from "cover img" to "playing video"
+      // is visually seamless even if the underlying decoder/compositor
+      // takes a moment to swap.
+      async _swapWithCover(coverClipName, loop) {
+        showCoverWithUrl(this._frameUrl(coverClipName));
+        // Wait two rAFs so the cover image is actually presented to the
+        // display before we mess with the video layers underneath.
+        await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+        // Behind the (now-visible) cover, warm up the buffer element.
         await this._startInBackground(bufferEl, { loop });
         if (this.stopped) { hideCover(); return; }
-        // 4. Flip z-index so bufferEl is on top.
+        // Flip z-index so bufferEl is on top.
         setActiveVideo(bufferEl);
-        // 5. Hold the cover one more frame so the underlying z-index swap
-        //    is definitely committed before we drop the cover.
+        // Hold the cover one more frame so the underlying z-index swap
+        // is definitely committed before we drop the cover.
         await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
         hideCover();
       }
@@ -333,14 +331,14 @@
         // BufferEl already has the transition preloaded.
         bufferEl.onended = null;
         bufferEl.onerror = (e) => { console.warn('[idle] transition error', e); this._advance(); };
-        await this._swapWithCover(false);
+        await this._swapWithCover(step.transition, false);
         if (this.stopped) return;
         activeEl.onended = () => this._advance();
         // Recycle the (now-hidden) buffer for the next nap clip a beat
-        // later, so the src reassignment blank-frame happens well after
-        // the visible swap and stays invisible behind the new active.
+        // later, and preload its cover image too.
         const nextStep = this.manifest.sequence[(this.index + 1) % this.manifest.sequence.length];
         if (nextStep && nextStep.loop) {
+          preloadCover(this._frameUrl(nextStep.loop));
           setTimeout(() => {
             if (this.stopped) return;
             bufferEl.loop = true;
@@ -362,11 +360,13 @@
           bufferEl.src = this._absUrl(step.loop);
           try { bufferEl.load(); } catch (_) { /* ignore */ }
         }
-        await this._swapWithCover(true);
+        await this._swapWithCover(step.loop, true);
         if (this.stopped) return;
         this._scheduleTransition();
-        // Recycle the (now-hidden) buffer for the upcoming transition.
+        // Recycle the (now-hidden) buffer for the upcoming transition,
+        // and preload its cover image.
         if (step.transition) {
+          preloadCover(this._frameUrl(step.transition));
           setTimeout(() => {
             if (this.stopped) return;
             bufferEl.loop = false;
@@ -389,7 +389,7 @@
         currentPlayer = new FilePlayer(`${j.url}?v=${Date.now()}`, ext);
         currentPlayer.start();
       } else if (j.kind === 'pack' && j.manifest && Array.isArray(j.manifest.sequence)) {
-        currentPlayer = new CatCyclePlayer(j.baseUrl, j.manifest);
+        currentPlayer = new CatCyclePlayer(j.baseUrl, j.framesUrl, j.manifest);
         currentPlayer.start();
       } else {
         console.warn('[idle] unknown asset kind', j);
