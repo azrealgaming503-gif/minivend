@@ -88,20 +88,47 @@ if ! command -v node >/dev/null || [ "$(node -v | sed 's/v\([0-9]*\).*/\1/')" -l
 fi
 
 # ---------- 3. Comitup (captive-portal Wi-Fi provisioning) ----------
-if ! command -v comitup-cli >/dev/null; then
+# Comitup is optional. If anything in this block fails, log a warning and
+# continue — the rest of the kiosk/server install still works, and Wi-Fi
+# can be managed via raspi-config / nmcli instead.
+COMITUP_OK=0
+install_comitup() {
+  if command -v comitup-cli >/dev/null; then
+    COMITUP_OK=1
+    return 0
+  fi
   echo "==> Installing comitup (captive-portal Wi-Fi setup)"
   curl -fsSL https://davesteele.github.io/comitup/deb/davesteele-comitup-apt-source_1.2_all.deb \
-    -o /tmp/davesteele-comitup-apt-source.deb
+    -o /tmp/davesteele-comitup-apt-source.deb || return 1
   dpkg -i /tmp/davesteele-comitup-apt-source.deb || true
-  apt update
-  apt install -y comitup
+
+  # Trixie (Debian 13) rejects the legacy /etc/apt/trusted.gpg.d/ key the
+  # davesteele .deb drops in. Import the key into the new keyring location
+  # and pin the sources.list entry to it explicitly.
+  install -d -m 0755 /etc/apt/keyrings
+  local key_fp="4E1609F5CDFE5F2036961B66B5E293D64E192FDE"
+  local keyring="/etc/apt/keyrings/davesteele-comitup.gpg"
+  if ! gpg --no-default-keyring --keyring "${keyring}" \
+        --keyserver hkps://keyserver.ubuntu.com \
+        --recv-keys "${key_fp}" >/dev/null 2>&1; then
+    # Fall back to a second keyserver in case the first is flaky.
+    gpg --no-default-keyring --keyring "${keyring}" \
+        --keyserver hkps://keys.openpgp.org \
+        --recv-keys "${key_fp}" >/dev/null 2>&1 || return 1
+  fi
+  chmod 0644 "${keyring}"
+  echo "deb [signed-by=${keyring}] http://davesteele.github.io/comitup/repo comitup main" \
+    > /etc/apt/sources.list.d/davesteele-comitup.list
+
+  apt update || return 1
+  apt install -y comitup || return 1
+
   # Disable conflicting auto-WiFi-managers so comitup is in charge.
   systemctl disable --now wpa_supplicant.service 2>/dev/null || true
   systemctl disable --now dhcpcd.service          2>/dev/null || true
   systemctl enable  --now NetworkManager.service  2>/dev/null || true
-fi
 
-cat >/etc/comitup.conf <<'EOF'
+  cat >/etc/comitup.conf <<'EOF'
 # MiniVend captive-portal config (see /etc/comitup.conf.example for full ref)
 ap_name: MiniVend-Setup-<nnn>
 ap_password:
@@ -109,8 +136,20 @@ web_service: comitup-web
 verbose: 0
 enable_appliance_mode: 1
 EOF
-systemctl enable --now comitup.service        2>/dev/null || true
-systemctl enable --now comitup-web.service    2>/dev/null || true
+  systemctl enable --now comitup.service        2>/dev/null || true
+  systemctl enable --now comitup-web.service    2>/dev/null || true
+  COMITUP_OK=1
+  return 0
+}
+
+if install_comitup; then
+  echo "    comitup installed."
+else
+  echo "WARN: comitup install failed — captive-portal Wi-Fi provisioning"
+  echo "      will be unavailable. The kiosk + server will still install."
+  echo "      Manage Wi-Fi with: sudo nmcli device wifi connect <SSID> password <PW>"
+  echo "      Or rerun this installer later to retry comitup."
+fi
 
 # ---------- 4. Service user ----------
 echo "==> Creating ${SERVICE_USER} user (if missing)"
