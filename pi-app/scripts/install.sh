@@ -65,9 +65,17 @@ echo "==> Using REPO_URL=${REPO_URL} branch=${REPO_BRANCH}"
 # ---------- 2. apt packages ----------
 echo "==> Installing apt packages"
 apt update
+# Pi OS Bookworm ships `chromium-browser`; Trixie renamed it to plain `chromium`.
+# Try the new name first, fall back to the old one. Same logic in the kiosk
+# systemd unit picks whichever ends up installed.
+if apt-cache show chromium >/dev/null 2>&1; then
+  CHROMIUM_PKG=chromium
+else
+  CHROMIUM_PKG=chromium-browser
+fi
 apt install -y \
   ca-certificates curl gnupg git rsync \
-  chromium-browser cage \
+  ${CHROMIUM_PKG} cage \
   libnss3 libatk-bridge2.0-0 libgtk-3-0 \
   ffmpeg \
   build-essential \
