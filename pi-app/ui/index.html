@@ -55,13 +55,34 @@
     // do whatever you want underneath (swap z-index, recycle buffers,
     // warm up decoders) and the user will not see a single black frame.
     // Hide the cover once the new video is solidly playing.
+    //
+    // DIAGNOSTIC: this version paints a subtle red tint into the corner
+    // pixels of the cover canvas so we can visually confirm the cover IS
+    // rendering. If you see a tiny red square pop in the corner during
+    // clip swaps, the cover is doing its job and the flash you see is
+    // happening somewhere OTHER than the swap moment. If you never see
+    // any red AND still see a flash, the cover never renders and we need
+    // a different mitigation entirely.
     function showCoverFromActive(srcEl) {
-      if (!srcEl || srcEl.readyState < 2 || !srcEl.videoWidth) return false;
+      if (!srcEl || srcEl.readyState < 2 || !srcEl.videoWidth) {
+        console.warn('[idle] cover not painted: srcEl readyState=' + (srcEl && srcEl.readyState));
+        return false;
+      }
       try {
         cover.width  = srcEl.videoWidth;
         cover.height = srcEl.videoHeight;
         coverCtx.drawImage(srcEl, 0, 0, cover.width, cover.height);
+        // Diagnostic corner — paint a 40px red square top-left so we can
+        // see whether the canvas was actually composited. Remove later.
+        coverCtx.fillStyle = '#ff2a4a';
+        coverCtx.fillRect(0, 0, 40, 40);
         cover.hidden = false;
+        // Quick sanity check that we got actual pixels (not blackbox from
+        // a hardware-overlay video that drawImage can't read).
+        try {
+          const sample = coverCtx.getImageData(cover.width / 2, cover.height / 2, 1, 1).data;
+          console.log(`[idle] cover sample pixel (center): rgba(${sample[0]},${sample[1]},${sample[2]},${sample[3]})`);
+        } catch (_) { /* ignore CORS-style errors */ }
         return true;
       } catch (e) {
         console.warn('[idle] cover snapshot failed', e);
@@ -305,19 +326,25 @@
         // 1. Snapshot the currently-visible frame onto the cover canvas
         //    and show it on top of everything.
         const snapped = showCoverFromActive(activeEl);
-        // 2. Behind the cover, warm up the buffer element (start playing,
-        //    wait for first composited frame).
-        await this._startInBackground(bufferEl, { loop });
-        if (this.stopped) { hideCover(); return; }
-        // 3. Flip z-index so bufferEl is on top.
-        setActiveVideo(bufferEl);
-        // 4. Wait a couple of rAF ticks so the browser has actually
-        //    presented the new video's frame to the framebuffer, then drop
-        //    the cover. If we couldn't snapshot we just skip straight to
-        //    hiding (the underlying swap is still as good as before).
+        // 2. CRITICAL: wait for the cover canvas to actually paint to the
+        //    framebuffer before doing anything underneath it. Without this
+        //    `await`, if the next video is already cached and the swap
+        //    happens within one paint cycle, the cover never gets a chance
+        //    to render and we see straight through to the swap artifact.
+        //    Two rAFs guarantees: rAF #1 = "next frame painted with cover
+        //    visible", rAF #2 = "cover frame has actually been presented
+        //    to the display compositor".
         if (snapped) {
           await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
         }
+        // 3. Behind the (now-visible) cover, warm up the buffer element.
+        await this._startInBackground(bufferEl, { loop });
+        if (this.stopped) { hideCover(); return; }
+        // 4. Flip z-index so bufferEl is on top.
+        setActiveVideo(bufferEl);
+        // 5. Hold the cover one more frame so the underlying z-index swap
+        //    is definitely committed before we drop the cover.
+        await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
         hideCover();
       }
 
