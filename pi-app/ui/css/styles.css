@@ -121,36 +121,7 @@ a { color: var(--accent); text-decoration: none; }
   text-decoration: none;
 }
 
-/* Top + bottom chrome — kept minimal and translucent so the idle artwork
-   reads as the centerpiece. Auto-hides after 8s of no touches; tap or
-   touch the screen anywhere to reveal them again. */
-.kiosk-topbar,
-.kiosk-bottombar {
-  position: absolute;
-  left: 0;
-  right: 0;
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: 12px 14px;
-  pointer-events: none;
-  transition: opacity 0.4s ease, transform 0.4s ease;
-  z-index: 10;
-}
-.kiosk-topbar {
-  top: 0;
-  background: linear-gradient(to bottom, rgba(7, 16, 31, 0.7), rgba(7, 16, 31, 0));
-}
-.kiosk-bottombar {
-  bottom: 0;
-  background: linear-gradient(to top, rgba(7, 16, 31, 0.75), rgba(7, 16, 31, 0));
-  padding-bottom: 16px;
-}
-.kiosk-root.chrome-hidden .kiosk-topbar    { opacity: 0; transform: translateY(-8px); }
-.kiosk-root.chrome-hidden .kiosk-bottombar { opacity: 0; transform: translateY(8px); }
-.kiosk-bottombar > * { pointer-events: auto; }
-.kiosk-topbar    > * { pointer-events: auto; }
-
+/* Idle status pill + dot (shared with menu page). */
 .status-pill {
   display: inline-flex;
   align-items: center;
@@ -158,8 +129,8 @@ a { color: var(--accent); text-decoration: none; }
   background: rgba(7, 16, 31, 0.55);
   border: 1px solid var(--stroke);
   border-radius: 999px;
-  padding: 6px 12px;
-  font-size: 12px;
+  padding: 8px 14px;
+  font-size: 13px;
   color: var(--text-2);
   backdrop-filter: blur(6px);
   -webkit-backdrop-filter: blur(6px);
@@ -172,46 +143,15 @@ a { color: var(--accent); text-decoration: none; }
 .dot.ok   { background: var(--success); color: var(--success); }
 .dot.warn { background: var(--danger);  color: var(--danger);  }
 
-/* Touch-friendly idle buttons (portrait kiosk). */
-.kiosk-bottombar .pill-btn {
+/* Shared brand mark (used on menu + any other branded surfaces). The idle
+   screen intentionally has NO chrome — just the cat. */
+.brand-mark {
   display: inline-flex;
   align-items: center;
-  gap: 8px;
-  background: rgba(18, 36, 70, 0.7);
-  border: 1px solid var(--stroke);
-  color: var(--text);
-  border-radius: 999px;
-  padding: 10px 18px;
-  min-height: 44px;
-  font-size: 14px;
-  font-weight: 500;
-  text-decoration: none;
-  backdrop-filter: blur(6px);
-  -webkit-backdrop-filter: blur(6px);
-}
-.kiosk-bottombar .pill-btn.primary {
-  background: rgba(78, 200, 255, 0.18);
-  border-color: rgba(78, 200, 255, 0.6);
-  color: var(--accent);
-  box-shadow: var(--glow-cyan);
-}
-.kiosk-bottombar .pill-btn:active { transform: scale(0.97); }
-
-/* Branding watermark — sits centered at the top edge, gentle pulse. */
-.brand-mark {
-  position: absolute;
-  top: 14px;
-  left: 50%;
-  transform: translateX(-50%);
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  z-index: 5;
-  pointer-events: none;
-  opacity: 0.85;
+  gap: 12px;
 }
 .brand-mark .brand-logo {
-  width: 28px; height: 28px;
+  width: 36px; height: 36px;
   border-radius: 50%;
   background: radial-gradient(circle at 35% 35%, var(--accent) 0%, transparent 70%),
               radial-gradient(circle at 65% 65%, var(--accent-2) 0%, transparent 70%),
@@ -221,16 +161,160 @@ a { color: var(--accent); text-decoration: none; }
   animation: brand-pulse 4s ease-in-out infinite;
 }
 .brand-mark .brand-name {
-  font-size: 14px;
-  font-weight: 600;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
+  font-size: 18px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
   color: var(--text);
-  text-shadow: 0 0 8px rgba(7, 16, 31, 0.8);
 }
 @keyframes brand-pulse {
   0%, 100% { box-shadow: 0 0 12px rgba(78, 200, 255, 0.35); }
-  50%      { box-shadow: 0 0 22px rgba(78, 200, 255, 0.7); }
+  50%      { box-shadow: 0 0 24px rgba(78, 200, 255, 0.7); }
+}
+
+/* ===== Swipe hint (auto-fading overlay nudge) ===== */
+.swipe-hint {
+  position: absolute;
+  bottom: 24px;
+  left: 50%;
+  transform: translateX(-50%);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  pointer-events: none;
+  z-index: 8;
+  opacity: 1;
+  transition: opacity 0.6s ease;
+  filter: drop-shadow(0 0 6px rgba(7, 16, 31, 0.8));
+}
+.swipe-hint.hidden { opacity: 0; }
+.swipe-hint-arrow {
+  width: 22px; height: 22px;
+  border-right: 3px solid var(--accent);
+  border-top:   3px solid var(--accent);
+  transform: rotate(-45deg);
+  animation: swipe-bob 1.6s ease-in-out infinite;
+}
+.swipe-hint-arrow.down {
+  transform: rotate(135deg);
+  animation-name: swipe-bob-down;
+}
+.swipe-hint-label {
+  color: var(--text);
+  font-size: 13px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  opacity: 0.85;
+}
+.swipe-hint-down {
+  bottom: auto;
+  top: 24px;
+}
+@keyframes swipe-bob {
+  0%, 100% { transform: rotate(-45deg) translate(0, 0);  opacity: 0.6; }
+  50%      { transform: rotate(-45deg) translate(4px, -4px); opacity: 1; }
+}
+@keyframes swipe-bob-down {
+  0%, 100% { transform: rotate(135deg) translate(0, 0);   opacity: 0.6; }
+  50%      { transform: rotate(135deg) translate(4px, -4px); opacity: 1; }
+}
+
+/* ===== Menu page (the swipe-up surface) ===== */
+.menu-body { background: var(--bg); }
+.menu-root {
+  position: relative;
+  width: 100vw;
+  height: 100vh;
+  display: flex;
+  flex-direction: column;
+  background:
+    radial-gradient(circle at 30% 15%, rgba(78, 200, 255, 0.12), transparent 60%),
+    radial-gradient(circle at 70% 85%, rgba(192, 132, 252, 0.10), transparent 60%),
+    var(--bg);
+}
+.menu-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 22px 22px 14px;
+}
+.menu-grid {
+  flex: 1 1 auto;
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 18px;
+  padding: 8px 22px 22px;
+  align-content: center;
+}
+.menu-tile {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  padding: 28px 18px;
+  border-radius: 18px;
+  background: var(--surface);
+  border: 1px solid var(--stroke);
+  color: var(--text);
+  text-decoration: none;
+  min-height: 168px;
+  text-align: center;
+  transition: transform 0.08s ease, border-color 0.2s ease, box-shadow 0.2s ease;
+}
+.menu-tile:active { transform: scale(0.98); }
+.menu-tile.primary {
+  border-color: rgba(78, 200, 255, 0.55);
+  background:
+    radial-gradient(circle at 30% 20%, rgba(78, 200, 255, 0.18), transparent 70%),
+    var(--surface);
+  box-shadow: var(--glow-cyan);
+}
+.menu-tile-icon {
+  width: 56px; height: 56px;
+  color: var(--accent);
+  display: flex; align-items: center; justify-content: center;
+}
+.menu-tile.primary .menu-tile-icon { color: var(--accent); }
+.menu-tile-icon svg { width: 100%; height: 100%; }
+.menu-tile-title { font-size: 22px; font-weight: 700; letter-spacing: 0.02em; }
+.menu-tile-sub   { font-size: 12px; color: var(--text-2); text-transform: uppercase; letter-spacing: 0.1em; }
+
+.menu-footer {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 18px 22px 24px;
+  border-top: 1px solid var(--stroke);
+}
+.menu-footer .pill-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  background: var(--surface);
+  border: 1px solid var(--stroke);
+  color: var(--text);
+  border-radius: 999px;
+  padding: 12px 22px;
+  min-height: 48px;
+  font-size: 15px;
+  font-weight: 500;
+  cursor: pointer;
+}
+.menu-footer .pill-btn:active { transform: scale(0.97); }
+.menu-footer .swipe-hint-down {
+  position: absolute;
+  top: -32px;
+  right: 22px;
+  bottom: auto;
+  left: auto;
+  transform: none;
+  flex-direction: row;
+  align-items: center;
+}
+.menu-footer .swipe-hint-down .swipe-hint-arrow.down {
+  width: 16px; height: 16px;
 }
 
 /* ===== Donation alert overlay ===== */

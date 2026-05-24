@@ -1,0 +1,125 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, user-scalable=no" />
+  <title>Menu · Blukitsune9</title>
+  <link rel="stylesheet" href="/css/styles.css" />
+</head>
+<body class="menu-body">
+  <div class="menu-root" id="root">
+    <!-- Brand header -->
+    <header class="menu-header">
+      <div class="brand-mark">
+        <div class="brand-logo"></div>
+        <div class="brand-name">Blukitsune9</div>
+      </div>
+      <span class="status-pill"><span id="motor-dot" class="dot"></span><span id="motor-label">motor · …</span></span>
+    </header>
+
+    <!-- Big touch tiles. Sized for thumbs on a portrait kiosk. -->
+    <main class="menu-grid">
+      <a class="menu-tile primary" href="/games">
+        <div class="menu-tile-icon">
+          <!-- joystick / arcade glyph -->
+          <svg viewBox="0 0 64 64" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round">
+            <rect x="6" y="18" width="52" height="32" rx="14"/>
+            <circle cx="22" cy="34" r="1.5" fill="currentColor"/>
+            <path d="M14 30v8M10 34h8"/>
+            <circle cx="44" cy="30" r="3"/>
+            <circle cx="50" cy="38" r="3"/>
+          </svg>
+        </div>
+        <div class="menu-tile-title">Games</div>
+        <div class="menu-tile-sub">Snake · 2048</div>
+      </a>
+
+      <a class="menu-tile" href="/settings">
+        <div class="menu-tile-icon">
+          <!-- gear glyph -->
+          <svg viewBox="0 0 64 64" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round">
+            <circle cx="32" cy="32" r="8"/>
+            <path d="M32 6v6M32 52v6M58 32h-6M12 32H6M50 14l-4 4M22 46l-4 4M50 50l-4-4M22 18l-4-4"/>
+          </svg>
+        </div>
+        <div class="menu-tile-title">Settings</div>
+        <div class="menu-tile-sub">Dispense · Wi-Fi · Updates</div>
+      </a>
+    </main>
+
+    <!-- Bottom area: swipe-down hint + explicit back button as fallback -->
+    <footer class="menu-footer">
+      <button class="pill-btn" id="back-btn">← Back to idle</button>
+      <div class="swipe-hint swipe-hint-down">
+        <div class="swipe-hint-label">swipe down</div>
+        <div class="swipe-hint-arrow down"></div>
+      </div>
+    </footer>
+  </div>
+
+  <script type="module">
+    import { onMessage } from '/js/ws-client.js';
+    import '/js/alerts.js';
+
+    const dot   = document.getElementById('motor-dot');
+    const label = document.getElementById('motor-label');
+    const back  = document.getElementById('back-btn');
+
+    back.addEventListener('click', () => location.href = '/');
+
+    // ===== Swipe down → back to idle =====
+    (function installSwipe() {
+      let startY = null, startX = null, startT = 0;
+      const THRESHOLD = 80;
+      const MAX_TIME  = 800;
+      const MAX_DRIFT = 60;
+      function onStart(e) {
+        const p = e.touches ? e.touches[0] : e;
+        startY = p.clientY; startX = p.clientX; startT = Date.now();
+      }
+      function onEnd(e) {
+        if (startY === null) return;
+        const p = e.changedTouches ? e.changedTouches[0] : e;
+        const dy = p.clientY - startY;
+        const dx = p.clientX - startX;
+        const dt = Date.now() - startT;
+        startY = startX = null;
+        if (dt > MAX_TIME) return;
+        if (Math.abs(dx) > MAX_DRIFT) return;
+        if (dy > THRESHOLD) {
+          location.href = '/';
+        }
+      }
+      window.addEventListener('touchstart', onStart, { passive: true });
+      window.addEventListener('touchend',   onEnd,   { passive: true });
+      window.addEventListener('mousedown',  onStart);
+      window.addEventListener('mouseup',    onEnd);
+    })();
+
+    // ===== Motor status =====
+    function setMotorStatus(connected, fw) {
+      dot.classList.toggle('ok', !!connected);
+      dot.classList.toggle('warn', !connected);
+      label.textContent = connected
+        ? `motor · ok${fw ? ' · ' + fw : ''}`
+        : 'motor · offline';
+    }
+    fetch('/api/state').then((r) => r.json()).then((j) => {
+      if (j && j.ok) setMotorStatus(j.motorConnected, j.motorFw);
+    }).catch(() => {});
+    onMessage('motor_status', (m) => setMotorStatus(m.connected));
+    onMessage('motor_ready',  (m) => setMotorStatus(true, m.fw));
+
+    // ===== Auto-return to idle after 30 sec of inactivity =====
+    let idleTimer = null;
+    function bumpIdle() {
+      clearTimeout(idleTimer);
+      idleTimer = setTimeout(() => location.href = '/', 30000);
+    }
+    ['pointerdown', 'touchstart', 'keydown', 'mousemove'].forEach((evt) => {
+      window.addEventListener(evt, bumpIdle, { passive: true });
+    });
+    bumpIdle();
+  </script>
+</body>
+</html>

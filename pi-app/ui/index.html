@@ -6,10 +6,11 @@
   <title>Blukitsune9 · MiniVend</title>
   <link rel="stylesheet" href="/css/styles.css" />
 </head>
-<body>
+<body class="idle-body">
+  <!-- Idle screen: only the looping cat animation. Donation alerts still
+       overlay on top (alerts.js). Swipe UP anywhere on the screen to open
+       the menu page; swipe DOWN from the menu to return. -->
   <div class="kiosk-root" id="root">
-    <!-- Two stacked <video> elements let us preload the next clip and
-         hot-swap with no visible black frame between segments. -->
     <div class="idle-stage">
       <video id="idle-video-a" class="idle-media" muted playsinline preload="auto"></video>
       <video id="idle-video-b" class="idle-media" muted playsinline preload="auto"></video>
@@ -23,19 +24,11 @@
       </div>
     </div>
 
-    <div class="brand-mark">
-      <div class="brand-logo"></div>
-      <div class="brand-name">Blukitsune9</div>
-    </div>
-
-    <div class="kiosk-topbar">
-      <span class="status-pill"><span id="motor-dot" class="dot"></span><span id="motor-label">motor: …</span></span>
-      <span></span>
-    </div>
-
-    <div class="kiosk-bottombar">
-      <a class="pill-btn" href="/games">Games</a>
-      <a class="pill-btn ghost" href="/settings">Settings</a>
+    <!-- Swipe hint that auto-fades after a few seconds, so the screen
+         is just the cat in steady state. -->
+    <div class="swipe-hint" id="swipe-hint">
+      <div class="swipe-hint-arrow"></div>
+      <div class="swipe-hint-label">swipe up for menu</div>
     </div>
   </div>
 
@@ -48,42 +41,74 @@
     const videoB    = document.getElementById('idle-video-b');
     const image     = document.getElementById('idle-image');
     const empty     = document.getElementById('idle-empty');
-    const dot       = document.getElementById('motor-dot');
-    const label     = document.getElementById('motor-label');
+    const swipeHint = document.getElementById('swipe-hint');
 
-    // ===== Chrome auto-hide =====
-    let hideTimer = null;
-    function showChrome() {
-      root.classList.remove('chrome-hidden');
-      clearTimeout(hideTimer);
-      hideTimer = setTimeout(() => root.classList.add('chrome-hidden'), 8000);
+    // ===== Swipe-up to /menu, swipe-down to no-op (we're already on idle) =====
+    // Captures touch *and* mouse drag (helps when developing on a non-touch
+    // monitor). A vertical drag of > 80 px in the right direction triggers
+    // the navigation. Horizontal drag is ignored.
+    (function installSwipe() {
+      let startY = null, startX = null, startT = 0;
+      const THRESHOLD = 80;       // px
+      const MAX_TIME  = 800;      // ms
+      const MAX_DRIFT = 60;       // px sideways
+
+      function onStart(e) {
+        const p = e.touches ? e.touches[0] : e;
+        startY = p.clientY; startX = p.clientX; startT = Date.now();
+      }
+      function onEnd(e) {
+        if (startY === null) return;
+        const p = e.changedTouches ? e.changedTouches[0] : e;
+        const dy = p.clientY - startY;
+        const dx = p.clientX - startX;
+        const dt = Date.now() - startT;
+        startY = startX = null;
+        if (dt > MAX_TIME) return;
+        if (Math.abs(dx) > MAX_DRIFT) return;
+        if (-dy > THRESHOLD) {
+          // Swipe up
+          location.href = '/menu';
+        }
+      }
+      window.addEventListener('touchstart',  onStart, { passive: true });
+      window.addEventListener('touchend',    onEnd,   { passive: true });
+      window.addEventListener('mousedown',   onStart);
+      window.addEventListener('mouseup',     onEnd);
+    })();
+
+    // Hide the swipe hint after first interaction OR 6 seconds, whichever
+    // comes first. Re-show it briefly any time the user taps without swiping.
+    let hintHideTimer = null;
+    function hideHint(delay = 0) {
+      clearTimeout(hintHideTimer);
+      hintHideTimer = setTimeout(() => swipeHint.classList.add('hidden'), delay);
     }
-    ['pointerdown', 'touchstart', 'keydown'].forEach((evt) => {
-      window.addEventListener(evt, showChrome, { passive: true });
-    });
-    showChrome();
+    function flashHint() {
+      swipeHint.classList.remove('hidden');
+      hideHint(2500);
+    }
+    hideHint(6000);
+    window.addEventListener('touchstart', flashHint, { passive: true });
 
     // ===== Idle player =====
-    // Two-element ping-pong video player. activeEl is what the user sees;
-    // bufferEl is the one we preload the next clip into. After the active
-    // clip ends we swap them — buffered clip becomes active, old one is
-    // recycled for whatever's next.
+    // Two-element ping-pong: activeEl is what the user sees, bufferEl is
+    // preloading the *next* clip. We swap pointers when we transition, so
+    // the active element's src is never reassigned mid-playback (which
+    // would otherwise blank the frame and cause the flash you noticed).
     let activeEl = videoA;
     let bufferEl = videoB;
-    let currentPlayer = null; // FilePlayer or CatCyclePlayer
-    let isImageMode = false;
+    let currentPlayer = null;
 
     function showVideoElements() {
       empty.hidden = true;
       image.hidden = true;
-      isImageMode = false;
     }
     function showImageMode() {
       empty.hidden = true;
       videoA.classList.remove('active'); videoA.hidden = true;
       videoB.classList.remove('active'); videoB.hidden = true;
       image.hidden = false;
-      isImageMode = true;
     }
     function showEmpty() {
       videoA.classList.remove('active');
@@ -108,7 +133,30 @@
       }
     }
 
-    // Stops whatever player is currently running and clears the video els.
+    // Load a clip into an element and wait for it to be playable. Resolves
+    // when the browser says it has enough buffered to play through. Times
+    // out after `timeoutMs` so we don't hang forever on a missing/bad file.
+    function preloadInto(el, url, timeoutMs = 6000) {
+      return new Promise((resolve) => {
+        let done = false;
+        const finish = () => { if (done) return; done = true; cleanup(); resolve(); };
+        const onCanPlay = () => finish();
+        const onError   = () => finish();
+        function cleanup() {
+          el.removeEventListener('canplaythrough', onCanPlay);
+          el.removeEventListener('loadeddata',     onCanPlay);
+          el.removeEventListener('error',          onError);
+          clearTimeout(timer);
+        }
+        el.addEventListener('canplaythrough', onCanPlay, { once: true });
+        el.addEventListener('loadeddata',     onCanPlay, { once: true });
+        el.addEventListener('error',          onError,   { once: true });
+        const timer = setTimeout(finish, timeoutMs);
+        el.src = url;
+        try { el.load(); } catch (_) { /* ignore */ }
+      });
+    }
+
     function teardownPlayer() {
       if (currentPlayer) { currentPlayer.stop(); currentPlayer = null; }
       [videoA, videoB].forEach((v) => {
@@ -120,106 +168,118 @@
       });
     }
 
-    // ---- Simple single-file player (mp4/webm = loop video, gif/png = img) ----
+    // ---- Simple single-file player ----
     class FilePlayer {
       constructor(url, ext) { this.url = url; this.ext = ext; }
-      start() {
+      async start() {
         const isVideo = ['mp4', 'webm', 'mov', 'm4v'].includes(this.ext);
         if (isVideo) {
           showVideoElements();
           setActiveVideo(videoA);
           activeEl.loop = true;
-          activeEl.src = this.url;
+          await preloadInto(activeEl, this.url);
           safePlay(activeEl);
         } else {
           showImageMode();
           image.src = this.url;
         }
       }
-      stop() { /* nothing extra to do */ }
+      stop() { /* nothing */ }
     }
 
     // ---- Cat-cycle state machine player ----
     //
-    // Each step in manifest.sequence has { loop, transition }. We loop the
-    // `loop` clip for a random duration between manifest.loop_min_seconds
-    // and loop_max_seconds, then play the `transition` clip once, then
-    // advance to the next step (wrap around). Buffer the next clip on the
-    // hidden <video> so the swap has no flash.
+    // Sequence runs forever as nap_1 → trans_1 → nap_2 → trans_2 → nap_3 →
+    // trans_3 → nap_1 → … . Each nap loops for a random duration between
+    // manifest.loop_min_seconds and loop_max_seconds. Transitions play once.
+    // We always have the *next* clip loaded into bufferEl, so swaps are
+    // frame-perfect: no `src` reassignment mid-playback.
     class CatCyclePlayer {
       constructor(baseUrl, manifest) {
         this.baseUrl = baseUrl;
         this.manifest = manifest;
         this.index = 0;
         this.loopTimer = null;
+        this.stopped = false;
       }
-      start() {
+
+      _absUrl(rel) { return this.baseUrl + encodeURIComponent(rel); }
+      _step()      { return this.manifest.sequence[this.index]; }
+
+      async start() {
         showVideoElements();
+        this.stopped = false;
+        // Preload the first nap clip into A, then start playing it.
         setActiveVideo(videoA);
-        this._playLoop();
+        const step = this._step();
+        activeEl.loop = true;
+        activeEl.onended = null;
+        activeEl.onerror = (e) => { console.warn('[idle] first clip error', e); this._advance(); };
+        await preloadInto(activeEl, this._absUrl(step.loop));
+        if (this.stopped) return;
+        safePlay(activeEl);
+        this._scheduleTransition();
+        // In the background, preload the upcoming transition into bufferEl.
+        if (step.transition) {
+          preloadInto(bufferEl, this._absUrl(step.transition));
+        }
       }
+
       stop() {
+        this.stopped = true;
         clearTimeout(this.loopTimer);
         this.loopTimer = null;
       }
-      _step() { return this.manifest.sequence[this.index]; }
-      _nextStep() {
-        const next = (this.index + 1) % this.manifest.sequence.length;
-        return this.manifest.sequence[next];
-      }
-      _absUrl(rel) { return this.baseUrl + encodeURIComponent(rel); }
 
-      _playLoop() {
+      _scheduleTransition() {
         clearTimeout(this.loopTimer);
-        const step = this._step();
-        const url  = this._absUrl(step.loop);
-        activeEl.onended = null;
-        activeEl.onerror = (e) => {
-          console.warn('[idle] loop clip failed, advancing:', step.loop, e);
-          this._advance();
-        };
-        activeEl.loop = true;
-        activeEl.src = url;
-        safePlay(activeEl);
-
-        // Preload the transition clip in the buffer element so we can
-        // hot-swap with no black flash.
-        const trans = step.transition;
-        if (trans) {
-          bufferEl.loop = false;
-          bufferEl.src = this._absUrl(trans);
-          try { bufferEl.load(); } catch (_) { /* ignore */ }
-        }
-
         const min = Number(this.manifest.loop_min_seconds) || 600;
         const max = Number(this.manifest.loop_max_seconds) || Math.max(min, 900);
         const lo = Math.min(min, max);
         const hi = Math.max(min, max);
         const dur = (lo + Math.random() * (hi - lo)) * 1000;
-        console.log(`[idle] cat-cycle: loop "${step.loop}" for ${Math.round(dur / 1000)}s`);
+        const step = this._step();
+        console.log(`[idle] loop "${step.loop}" for ${Math.round(dur / 1000)}s`);
         this.loopTimer = setTimeout(() => this._playTransition(), dur);
       }
 
       _playTransition() {
+        if (this.stopped) return;
         const step = this._step();
         if (!step.transition) { this._advance(); return; }
-        // Swap: the buffer element has the transition preloaded.
+        // BufferEl already has the transition preloaded. Swap to it.
         setActiveVideo(bufferEl);
         activeEl.loop = false;
-        activeEl.onerror = (e) => {
-          console.warn('[idle] transition clip failed, advancing:', step.transition, e);
-          this._advance();
-        };
+        activeEl.onerror = (e) => { console.warn('[idle] transition error', e); this._advance(); };
         activeEl.onended = () => this._advance();
         safePlay(activeEl);
+        // The element that was just playing the nap is now the buffer.
+        // Preload the *next* nap into it so when transition ends we can
+        // swap straight in with no flash.
+        const nextStep = this.manifest.sequence[(this.index + 1) % this.manifest.sequence.length];
+        if (nextStep && nextStep.loop) {
+          bufferEl.loop = true;
+          preloadInto(bufferEl, this._absUrl(nextStep.loop));
+        }
       }
 
       _advance() {
+        if (this.stopped) return;
         this.index = (this.index + 1) % this.manifest.sequence.length;
-        // Ping-pong: whichever video isn't currently active becomes the
-        // next loop's playback surface.
+        // BufferEl has the new loop preloaded. Swap to it.
         setActiveVideo(bufferEl);
-        this._playLoop();
+        const step = this._step();
+        activeEl.loop = true;
+        activeEl.onended = null;
+        activeEl.onerror = (e) => { console.warn('[idle] loop error', e); this._advance(); };
+        // Defensive: if the preload didn't happen for some reason, set src now.
+        if (!activeEl.src) activeEl.src = this._absUrl(step.loop);
+        safePlay(activeEl);
+        this._scheduleTransition();
+        // Preload the upcoming transition into the (now-buffer) element.
+        if (step.transition) {
+          preloadInto(bufferEl, this._absUrl(step.transition));
+        }
       }
     }
 
@@ -244,29 +304,10 @@
       }
     }
 
-    // ===== Motor status =====
-    function setMotorStatus(connected, fw) {
-      dot.classList.toggle('ok', !!connected);
-      dot.classList.toggle('warn', !connected);
-      label.textContent = connected
-        ? `motor · ok${fw ? ' · ' + fw : ''}`
-        : 'motor · offline';
-    }
-
-    // ===== Bootstrap + live updates =====
-    async function bootstrap() {
-      try {
-        const r = await fetch('/api/state');
-        const j = await r.json();
-        if (j && j.ok) setMotorStatus(j.motorConnected, j.motorFw);
-      } catch (_) { /* offline */ }
-      loadActiveIdle();
-    }
-    bootstrap();
-
+    // ===== Live updates =====
     onMessage('idle_changed', () => loadActiveIdle());
-    onMessage('motor_status', (m) => setMotorStatus(m.connected));
-    onMessage('motor_ready',  (m) => setMotorStatus(true, m.fw));
+
+    loadActiveIdle();
   </script>
 </body>
 </html>
