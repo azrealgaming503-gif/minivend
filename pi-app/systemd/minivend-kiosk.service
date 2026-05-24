@@ -27,6 +27,12 @@ RuntimeDirectory=minivend
 RuntimeDirectoryMode=0700
 Environment=XDG_RUNTIME_DIR=/run/minivend
 Environment=WLR_LIBINPUT_NO_DEVICES=1
+# Rotate the kiosk display. Valid values: normal, 90, 180, 270, flipped,
+# flipped-90, flipped-180, flipped-270. Override per-device by editing
+# /etc/systemd/system/minivend-kiosk.service.d/override.conf with
+# `Environment=KIOSK_ROTATE=90` (or whichever) and `systemctl daemon-reload
+# && systemctl restart minivend-kiosk`.
+Environment=KIOSK_ROTATE=normal
 
 # cage is a minimal Wayland compositor that launches a single full-screen
 # client and exits when the client exits. We wait for the local server to
@@ -36,6 +42,7 @@ ExecStartPre=/bin/sh -c 'until curl -fs http://localhost:${PORT:-3000}/ > /dev/n
 # (older images that still ship the transitional package).
 ExecStart=/bin/sh -c '\
   BIN=$(command -v chromium || command -v chromium-browser); \
+  export WLR_OUTPUT_TRANSFORM="${KIOSK_ROTATE:-normal}"; \
   exec /usr/bin/cage -- "$BIN" \
     --kiosk \
     --noerrdialogs --disable-infobars \
