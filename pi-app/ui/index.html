@@ -2,31 +2,40 @@
 <html lang="en">
 <head>
   <meta charset="utf-8" />
-  <meta name="viewport" content="width=1024, initial-scale=1, user-scalable=no" />
-  <title>MiniVend</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1, user-scalable=no" />
+  <title>Blukitsune9 · MiniVend</title>
   <link rel="stylesheet" href="/css/styles.css" />
 </head>
 <body>
-  <div class="kiosk-root">
-    <!-- Idle background: video if mp4/webm, image if gif/webp/png. We try
-         video first and swap to <img> if it errors. -->
-    <video id="idle-video" class="idle-media" autoplay muted loop playsinline></video>
-    <img   id="idle-image" class="idle-media" alt="" hidden />
-    <div   id="idle-empty" class="idle-empty" hidden>
+  <div class="kiosk-root" id="root">
+    <!-- Two stacked <video> elements let us preload the next clip and
+         hot-swap with no visible black frame between segments. -->
+    <div class="idle-stage">
+      <video id="idle-video-a" class="idle-media" muted playsinline preload="auto"></video>
+      <video id="idle-video-b" class="idle-media" muted playsinline preload="auto"></video>
+      <img   id="idle-image"   class="idle-image" alt="" hidden />
+    </div>
+
+    <div id="idle-empty" class="idle-empty" hidden>
       <div>
-        <p>No idle animation set yet.</p>
-        <p>Open <a href="/settings">Settings</a> to upload one.</p>
+        <p>Hello! No idle animation set yet.</p>
+        <a class="pill" href="/settings">Open settings</a>
       </div>
     </div>
 
+    <div class="brand-mark">
+      <div class="brand-logo"></div>
+      <div class="brand-name">Blukitsune9</div>
+    </div>
+
     <div class="kiosk-topbar">
-      <span class="status-pill"><span id="motor-dot" class="dot"></span><span id="motor-label">motor: ...</span></span>
+      <span class="status-pill"><span id="motor-dot" class="dot"></span><span id="motor-label">motor: …</span></span>
       <span></span>
     </div>
 
     <div class="kiosk-bottombar">
-      <a href="/games"><button>Games</button></a>
-      <a href="/settings"><button class="ghost">Settings</button></a>
+      <a class="pill-btn" href="/games">Games</a>
+      <a class="pill-btn ghost" href="/settings">Settings</a>
     </div>
   </div>
 
@@ -34,58 +43,230 @@
     import { onMessage } from '/js/ws-client.js';
     import '/js/alerts.js';
 
-    const video = document.getElementById('idle-video');
-    const image = document.getElementById('idle-image');
-    const empty = document.getElementById('idle-empty');
-    const dot   = document.getElementById('motor-dot');
-    const label = document.getElementById('motor-label');
+    const root      = document.getElementById('root');
+    const videoA    = document.getElementById('idle-video-a');
+    const videoB    = document.getElementById('idle-video-b');
+    const image     = document.getElementById('idle-image');
+    const empty     = document.getElementById('idle-empty');
+    const dot       = document.getElementById('motor-dot');
+    const label     = document.getElementById('motor-label');
 
-    function setActiveIdle(name) {
-      if (!name) {
-        video.hidden = true;
-        image.hidden = true;
-        empty.hidden = false;
-        return;
-      }
+    // ===== Chrome auto-hide =====
+    let hideTimer = null;
+    function showChrome() {
+      root.classList.remove('chrome-hidden');
+      clearTimeout(hideTimer);
+      hideTimer = setTimeout(() => root.classList.add('chrome-hidden'), 8000);
+    }
+    ['pointerdown', 'touchstart', 'keydown'].forEach((evt) => {
+      window.addEventListener(evt, showChrome, { passive: true });
+    });
+    showChrome();
+
+    // ===== Idle player =====
+    // Two-element ping-pong video player. activeEl is what the user sees;
+    // bufferEl is the one we preload the next clip into. After the active
+    // clip ends we swap them — buffered clip becomes active, old one is
+    // recycled for whatever's next.
+    let activeEl = videoA;
+    let bufferEl = videoB;
+    let currentPlayer = null; // FilePlayer or CatCyclePlayer
+    let isImageMode = false;
+
+    function showVideoElements() {
       empty.hidden = true;
-      const url = `/assets/idle/${encodeURIComponent(name)}?v=${Date.now()}`;
-      // Decide by extension; if the video can't play, fall back to <img>.
-      const ext = name.split('.').pop().toLowerCase();
-      const isVideo = ['mp4', 'webm', 'mov', 'm4v'].includes(ext);
-      if (isVideo) {
-        image.hidden = true;
-        video.hidden = false;
-        video.src = url;
-        video.play().catch(() => { /* autoplay may need user gesture */ });
-      } else {
-        video.hidden = true;
-        video.removeAttribute('src');
-        image.hidden = false;
-        image.src = url;
+      image.hidden = true;
+      isImageMode = false;
+    }
+    function showImageMode() {
+      empty.hidden = true;
+      videoA.classList.remove('active'); videoA.hidden = true;
+      videoB.classList.remove('active'); videoB.hidden = true;
+      image.hidden = false;
+      isImageMode = true;
+    }
+    function showEmpty() {
+      videoA.classList.remove('active');
+      videoB.classList.remove('active');
+      image.hidden = true;
+      empty.hidden = false;
+    }
+
+    function setActiveVideo(el) {
+      activeEl = el;
+      bufferEl = (el === videoA) ? videoB : videoA;
+      videoA.classList.toggle('active', el === videoA);
+      videoB.classList.toggle('active', el === videoB);
+      videoA.hidden = false;
+      videoB.hidden = false;
+    }
+
+    function safePlay(el) {
+      const p = el.play();
+      if (p && typeof p.catch === 'function') {
+        p.catch((err) => console.warn('[idle] play() rejected:', err && err.message));
       }
     }
 
+    // Stops whatever player is currently running and clears the video els.
+    function teardownPlayer() {
+      if (currentPlayer) { currentPlayer.stop(); currentPlayer = null; }
+      [videoA, videoB].forEach((v) => {
+        v.onended = null;
+        v.onerror = null;
+        v.pause();
+        v.removeAttribute('src');
+        v.load();
+      });
+    }
+
+    // ---- Simple single-file player (mp4/webm = loop video, gif/png = img) ----
+    class FilePlayer {
+      constructor(url, ext) { this.url = url; this.ext = ext; }
+      start() {
+        const isVideo = ['mp4', 'webm', 'mov', 'm4v'].includes(this.ext);
+        if (isVideo) {
+          showVideoElements();
+          setActiveVideo(videoA);
+          activeEl.loop = true;
+          activeEl.src = this.url;
+          safePlay(activeEl);
+        } else {
+          showImageMode();
+          image.src = this.url;
+        }
+      }
+      stop() { /* nothing extra to do */ }
+    }
+
+    // ---- Cat-cycle state machine player ----
+    //
+    // Each step in manifest.sequence has { loop, transition }. We loop the
+    // `loop` clip for a random duration between manifest.loop_min_seconds
+    // and loop_max_seconds, then play the `transition` clip once, then
+    // advance to the next step (wrap around). Buffer the next clip on the
+    // hidden <video> so the swap has no flash.
+    class CatCyclePlayer {
+      constructor(baseUrl, manifest) {
+        this.baseUrl = baseUrl;
+        this.manifest = manifest;
+        this.index = 0;
+        this.loopTimer = null;
+      }
+      start() {
+        showVideoElements();
+        setActiveVideo(videoA);
+        this._playLoop();
+      }
+      stop() {
+        clearTimeout(this.loopTimer);
+        this.loopTimer = null;
+      }
+      _step() { return this.manifest.sequence[this.index]; }
+      _nextStep() {
+        const next = (this.index + 1) % this.manifest.sequence.length;
+        return this.manifest.sequence[next];
+      }
+      _absUrl(rel) { return this.baseUrl + encodeURIComponent(rel); }
+
+      _playLoop() {
+        clearTimeout(this.loopTimer);
+        const step = this._step();
+        const url  = this._absUrl(step.loop);
+        activeEl.onended = null;
+        activeEl.onerror = (e) => {
+          console.warn('[idle] loop clip failed, advancing:', step.loop, e);
+          this._advance();
+        };
+        activeEl.loop = true;
+        activeEl.src = url;
+        safePlay(activeEl);
+
+        // Preload the transition clip in the buffer element so we can
+        // hot-swap with no black flash.
+        const trans = step.transition;
+        if (trans) {
+          bufferEl.loop = false;
+          bufferEl.src = this._absUrl(trans);
+          try { bufferEl.load(); } catch (_) { /* ignore */ }
+        }
+
+        const min = Number(this.manifest.loop_min_seconds) || 600;
+        const max = Number(this.manifest.loop_max_seconds) || Math.max(min, 900);
+        const lo = Math.min(min, max);
+        const hi = Math.max(min, max);
+        const dur = (lo + Math.random() * (hi - lo)) * 1000;
+        console.log(`[idle] cat-cycle: loop "${step.loop}" for ${Math.round(dur / 1000)}s`);
+        this.loopTimer = setTimeout(() => this._playTransition(), dur);
+      }
+
+      _playTransition() {
+        const step = this._step();
+        if (!step.transition) { this._advance(); return; }
+        // Swap: the buffer element has the transition preloaded.
+        setActiveVideo(bufferEl);
+        activeEl.loop = false;
+        activeEl.onerror = (e) => {
+          console.warn('[idle] transition clip failed, advancing:', step.transition, e);
+          this._advance();
+        };
+        activeEl.onended = () => this._advance();
+        safePlay(activeEl);
+      }
+
+      _advance() {
+        this.index = (this.index + 1) % this.manifest.sequence.length;
+        // Ping-pong: whichever video isn't currently active becomes the
+        // next loop's playback surface.
+        setActiveVideo(bufferEl);
+        this._playLoop();
+      }
+    }
+
+    async function loadActiveIdle() {
+      teardownPlayer();
+      let r;
+      try { r = await fetch('/api/assets/idle/active'); }
+      catch (e) { console.warn('[idle] fetch failed', e); showEmpty(); return; }
+      if (r.status === 404) { showEmpty(); return; }
+      if (!r.ok)            { showEmpty(); return; }
+      const j = await r.json();
+      if (j.kind === 'file') {
+        const ext = (j.name.split('.').pop() || '').toLowerCase();
+        currentPlayer = new FilePlayer(`${j.url}?v=${Date.now()}`, ext);
+        currentPlayer.start();
+      } else if (j.kind === 'pack' && j.manifest && Array.isArray(j.manifest.sequence)) {
+        currentPlayer = new CatCyclePlayer(j.baseUrl, j.manifest);
+        currentPlayer.start();
+      } else {
+        console.warn('[idle] unknown asset kind', j);
+        showEmpty();
+      }
+    }
+
+    // ===== Motor status =====
     function setMotorStatus(connected, fw) {
       dot.classList.toggle('ok', !!connected);
       dot.classList.toggle('warn', !connected);
-      label.textContent = connected ? `motor: ok${fw ? ' · ' + fw : ''}` : 'motor: offline';
+      label.textContent = connected
+        ? `motor · ok${fw ? ' · ' + fw : ''}`
+        : 'motor · offline';
     }
 
+    // ===== Bootstrap + live updates =====
     async function bootstrap() {
       try {
         const r = await fetch('/api/state');
         const j = await r.json();
-        if (j && j.ok) {
-          setActiveIdle(j.activeIdle);
-          setMotorStatus(j.motorConnected, j.motorFw);
-        }
+        if (j && j.ok) setMotorStatus(j.motorConnected, j.motorFw);
       } catch (_) { /* offline */ }
+      loadActiveIdle();
     }
     bootstrap();
 
-    onMessage('idle_changed',  (m) => setActiveIdle(m.active));
-    onMessage('motor_status',  (m) => setMotorStatus(m.connected));
-    onMessage('motor_ready',   (m) => setMotorStatus(true, m.fw));
+    onMessage('idle_changed', () => loadActiveIdle());
+    onMessage('motor_status', (m) => setMotorStatus(m.connected));
+    onMessage('motor_ready',  (m) => setMotorStatus(true, m.fw));
   </script>
 </body>
 </html>

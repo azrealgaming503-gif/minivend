@@ -1,17 +1,27 @@
 /* MiniVend kiosk UI — shared styles.
-   Designed for a 10.1" 1024x600 capacitive touchscreen. */
+   Designed for a 10.1" 1024x600 capacitive touchscreen, mounted portrait
+   (effective 600 × 1024 after WLR_OUTPUT_TRANSFORM=90).
+
+   Theme: placeholder "kitsune flame" palette — deep navy night sky with
+   icy-cyan and soft-violet flame accents. Swap the values below to
+   match Blu's actual Twitch overlay colors when she's ready. */
 
 :root {
-  --bg:        #0f0f12;
-  --bg-2:      #1a1a20;
-  --surface:   #20202a;
-  --stroke:    #2c2c38;
-  --text:      #e8e8ec;
-  --text-2:    #a0a0aa;
-  --accent:    #62b6cb;
-  --accent-2:  #5fc5b8;
-  --danger:    #d97a7a;
+  --bg:        #07101f;  /* deep midnight */
+  --bg-2:      #0c1a33;
+  --surface:   #122446;  /* card backgrounds */
+  --stroke:    #1f3a6e;
+  --text:      #ecf3ff;  /* icy white */
+  --text-2:    #93b1de;  /* soft icy-blue grey for secondary text */
+  --accent:    #4ec8ff;  /* kitsune flame: icy cyan */
+  --accent-2:  #c084fc;  /* secondary flame: soft violet */
+  --accent-warm: #f5b15a; /* tertiary highlight: warm amber */
+  --danger:    #ff7a90;
   --success:   #7ed09a;
+
+  /* Reusable glow / shadow recipes */
+  --glow-cyan:   0 0 24px rgba(78, 200, 255, 0.45);
+  --glow-violet: 0 0 24px rgba(192, 132, 252, 0.45);
 }
 
 * { box-sizing: border-box; }
@@ -57,15 +67,39 @@ a { color: var(--accent); text-decoration: none; }
   width: 100vw;
   height: 100vh;
   overflow: hidden;
+  background: var(--bg);
+}
+
+/* The cat / video player. We use two stacked <video> elements so we can
+   preload the next clip and hot-swap with zero black frame. The "active"
+   one is visible; the other is hidden, buffering. */
+.idle-stage {
+  position: absolute;
+  inset: 0;
+  background: var(--bg);
 }
 .idle-media {
   position: absolute;
   inset: 0;
   width: 100%;
   height: 100%;
-  object-fit: cover;
+  /* Stretch to fill the whole portrait surface (Blu's preference). Author
+     the source clips at 600x1024 for the cleanest look. */
+  object-fit: fill;
+  background: var(--bg);
+  opacity: 0;
+  transition: opacity 0.12s linear;
+}
+.idle-media.active { opacity: 1; }
+.idle-image {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: fill;
   background: var(--bg);
 }
+
 .idle-empty {
   position: absolute;
   inset: 0;
@@ -76,6 +110,20 @@ a { color: var(--accent); text-decoration: none; }
   color: var(--text-2);
   padding: 40px;
 }
+.idle-empty .pill {
+  display: inline-block;
+  padding: 10px 18px;
+  border-radius: 999px;
+  border: 1px solid var(--stroke);
+  background: rgba(18, 36, 70, 0.4);
+  margin-top: 18px;
+  color: var(--accent);
+  text-decoration: none;
+}
+
+/* Top + bottom chrome — kept minimal and translucent so the idle artwork
+   reads as the centerpiece. Auto-hides after 8s of no touches; tap or
+   touch the screen anywhere to reveal them again. */
 .kiosk-topbar,
 .kiosk-bottombar {
   position: absolute;
@@ -84,15 +132,22 @@ a { color: var(--accent); text-decoration: none; }
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 14px 18px;
-  background: linear-gradient(to bottom, rgba(15,15,18,0.7), rgba(15,15,18,0));
+  padding: 12px 14px;
   pointer-events: none;
+  transition: opacity 0.4s ease, transform 0.4s ease;
+  z-index: 10;
 }
-.kiosk-topbar { top: 0; }
+.kiosk-topbar {
+  top: 0;
+  background: linear-gradient(to bottom, rgba(7, 16, 31, 0.7), rgba(7, 16, 31, 0));
+}
 .kiosk-bottombar {
   bottom: 0;
-  background: linear-gradient(to top, rgba(15,15,18,0.7), rgba(15,15,18,0));
+  background: linear-gradient(to top, rgba(7, 16, 31, 0.75), rgba(7, 16, 31, 0));
+  padding-bottom: 16px;
 }
+.kiosk-root.chrome-hidden .kiosk-topbar    { opacity: 0; transform: translateY(-8px); }
+.kiosk-root.chrome-hidden .kiosk-bottombar { opacity: 0; transform: translateY(8px); }
 .kiosk-bottombar > * { pointer-events: auto; }
 .kiosk-topbar    > * { pointer-events: auto; }
 
@@ -100,19 +155,83 @@ a { color: var(--accent); text-decoration: none; }
   display: inline-flex;
   align-items: center;
   gap: 8px;
-  background: rgba(20,20,28,0.75);
+  background: rgba(7, 16, 31, 0.55);
   border: 1px solid var(--stroke);
   border-radius: 999px;
   padding: 6px 12px;
-  font-size: 13px;
+  font-size: 12px;
   color: var(--text-2);
+  backdrop-filter: blur(6px);
+  -webkit-backdrop-filter: blur(6px);
 }
 .dot {
   width: 8px; height: 8px; border-radius: 50%;
   background: var(--text-2);
+  box-shadow: 0 0 4px currentColor;
 }
-.dot.ok   { background: var(--success); }
-.dot.warn { background: var(--danger);  }
+.dot.ok   { background: var(--success); color: var(--success); }
+.dot.warn { background: var(--danger);  color: var(--danger);  }
+
+/* Touch-friendly idle buttons (portrait kiosk). */
+.kiosk-bottombar .pill-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  background: rgba(18, 36, 70, 0.7);
+  border: 1px solid var(--stroke);
+  color: var(--text);
+  border-radius: 999px;
+  padding: 10px 18px;
+  min-height: 44px;
+  font-size: 14px;
+  font-weight: 500;
+  text-decoration: none;
+  backdrop-filter: blur(6px);
+  -webkit-backdrop-filter: blur(6px);
+}
+.kiosk-bottombar .pill-btn.primary {
+  background: rgba(78, 200, 255, 0.18);
+  border-color: rgba(78, 200, 255, 0.6);
+  color: var(--accent);
+  box-shadow: var(--glow-cyan);
+}
+.kiosk-bottombar .pill-btn:active { transform: scale(0.97); }
+
+/* Branding watermark — sits centered at the top edge, gentle pulse. */
+.brand-mark {
+  position: absolute;
+  top: 14px;
+  left: 50%;
+  transform: translateX(-50%);
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  z-index: 5;
+  pointer-events: none;
+  opacity: 0.85;
+}
+.brand-mark .brand-logo {
+  width: 28px; height: 28px;
+  border-radius: 50%;
+  background: radial-gradient(circle at 35% 35%, var(--accent) 0%, transparent 70%),
+              radial-gradient(circle at 65% 65%, var(--accent-2) 0%, transparent 70%),
+              var(--bg-2);
+  border: 1px solid var(--stroke);
+  box-shadow: var(--glow-cyan);
+  animation: brand-pulse 4s ease-in-out infinite;
+}
+.brand-mark .brand-name {
+  font-size: 14px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--text);
+  text-shadow: 0 0 8px rgba(7, 16, 31, 0.8);
+}
+@keyframes brand-pulse {
+  0%, 100% { box-shadow: 0 0 12px rgba(78, 200, 255, 0.35); }
+  50%      { box-shadow: 0 0 22px rgba(78, 200, 255, 0.7); }
+}
 
 /* ===== Donation alert overlay ===== */
 .alert-overlay {

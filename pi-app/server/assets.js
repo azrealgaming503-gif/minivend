@@ -1,8 +1,16 @@
 // Asset management: idle animation + per-tier donation alerts.
 //
-// Files live on disk under {assetsDir}/idle and {assetsDir}/alerts.
-// The "active" idle animation is selected by name; the UI requests it
-// from /api/assets/idle/active and the server 302s to the chosen file.
+// The idle library supports two shapes:
+//   1. A single media file (mp4/webm/gif/webp/png/jpg) dropped directly
+//      under {assetsDir}/idle/.  Loops forever, no state.
+//   2. A *pack* — a subdirectory under {assetsDir}/idle/ that contains a
+//      `manifest.json` and the video clips it references.  The UI runs
+//      a state machine described by the manifest (eg. cat-cycle: nap
+//      loops with transitions between them).
+//
+// The "active" idle pick is stored in state.json by name (file basename
+// or directory name).  The UI gets the full description from
+// /api/assets/idle/active.
 
 const fs = require('fs');
 const path = require('path');
@@ -23,7 +31,61 @@ function safeName(name) {
   return base.replace(/[^a-zA-Z0-9._-]/g, '_').slice(0, 100);
 }
 
-function listFolder(dir) {
+function readManifest(packDir) {
+  const manifestPath = path.join(packDir, 'manifest.json');
+  if (!fs.existsSync(manifestPath)) return null;
+  try {
+    const raw = fs.readFileSync(manifestPath, 'utf8');
+    const m = JSON.parse(raw);
+    // Light validation. Accept the cat-cycle shape; reject everything else
+    // so the UI doesn't have to second-guess.
+    if (m && m.type === 'cat-cycle' && Array.isArray(m.sequence) && m.sequence.length > 0) {
+      return m;
+    }
+    return null;
+  } catch (_) {
+    return null;
+  }
+}
+
+// Returns a sorted list of entries in the idle dir, with metadata.
+// Each entry is either { kind:'file', name, size, mtime } for flat files
+// or { kind:'pack', name, mtime, manifest } for directories.
+function listIdle(dir) {
+  ensureDir(dir);
+  const out = [];
+  for (const e of fs.readdirSync(dir, { withFileTypes: true })) {
+    const full = path.join(dir, e.name);
+    if (e.isFile() && ALL_EXTS.has(path.extname(e.name).toLowerCase())) {
+      const stat = fs.statSync(full);
+      out.push({ kind: 'file', name: e.name, size: stat.size, mtime: stat.mtimeMs });
+    } else if (e.isDirectory()) {
+      const m = readManifest(full);
+      if (m) {
+        const stat = fs.statSync(full);
+        out.push({ kind: 'pack', name: e.name, mtime: stat.mtimeMs, manifest: m });
+      }
+    }
+  }
+  return out.sort((a, b) => b.mtime - a.mtime);
+}
+
+// Internal: classify a name to either { kind:'file', ... }, { kind:'pack', ... } or null.
+function describeIdle(idleDir, name) {
+  if (!name) return null;
+  const safe = safeName(name);
+  const full = path.join(idleDir, safe);
+  if (!fs.existsSync(full)) return null;
+  const stat = fs.statSync(full);
+  if (stat.isFile()) return { kind: 'file', name: safe };
+  if (stat.isDirectory()) {
+    const m = readManifest(full);
+    if (m) return { kind: 'pack', name: safe, manifest: m };
+  }
+  return null;
+}
+
+function listFolderFlat(dir) {
   ensureDir(dir);
   return fs.readdirSync(dir, { withFileTypes: true })
     .filter((e) => e.isFile() && ALL_EXTS.has(path.extname(e.name).toLowerCase()))
@@ -44,10 +106,14 @@ class AssetStore {
     ensureDir(this.alertsDir);
     this.state = { activeIdle: null };
     this._load();
-    // Auto-select something if no choice has been made yet.
+    // Auto-pick something if nothing's chosen yet — prefer packs over flat
+    // files since they're usually the curated artist asset.
     if (!this.state.activeIdle) {
-      const files = listFolder(this.idleDir);
-      if (files.length > 0) this.setActiveIdle(files[0].name);
+      const entries = listIdle(this.idleDir);
+      const pack = entries.find((e) => e.kind === 'pack');
+      const file = entries.find((e) => e.kind === 'file');
+      const pick = pack || file;
+      if (pick) this.setActiveIdle(pick.name);
     }
   }
 
@@ -61,18 +127,25 @@ class AssetStore {
   }
 
   setActiveIdle(name) {
-    const safe = safeName(name);
-    const target = path.join(this.idleDir, safe);
-    if (!fs.existsSync(target)) throw new Error(`no such idle asset: ${safe}`);
-    this.state.activeIdle = safe;
+    const desc = describeIdle(this.idleDir, name);
+    if (!desc) throw new Error(`no such idle asset: ${name}`);
+    this.state.activeIdle = desc.name;
     this._save();
-    return safe;
+    return desc.name;
   }
 
-  getActiveIdle() {
+  // Returns null or a description of the active idle:
+  //   { kind:'file', name }                      → single clip / image
+  //   { kind:'pack', name, manifest }            → state-machine animation
+  getActiveIdleDescription() {
     if (!this.state.activeIdle) return null;
-    const target = path.join(this.idleDir, this.state.activeIdle);
-    return fs.existsSync(target) ? this.state.activeIdle : null;
+    return describeIdle(this.idleDir, this.state.activeIdle);
+  }
+
+  // Legacy shim: name only.
+  getActiveIdle() {
+    const d = this.getActiveIdleDescription();
+    return d ? d.name : null;
   }
 }
 
@@ -82,29 +155,46 @@ function mount(app, { store, broadcast }) {
       destination: (_req, _file, cb) => cb(null, store.idleDir),
       filename:    (_req, file, cb) => cb(null, safeName(file.originalname)),
     }),
-    limits: { fileSize: 200 * 1024 * 1024 }, // 200 MB
+    limits: { fileSize: 500 * 1024 * 1024 }, // 500 MB — videos add up
     fileFilter: (_req, file, cb) => {
       const ext = path.extname(file.originalname).toLowerCase();
       cb(ALL_EXTS.has(ext) ? null : new Error('unsupported file type'), ALL_EXTS.has(ext));
     },
   });
 
-  // Static serve the raw files.
+  // Static serve the raw files (works for both flat files and pack subdirs).
   app.use('/assets/idle',   express.static(store.idleDir,   { fallthrough: false }));
   app.use('/assets/alerts', express.static(store.alertsDir, { fallthrough: false }));
 
-  // Active idle: 302 to the current pick, or 404 if none set.
+  // Full description of the active idle pick. Replaces the old 302 endpoint.
   app.get('/api/assets/idle/active', (_req, res) => {
-    const name = store.getActiveIdle();
-    if (!name) return res.status(404).json({ ok: false, err: 'no_active_idle' });
-    res.redirect(302, `/assets/idle/${encodeURIComponent(name)}`);
+    const d = store.getActiveIdleDescription();
+    if (!d) return res.status(404).json({ ok: false, err: 'no_active_idle' });
+    if (d.kind === 'file') {
+      return res.json({
+        ok: true,
+        kind: 'file',
+        name: d.name,
+        url:  `/assets/idle/${encodeURIComponent(d.name)}`,
+      });
+    }
+    // pack
+    return res.json({
+      ok: true,
+      kind: 'pack',
+      name: d.name,
+      baseUrl:  `/assets/idle/${encodeURIComponent(d.name)}/`,
+      manifest: d.manifest,
+    });
   });
 
   app.get('/api/assets/idle', (_req, res) => {
     res.json({
       ok: true,
       active: store.getActiveIdle(),
-      files: listFolder(store.idleDir),
+      entries: listIdle(store.idleDir),
+      // Back-compat for older clients that expect a flat file list.
+      files: listFolderFlat(store.idleDir),
     });
   });
 
@@ -134,11 +224,14 @@ function mount(app, { store, broadcast }) {
     const safe = safeName(req.params.name);
     const target = path.join(store.idleDir, safe);
     if (!fs.existsSync(target)) return res.status(404).json({ ok: false, err: 'not_found' });
-    fs.unlinkSync(target);
+    const stat = fs.statSync(target);
+    if (stat.isDirectory()) fs.rmSync(target, { recursive: true, force: true });
+    else fs.unlinkSync(target);
     if (store.state.activeIdle === safe) {
       store.state.activeIdle = null;
-      const remaining = listFolder(store.idleDir);
-      if (remaining.length > 0) store.setActiveIdle(remaining[0].name);
+      const remaining = listIdle(store.idleDir);
+      const pick = remaining[0];
+      if (pick) store.setActiveIdle(pick.name);
       else store._save();
       broadcast({ type: 'idle_changed', active: store.getActiveIdle() });
     }
