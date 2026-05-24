@@ -26,6 +26,11 @@
 
 * { box-sizing: border-box; }
 
+/* Force the HTML `hidden` attribute to win over component CSS that uses
+   `display: flex`/`grid`. Without this override the UA's `[hidden]
+   { display: none }` rule loses on specificity tie-breaks. */
+[hidden] { display: none !important; }
+
 html, body {
   margin: 0;
   padding: 0;
@@ -70,9 +75,11 @@ a { color: var(--accent); text-decoration: none; }
   background: var(--bg);
 }
 
-/* The cat / video player. We use two stacked <video> elements so we can
-   preload the next clip and hot-swap with zero black frame. The "active"
-   one is visible; the other is hidden, buffering. */
+/* The cat / video player. Two stacked <video> elements: the "active" one
+   sits on top via z-index, the other one buffers the next clip out of
+   sight underneath. Swap is instant (z-index flip) so the user never
+   sees the half-loaded black frame of a video element whose src was
+   just reassigned. */
 .idle-stage {
   position: absolute;
   inset: 0;
@@ -87,10 +94,9 @@ a { color: var(--accent); text-decoration: none; }
      the source clips at 600x1024 for the cleanest look. */
   object-fit: fill;
   background: var(--bg);
-  opacity: 0;
-  transition: opacity 0.12s linear;
+  z-index: 1;
 }
-.idle-media.active { opacity: 1; }
+.idle-media.active { z-index: 2; }
 .idle-image {
   position: absolute;
   inset: 0;
@@ -98,6 +104,7 @@ a { color: var(--accent); text-decoration: none; }
   height: 100%;
   object-fit: fill;
   background: var(--bg);
+  z-index: 3;
 }
 
 .idle-empty {
@@ -109,6 +116,8 @@ a { color: var(--accent); text-decoration: none; }
   text-align: center;
   color: var(--text-2);
   padding: 40px;
+  z-index: 12;
+  background: var(--bg);
 }
 .idle-empty .pill {
   display: inline-block;
