@@ -81,6 +81,9 @@ ExecStart=/bin/sh -c '\
     --disable-translate --disable-features=TranslateUI \
     --autoplay-policy=no-user-gesture-required \
     --start-fullscreen \
+    --disable-features=UseChromeOSDirectVideoDecoder,VaapiVideoDecoder,VaapiVideoEncoder,V4L2FlatVideoDecoder \
+    --disable-accelerated-video-decode \
+    --enable-features=UseSkiaRenderer \
     --app=http://localhost:${PORT:-3000}/'
 
 EnvironmentFile=-/opt/minivend/pi-app/.env
