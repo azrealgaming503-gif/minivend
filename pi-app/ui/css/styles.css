@@ -95,6 +95,16 @@ a { color: var(--accent); text-decoration: none; }
   object-fit: fill;
   background: var(--bg);
   z-index: 1;
+  /* Force these <video>s into the GPU compositor path (off the dedicated
+     hardware video overlay plane). Without this, Chromium on Pi 5 puts
+     each video on its own DRM plane and our z-index swap is meaningless
+     to the display controller — you see hardware planes tear at scanout.
+     A harmless filter is the smallest CSS trick that opts out of the
+     overlay; it has no visual effect but moves the video into the main
+     compositor surface where z-index + a canvas snapshot can mask the
+     swap perfectly. */
+  filter: brightness(1);
+  transform: translateZ(0);
 }
 .idle-media.active { z-index: 2; }
 /* Cover canvas: holds a snapshot of the previous frame during clip swaps
