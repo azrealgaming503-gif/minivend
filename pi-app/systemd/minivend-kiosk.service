@@ -50,11 +50,28 @@ ExecStartPre=/bin/sh -c 'until curl -fs http://localhost:${PORT:-3000}/ > /dev/n
 ExecStart=/bin/sh -c '\
   BIN=$(command -v chromium || command -v chromium-browser); \
   ( \
-    for i in 1 2 3 4 5 6 7 8 9 10; do \
+    echo "[kiosk-rotate] starting (KIOSK_ROTATE=${KIOSK_ROTATE} KIOSK_OUTPUT=${KIOSK_OUTPUT} XDG_RUNTIME_DIR=${XDG_RUNTIME_DIR})"; \
+    if [ "${KIOSK_ROTATE}" = "normal" ]; then \
+      echo "[kiosk-rotate] rotation=normal, skipping"; exit 0; \
+    fi; \
+    for i in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15; do \
       sleep 1; \
-      [ -S "${XDG_RUNTIME_DIR}/wayland-1" ] || continue; \
-      WAYLAND_DISPLAY=wayland-1 wlr-randr --output "${KIOSK_OUTPUT}" --transform "${KIOSK_ROTATE}" 2>/dev/null && exit 0; \
-    done \
+      sock=$(find "${XDG_RUNTIME_DIR}" -maxdepth 1 -type s -name "wayland-*" 2>/dev/null | head -n1); \
+      if [ -z "$sock" ]; then \
+        echo "[kiosk-rotate] try $i: no wayland socket yet in ${XDG_RUNTIME_DIR}"; \
+        continue; \
+      fi; \
+      wd=$(basename "$sock"); \
+      echo "[kiosk-rotate] try $i: socket=$wd, calling wlr-randr"; \
+      out=$(WAYLAND_DISPLAY="$wd" wlr-randr --output "${KIOSK_OUTPUT}" --transform "${KIOSK_ROTATE}" 2>&1); \
+      rc=$?; \
+      echo "[kiosk-rotate] wlr-randr rc=$rc out=$out"; \
+      if [ "$rc" = "0" ]; then \
+        echo "[kiosk-rotate] rotation applied successfully"; \
+        exit 0; \
+      fi; \
+    done; \
+    echo "[kiosk-rotate] FAILED after 15 tries"; \
   ) & \
   exec /usr/bin/cage -- "$BIN" \
     --kiosk \
