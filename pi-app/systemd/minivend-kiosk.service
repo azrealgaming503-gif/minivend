@@ -27,10 +27,17 @@ RuntimeDirectoryMode=0700
 Environment=XDG_RUNTIME_DIR=/run/minivend
 Environment=WLR_LIBINPUT_NO_DEVICES=1
 # Hide the compositor cursor. The installer ships /usr/share/icons/blank/
-# with a 1x1 fully-transparent cursor, so any pointer event from a
+# with a 32x32 fully-transparent cursor, so any pointer event from a
 # touchscreen (or a development USB mouse) renders nothing.
+#
+# WLR_NO_HARDWARE_CURSORS=1 is critical on the Pi 5: the VC4 DRM driver
+# uses a hardware cursor plane by default, which on some firmware revs
+# either displays a hardcoded default or rejects very small/transparent
+# cursor uploads and shows a fallback. Forcing the software cursor path
+# makes wlroots honor the XCURSOR_THEME we provide.
 Environment=XCURSOR_THEME=blank
-Environment=XCURSOR_SIZE=1
+Environment=XCURSOR_SIZE=32
+Environment=WLR_NO_HARDWARE_CURSORS=1
 # Rotate the kiosk display. Valid values: normal, 90, 180, 270, flipped-180.
 # (Applied via wlr-randr after cage launches — Trixie's cage build doesn't
 #  honor WLR_OUTPUT_TRANSFORM at startup, and the minimal cage CLI has no

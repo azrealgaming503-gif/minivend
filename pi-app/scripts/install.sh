@@ -248,31 +248,36 @@ udevadm trigger
 # is a 1x1 fully-transparent image and point XCURSOR_THEME at it.
 echo "==> Installing blank cursor theme (XCURSOR_THEME=blank) for kiosk"
 install -d -m 0755 /usr/share/icons/blank/cursors
+# IMPORTANT: do NOT include an `Inherits=` line. Some xcursor loaders
+# treat "self-inheriting" themes as invalid and fall back to the system
+# default theme (which has a real cursor). Omitting Inherits means "this
+# theme is standalone; do not fall back".
 cat >/usr/share/icons/blank/index.theme <<'EOF'
 [Icon Theme]
 Name=blank
-Comment=1x1 transparent cursor — used by the MiniVend kiosk to hide
- the compositor cursor on touchscreen-only hardware.
-Inherits=blank
+Comment=Fully-transparent cursor theme — used by the MiniVend kiosk to
+ hide the compositor cursor on touchscreen-only hardware.
 EOF
 cat >/usr/share/icons/blank/cursor.theme <<'EOF'
 [Icon Theme]
 Name=blank
-Inherits=blank
 EOF
-# Write the actual Xcursor file. Format reference:
+# Write the actual Xcursor file. We ship a 32x32 fully transparent image
+# (rather than 1x1) because some wlroots/DRM hardware-cursor paths reject
+# undersized cursors and fall back to a built-in default. Format ref:
 #   https://man.archlinux.org/man/Xcursor.3.en
 python3 - <<'PYEOF'
 import struct
-HEADER_MAGIC = b'Xcur'
-TYPE_IMAGE   = 0xfffd0002
-NOMINAL      = 1
+TYPE_IMAGE = 0xfffd0002
+SIZE = 32
 buf = bytearray()
-buf += HEADER_MAGIC
-buf += struct.pack('<III', 16, 0x10000, 1)
-buf += struct.pack('<III', TYPE_IMAGE, NOMINAL, 28)
-buf += struct.pack('<IIIIIIIII', 36, TYPE_IMAGE, NOMINAL, 1, 1, 1, 0, 0, 0)
-buf += struct.pack('<I', 0)
+buf += b'Xcur'
+buf += struct.pack('<III', 16, 0x10000, 1)             # hdr_size, version, ntoc
+buf += struct.pack('<III', TYPE_IMAGE, SIZE, 28)       # toc: type, subtype=nominal, pos
+buf += struct.pack('<IIIIIIIII',                        # image chunk header (36 bytes)
+    36, TYPE_IMAGE, SIZE, 1,                            #   hdr_size, type, subtype, ver
+    SIZE, SIZE, 0, 0, 0)                                #   w, h, xhot, yhot, delay
+buf += b'\x00\x00\x00\x00' * (SIZE * SIZE)              # SIZE*SIZE transparent ARGB px
 open('/usr/share/icons/blank/cursors/left_ptr', 'wb').write(bytes(buf))
 PYEOF
 chmod 0644 /usr/share/icons/blank/cursors/left_ptr
