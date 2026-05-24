@@ -243,55 +243,88 @@
         this.loopTimer = setTimeout(() => this._playTransition(), dur);
       }
 
-      _playTransition() {
+      // Start playing a video element while it's still hidden behind the
+      // active one, then resolve once the browser has actually painted its
+      // first frame. This warms up the Pi 5's vc4 hardware video decoder
+      // BEFORE we bring the element to the front, eliminating the ~50-100ms
+      // decoder-init flash that the user would otherwise see during the
+      // first frames of a freshly-played clip.
+      async _startInBackground(el, { loop }) {
+        el.loop = loop;
+        el.muted = true;
+        try { el.currentTime = 0; } catch (_) { /* ignore */ }
+        const playPromise = el.play();
+        if (playPromise && typeof playPromise.catch === 'function') {
+          playPromise.catch(() => { /* may be rejected on autoplay-policy; ignore */ });
+        }
+        await new Promise((resolve) => {
+          let done = false;
+          const finish = () => { if (done) return; done = true; resolve(); };
+          if (typeof el.requestVideoFrameCallback === 'function') {
+            // Fires once a new frame has been composited and is visible.
+            el.requestVideoFrameCallback(() => finish());
+          } else {
+            el.addEventListener('playing', finish, { once: true });
+          }
+          // Belt-and-suspenders timeout. We'd rather show a tiny gap than
+          // hang forever if the decoder is unresponsive.
+          setTimeout(finish, 600);
+        });
+      }
+
+      async _playTransition() {
         if (this.stopped) return;
         const step = this._step();
         if (!step.transition) { this._advance(); return; }
-        // BufferEl already has the transition preloaded. Swap to it; the
-        // z-index flip is instant so there's no overlap window.
+        // BufferEl already has the transition preloaded. Start it playing
+        // WHILE STILL HIDDEN behind the active element, wait for its first
+        // frame to render, then flip the z-index. User never sees the
+        // decoder warm up.
+        bufferEl.onended = null;
+        bufferEl.onerror = (e) => { console.warn('[idle] transition error', e); this._advance(); };
+        await this._startInBackground(bufferEl, { loop: false });
+        if (this.stopped) return;
         setActiveVideo(bufferEl);
-        activeEl.loop = false;
-        activeEl.onerror = (e) => { console.warn('[idle] transition error', e); this._advance(); };
         activeEl.onended = () => this._advance();
-        safePlay(activeEl);
-        // The element that was just playing the nap is now the buffer, sitting
-        // behind the active element. Wait a beat (so the just-finished frame
-        // isn't visibly mid-transition) before recycling it to preload the
-        // next nap clip. Setting .src clears the video element's frame to
-        // black, but since it's behind activeEl now, we don't see it.
+        // The element that was just playing the nap is now the (hidden)
+        // buffer. Recycle it for the next nap clip a beat later, so the
+        // src reassignment (which blanks the frame to black) happens well
+        // after the visible swap and stays invisible behind the new active.
         const nextStep = this.manifest.sequence[(this.index + 1) % this.manifest.sequence.length];
         if (nextStep && nextStep.loop) {
           setTimeout(() => {
             if (this.stopped) return;
             bufferEl.loop = true;
             preloadInto(bufferEl, this._absUrl(nextStep.loop));
-          }, 50);
+          }, 200);
         }
       }
 
-      _advance() {
+      async _advance() {
         if (this.stopped) return;
         this.index = (this.index + 1) % this.manifest.sequence.length;
-        // BufferEl has the new loop preloaded. Swap (instant z-index flip).
-        setActiveVideo(bufferEl);
         const step = this._step();
-        activeEl.loop = true;
-        activeEl.onended = null;
-        activeEl.onerror = (e) => { console.warn('[idle] loop error', e); this._advance(); };
+        bufferEl.onended = null;
+        bufferEl.onerror = (e) => { console.warn('[idle] loop error', e); this._advance(); };
         // Defensive: if the preload didn't happen (eg. last transition was
         // too short for the loop to buffer in time), set src now and accept
-        // a brief delay over a crash.
-        if (!activeEl.src) activeEl.src = this._absUrl(step.loop);
-        safePlay(activeEl);
+        // a small delay over a crash.
+        if (!bufferEl.src) {
+          bufferEl.src = this._absUrl(step.loop);
+          try { bufferEl.load(); } catch (_) { /* ignore */ }
+        }
+        await this._startInBackground(bufferEl, { loop: true });
+        if (this.stopped) return;
+        setActiveVideo(bufferEl);
         this._scheduleTransition();
-        // Preload the upcoming transition into the (now-buffer) element,
-        // slightly delayed so the frame swap completes first.
+        // Recycle the (now-buffer) element for the upcoming transition,
+        // delayed so the swap completes first.
         if (step.transition) {
           setTimeout(() => {
             if (this.stopped) return;
             bufferEl.loop = false;
             preloadInto(bufferEl, this._absUrl(step.transition));
-          }, 50);
+          }, 200);
         }
       }
     }
