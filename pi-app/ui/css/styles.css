@@ -575,3 +575,149 @@ a { color: var(--accent); text-decoration: none; }
 .game-card:active { transform: scale(0.98); border-color: var(--accent); }
 .game-card .game-title { font-size: 22px; font-weight: 600; }
 .game-card .game-sub   { font-size: 12px; color: var(--text-2); margin-top: 6px; text-transform: uppercase; letter-spacing: 0.06em; }
+
+/* ===== Pastel lavender + pink theme =====
+   Used by all "control" surfaces: menu, donations, motor, network,
+   idle, settings. The idle screen and game pages keep the dark
+   kitsune-flame theme because they're showcases / arcade vibes.
+   Apply by adding `class="theme-pastel"` to <body>. */
+body.theme-pastel {
+  --bg:        #f7eefc;
+  --bg-2:      #ffffff;
+  --surface:   #ffffff;
+  --stroke:    #e6d3f0;
+  --text:      #3d2e54;
+  --text-2:    #7b6593;
+  --accent:    #b886e5;   /* soft lavender */
+  --accent-2:  #ffa3d1;   /* soft pink */
+  --accent-warm: #ffb84d;
+  --danger:    #ef6a8f;
+  --success:   #6ec59a;
+
+  --glow-cyan:   0 6px 22px rgba(184, 134, 229, 0.35);
+  --glow-violet: 0 6px 22px rgba(255, 163, 209, 0.35);
+
+  background: var(--bg);
+  color: var(--text);
+}
+body.theme-pastel button {
+  background: var(--surface);
+  border: 1px solid var(--stroke);
+  color: var(--text);
+  box-shadow: 0 1px 0 rgba(255,255,255,0.6) inset;
+}
+body.theme-pastel button:active   { background: #f1e5f8; }
+body.theme-pastel button.primary  {
+  background: linear-gradient(135deg, var(--accent), var(--accent-2));
+  color: #fff;
+  border-color: transparent;
+  font-weight: 700;
+  box-shadow: 0 4px 14px rgba(184,134,229,0.35);
+}
+body.theme-pastel button.primary:active { transform: scale(0.98); }
+body.theme-pastel button.danger {
+  background: var(--danger); color: #fff;
+  border-color: transparent; font-weight: 700;
+}
+body.theme-pastel button.ghost { background: transparent; }
+body.theme-pastel a { color: #9669c6; }
+
+body.theme-pastel input, body.theme-pastel select {
+  background: var(--surface);
+  color: var(--text);
+  border: 1px solid var(--stroke);
+  border-radius: 10px;
+  padding: 10px 12px;
+  font-size: 15px;
+}
+body.theme-pastel input:focus, body.theme-pastel select:focus {
+  outline: none;
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px rgba(184,134,229,0.18);
+}
+
+/* Section card on pastel theme — soft shadows, no harsh dark fill. */
+body.theme-pastel .section {
+  background: var(--surface);
+  border: 1px solid var(--stroke);
+  border-radius: 18px;
+  padding: 18px 18px 16px;
+  margin-bottom: 16px;
+  box-shadow: 0 4px 14px rgba(123, 101, 147, 0.06);
+}
+body.theme-pastel .section h2 {
+  color: var(--accent);
+  letter-spacing: 0.08em;
+}
+
+body.theme-pastel .status-pill {
+  background: var(--surface);
+  border: 1px solid var(--stroke);
+  color: var(--text-2);
+  backdrop-filter: none;
+}
+
+/* Menu background — soft pink↔lavender gradient. */
+body.theme-pastel .menu-root {
+  background:
+    radial-gradient(circle at 30% 15%, rgba(255, 163, 209, 0.22), transparent 60%),
+    radial-gradient(circle at 70% 85%, rgba(184, 134, 229, 0.22), transparent 60%),
+    var(--bg);
+}
+body.theme-pastel .menu-tile {
+  background: var(--surface);
+  border: 1px solid var(--stroke);
+  color: var(--text);
+  box-shadow: 0 6px 18px rgba(155, 110, 195, 0.08);
+}
+body.theme-pastel .menu-tile.primary {
+  background:
+    linear-gradient(135deg, rgba(184,134,229,0.18), rgba(255,163,209,0.18)),
+    var(--surface);
+  border-color: rgba(184,134,229,0.45);
+  box-shadow: var(--glow-cyan);
+}
+body.theme-pastel .menu-tile-icon { color: var(--accent); }
+body.theme-pastel .menu-tile-sub  { color: var(--text-2); }
+body.theme-pastel .menu-footer    { border-top: 1px solid var(--stroke); }
+body.theme-pastel .menu-footer .pill-btn {
+  background: var(--surface);
+  border: 1px solid var(--stroke);
+  color: var(--text);
+}
+body.theme-pastel .swipe-hint { filter: drop-shadow(0 0 6px rgba(255,255,255,0.6)); }
+body.theme-pastel .swipe-hint-arrow { border-color: var(--accent); }
+body.theme-pastel .swipe-hint-label { color: var(--text-2); }
+
+/* Page chrome (settings-like inner pages) */
+body.theme-pastel .page-header { border-bottom: 1px solid var(--stroke); }
+body.theme-pastel .page-header h1 { color: var(--text); }
+
+body.theme-pastel .asset-row {
+  background: var(--surface);
+  border: 1px solid var(--stroke);
+}
+body.theme-pastel .asset-row.active {
+  border-color: var(--accent);
+  background: linear-gradient(135deg, rgba(184,134,229,0.06), rgba(255,163,209,0.06)), var(--surface);
+}
+body.theme-pastel .upload-zone {
+  border: 2px dashed var(--stroke);
+  color: var(--text-2);
+  background: rgba(255,255,255,0.6);
+}
+body.theme-pastel .upload-zone.hover { border-color: var(--accent); color: var(--text); }
+
+/* Friendly "Preinstalled" badge for the bundled cat pack. */
+.badge {
+  display: inline-block;
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  padding: 2px 8px;
+  border-radius: 999px;
+  border: 1px solid currentColor;
+  margin-left: 6px;
+}
+.badge.preinstalled { color: var(--accent); }
+.badge.active       { color: var(--success); }

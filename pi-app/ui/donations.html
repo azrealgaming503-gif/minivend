@@ -1,0 +1,310 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, user-scalable=no" />
+  <title>Donations · MiniVend</title>
+  <link rel="stylesheet" href="/css/styles.css" />
+</head>
+<body class="theme-pastel">
+  <div class="page">
+    <header class="page-header">
+      <h1>Donations</h1>
+      <a href="/menu"><button class="ghost">← Menu</button></a>
+    </header>
+
+    <div class="page-body">
+
+      <section class="section">
+        <h2>Donation tiers</h2>
+        <p class="meta" style="color: var(--text-2); font-size: 13px; margin: 0 0 12px;">
+          Map donation amounts to chambers. <strong>≥</strong> means
+          "at-least this amount", <strong>=</strong> means "exactly
+          this amount". Exact matches always win over thresholds.
+        </p>
+        <div id="tiers-list" class="col" style="gap: 10px;"></div>
+        <div class="row" style="margin-top: 12px;">
+          <button id="tiers-add">Add tier</button>
+          <button id="tiers-save" class="primary">Save tiers</button>
+          <span id="tiers-status" class="meta" style="color: var(--text-2); font-size: 13px;"></span>
+        </div>
+      </section>
+
+      <section class="section">
+        <h2>Chamber labels</h2>
+        <div class="row" style="gap: 18px; flex-wrap: wrap;">
+          <label class="col" style="gap: 4px;">
+            <span class="meta" style="color: var(--text-2); font-size: 13px;">Chamber 1</span>
+            <input id="label-1" type="text" maxlength="32" />
+          </label>
+          <label class="col" style="gap: 4px;">
+            <span class="meta" style="color: var(--text-2); font-size: 13px;">Chamber 2</span>
+            <input id="label-2" type="text" maxlength="32" />
+          </label>
+          <button id="labels-save" class="primary" style="align-self: end;">Save labels</button>
+        </div>
+      </section>
+
+      <section class="section">
+        <h2>Dispense cooldown</h2>
+        <div class="row" style="justify-content: space-between; align-items: center;">
+          <div>
+            <div>Minimum seconds between dispenses</div>
+            <div class="meta" style="color: var(--text-2); font-size: 13px;">
+              Tips that arrive during cooldown still show their alert
+              and are logged; the motor is held until cooldown expires.
+              Set 0 to disable.
+            </div>
+          </div>
+          <div class="row" style="align-items: center; gap: 8px;">
+            <input id="cooldown-input" type="number" min="0" max="3600" step="1" style="width: 96px;" />
+            <span class="meta" style="color: var(--text-2);">sec</span>
+            <button id="cooldown-save" class="primary">Save</button>
+          </div>
+        </div>
+      </section>
+
+      <section class="section">
+        <h2>Donation history</h2>
+        <div class="row" style="justify-content: space-between; align-items: center;">
+          <span id="history-summary" class="meta" style="color: var(--text-2); font-size: 13px;">loading...</span>
+          <div class="row">
+            <button id="history-refresh" class="ghost">Refresh</button>
+            <button id="history-clear" class="danger">Clear</button>
+          </div>
+        </div>
+        <div id="history-list" style="margin-top: 12px; max-height: 360px; overflow: auto;
+                                      border: 1px solid var(--stroke); border-radius: 12px; background: var(--surface);">
+        </div>
+      </section>
+
+    </div>
+  </div>
+
+  <script type="module">
+    import { onMessage } from '/js/ws-client.js';
+    import '/js/alerts.js';
+
+    // ===== Tier editor =====
+    const tiersList   = document.getElementById('tiers-list');
+    const tiersAdd    = document.getElementById('tiers-add');
+    const tiersSave   = document.getElementById('tiers-save');
+    const tiersStatus = document.getElementById('tiers-status');
+    let workingTiers  = [];
+
+    function renderTiers() {
+      tiersList.innerHTML = '';
+      if (workingTiers.length === 0) {
+        tiersList.innerHTML = '<div class="meta" style="color: var(--text-2);">' +
+          'No tiers — all donations will be skipped. Add at least one.</div>';
+        return;
+      }
+      workingTiers.forEach((t, i) => {
+        const row = document.createElement('div');
+        row.className = 'row';
+        row.style.cssText = 'gap: 8px; flex-wrap: wrap; align-items: center;';
+        row.innerHTML = `
+          <select data-match style="width: 64px;">
+            <option value="gte">≥</option>
+            <option value="eq">=</option>
+          </select>
+          <span class="meta" style="color: var(--text-2);">$</span>
+          <input type="number" min="0" step="0.01" data-min style="width: 110px;" />
+          <span class="meta" style="color: var(--text-2);">→</span>
+          <select data-motor style="width: 120px;">
+            <option value="1">Chamber 1</option>
+            <option value="2">Chamber 2</option>
+          </select>
+          <button class="danger" data-remove>Remove</button>
+        `;
+        const matchSel = row.querySelector('[data-match]');
+        const minInput = row.querySelector('[data-min]');
+        const motorSel = row.querySelector('[data-motor]');
+        matchSel.value = t.match || 'gte';
+        minInput.value = t.minAmount;
+        motorSel.value = String(t.motor);
+        matchSel.addEventListener('change', () => {
+          workingTiers[i].match = matchSel.value === 'eq' ? 'eq' : 'gte';
+        });
+        minInput.addEventListener('input', () => {
+          workingTiers[i].minAmount = parseFloat(minInput.value) || 0;
+        });
+        motorSel.addEventListener('change', () => {
+          workingTiers[i].motor = parseInt(motorSel.value, 10);
+        });
+        row.querySelector('[data-remove]').addEventListener('click', () => {
+          workingTiers.splice(i, 1); renderTiers();
+        });
+        tiersList.appendChild(row);
+      });
+    }
+    tiersAdd.addEventListener('click', () => {
+      workingTiers.push({ minAmount: 1, motor: 1, match: 'gte' });
+      renderTiers();
+    });
+    tiersSave.addEventListener('click', async () => {
+      tiersStatus.textContent = 'Saving...';
+      try {
+        const r = await fetch('/api/settings', {
+          method: 'PUT',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ dispenseTiers: workingTiers }),
+        });
+        const j = await r.json();
+        if (!j.ok) { tiersStatus.textContent = `Error: ${j.err || 'unknown'}`; return; }
+        workingTiers = j.settings.dispenseTiers.map((t) => ({ ...t }));
+        renderTiers();
+        tiersStatus.textContent = `Saved · ${workingTiers.length} tier(s)`;
+      } catch (e) {
+        tiersStatus.textContent = `Save failed: ${e.message}`;
+      }
+    });
+
+    // ===== Chamber labels =====
+    const label1 = document.getElementById('label-1');
+    const label2 = document.getElementById('label-2');
+    document.getElementById('labels-save').addEventListener('click', async () => {
+      const r = await fetch('/api/settings', {
+        method: 'PUT',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ chamberLabels: { 1: label1.value, 2: label2.value } }),
+      });
+      const j = await r.json();
+      if (j.ok) {
+        label1.value = j.settings.chamberLabels[1];
+        label2.value = j.settings.chamberLabels[2];
+      }
+    });
+
+    // ===== Cooldown =====
+    const cooldownInput = document.getElementById('cooldown-input');
+    document.getElementById('cooldown-save').addEventListener('click', async () => {
+      const sec = parseInt(cooldownInput.value, 10);
+      const r = await fetch('/api/settings', {
+        method: 'PUT',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ dispenseCooldownSec: sec }),
+      });
+      const j = await r.json();
+      if (j.ok) cooldownInput.value = j.settings.dispenseCooldownSec;
+    });
+
+    // ===== Apply settings to all inputs =====
+    function applySettings(s) {
+      if (!s) return;
+      if (Array.isArray(s.dispenseTiers)) {
+        workingTiers = s.dispenseTiers.map((t) => ({ ...t }));
+        renderTiers();
+      }
+      if (s.chamberLabels) {
+        label1.value = s.chamberLabels[1] || 'Left';
+        label2.value = s.chamberLabels[2] || 'Right';
+      }
+      if (Number.isFinite(s.dispenseCooldownSec)) {
+        cooldownInput.value = s.dispenseCooldownSec;
+      }
+    }
+    onMessage('settings_changed', (m) => applySettings(m.settings));
+
+    // ===== Donation history =====
+    const historyList    = document.getElementById('history-list');
+    const historySummary = document.getElementById('history-summary');
+    function fmtMoney(amt, ccy) {
+      try {
+        return new Intl.NumberFormat(undefined, {
+          style: 'currency', currency: ccy || 'USD', maximumFractionDigits: 2,
+        }).format(Number(amt) || 0);
+      } catch (_) { return `$${(Number(amt) || 0).toFixed(2)}`; }
+    }
+    function fmtTs(ts) { return new Date(ts).toLocaleString(); }
+    function statusBadge(s) {
+      const colors = {
+        dropped: 'var(--success)', jam: 'var(--danger)',
+        skipped_no_tier: 'var(--accent-warm)', skipped_motor_offline: 'var(--accent-warm)',
+        queued: 'var(--text-2)', dispensing: 'var(--accent)', done: 'var(--success)',
+      };
+      const color = colors[s] || 'var(--text-2)';
+      return `<span style="display:inline-block; padding:2px 8px; border-radius:10px;
+                          font-size:11px; text-transform:uppercase; letter-spacing:0.04em;
+                          color:${color}; border:1px solid ${color};">${s}</span>`;
+    }
+    async function refreshHistory() {
+      try {
+        const j = await (await fetch('/api/donations/history?limit=100')).json();
+        if (!j.ok) return;
+        historyList.innerHTML = '';
+        if (j.entries.length === 0) {
+          historyList.innerHTML = '<div class="meta" style="color: var(--text-2); padding: 16px;">No donations yet.</div>';
+          historySummary.textContent = '0 entries';
+          return;
+        }
+        const total = j.entries.reduce((sum, e) =>
+          (e.status === 'dropped' || e.status === 'done') ? sum + (Number(e.amount) || 0) : sum, 0);
+        historySummary.textContent =
+          `${j.entries.length} entries · ${fmtMoney(total)} dispensed`;
+        for (const e of j.entries) {
+          const row = document.createElement('div');
+          row.style.cssText = 'display:grid; grid-template-columns: 110px 1fr auto auto; gap:10px; align-items:center; padding:10px 12px; border-bottom:1px solid var(--stroke);';
+          row.innerHTML = `
+            <span class="meta" style="color: var(--text-2); font-size: 11px;"></span>
+            <div>
+              <div style="font-weight:600;"></div>
+              <div class="meta" style="color: var(--text-2); font-size: 12px;"></div>
+            </div>
+            <div style="font-weight:700; color: var(--accent);"></div>
+            <div></div>
+          `;
+          const cells = row.children;
+          cells[0].textContent = fmtTs(e.ts);
+          cells[1].children[0].textContent = e.name;
+          cells[1].children[1].textContent =
+            `${e.source}${e.motor ? ' · chamber ' + e.motor : ''}${e.detail ? ' · ' + e.detail : ''}`;
+          cells[2].textContent = fmtMoney(e.amount, e.currency);
+          cells[3].innerHTML = statusBadge(e.status);
+          historyList.appendChild(row);
+        }
+      } catch (e) {
+        historySummary.textContent = `Error: ${e.message}`;
+      }
+    }
+    document.getElementById('history-refresh').addEventListener('click', refreshHistory);
+    document.getElementById('history-clear').addEventListener('click', async () => {
+      if (!confirm('Clear the entire donation history? This cannot be undone.')) return;
+      await fetch('/api/donations/history', { method: 'DELETE' });
+      refreshHistory();
+    });
+    onMessage('donation', refreshHistory);
+    onMessage('donation_done', refreshHistory);
+    onMessage('donation_skipped', refreshHistory);
+    onMessage('donations_history_cleared', refreshHistory);
+
+    // ===== Auto-return to idle =====
+    let kioskIdleTimeoutMs = 30_000;
+    let autoReturnTimer = null;
+    function bumpAutoReturn() {
+      clearTimeout(autoReturnTimer);
+      autoReturnTimer = setTimeout(() => { location.href = '/'; }, kioskIdleTimeoutMs);
+    }
+    ['pointerdown', 'touchstart', 'keydown', 'mousemove'].forEach((evt) =>
+      window.addEventListener(evt, bumpAutoReturn, { passive: true })
+    );
+    bumpAutoReturn();
+
+    async function bootstrap() {
+      try {
+        const r = await fetch('/api/state');
+        const j = await r.json();
+        if (j && j.ok) {
+          applySettings(j.settings);
+          if (Number.isFinite(j.settings.kioskIdleTimeoutSec)) {
+            kioskIdleTimeoutMs = j.settings.kioskIdleTimeoutSec * 1000;
+            bumpAutoReturn();
+          }
+        }
+      } catch (_) {}
+      refreshHistory();
+    }
+    bootstrap();
+  </script>
+</body>
+</html>

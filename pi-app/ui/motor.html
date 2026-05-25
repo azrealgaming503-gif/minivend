@@ -1,0 +1,155 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, user-scalable=no" />
+  <title>Motor · MiniVend</title>
+  <link rel="stylesheet" href="/css/styles.css" />
+</head>
+<body class="theme-pastel">
+  <div class="page">
+    <header class="page-header">
+      <h1>Motor controls</h1>
+      <a href="/menu"><button class="ghost">← Menu</button></a>
+    </header>
+
+    <div class="page-body">
+
+      <section class="section">
+        <h2>Status</h2>
+        <div class="row" style="gap: 14px; align-items: center; flex-wrap: wrap;">
+          <span class="status-pill"><span id="motor-dot" class="dot"></span><span id="motor-label">checking...</span></span>
+          <span class="meta" id="motor-port" style="color: var(--text-2); font-size: 13px;"></span>
+        </div>
+        <div class="meta" style="color: var(--text-2); font-size: 13px; margin-top: 10px;">
+          The ESP32 stepper controller is detected automatically when
+          plugged in via USB-serial. If status stays "offline", check
+          the cable and that <code>/dev/minivend-motor</code> exists.
+        </div>
+      </section>
+
+      <section class="section">
+        <h2>Test dispense</h2>
+        <p class="meta" style="color: var(--text-2); font-size: 13px; margin: 0 0 12px;">
+          Fires a single dispense pulse on the selected chamber.
+          Useful for clearing a jam, priming a fresh hopper, or
+          double-checking the motor wiring after maintenance.
+        </p>
+        <div class="row" style="gap: 12px; flex-wrap: wrap;">
+          <button class="primary" data-dispense="1">Dispense — Chamber 1</button>
+          <button class="primary" data-dispense="2">Dispense — Chamber 2</button>
+        </div>
+        <p id="dispense-result" class="meta" style="margin-top: 10px; color: var(--text-2); min-height: 1.2em;"></p>
+      </section>
+
+      <section class="section">
+        <h2>Emergency stop</h2>
+        <p class="meta" style="color: var(--text-2); font-size: 13px; margin: 0 0 12px;">
+          Cuts power to both stepper drivers immediately. Use if you
+          see a jam developing or hear an unusual noise.
+        </p>
+        <button class="danger" id="estop" style="font-size: 18px; padding: 18px 32px;">
+          ■ STOP all motors
+        </button>
+      </section>
+
+      <section class="section">
+        <h2>Recent firmware log</h2>
+        <div class="meta" style="color: var(--text-2); font-size: 12px; margin-bottom: 8px;">
+          Live tail of replies from the ESP32 (OK / SENSOR / STATUS / ERR).
+        </div>
+        <pre id="motor-log" style="margin: 0; max-height: 220px; overflow:auto;
+                                    background: var(--bg); color: var(--text-2);
+                                    font-size: 12px; padding: 10px; border-radius: 10px;
+                                    border: 1px solid var(--stroke); white-space: pre-wrap;"></pre>
+      </section>
+
+    </div>
+  </div>
+
+  <script type="module">
+    import { onMessage } from '/js/ws-client.js';
+    import '/js/alerts.js';
+
+    const dot      = document.getElementById('motor-dot');
+    const label    = document.getElementById('motor-label');
+    const port     = document.getElementById('motor-port');
+    const result   = document.getElementById('dispense-result');
+    const motorLog = document.getElementById('motor-log');
+
+    function setMotorStatus(connected, fw, portName) {
+      dot.classList.toggle('ok',   !!connected);
+      dot.classList.toggle('warn', !connected);
+      label.textContent = connected
+        ? `motor · ok${fw ? ' · ' + fw : ''}`
+        : 'motor · offline';
+      if (portName) port.textContent = `port: ${portName}`;
+    }
+
+    function appendLog(line) {
+      const ts = new Date().toLocaleTimeString();
+      motorLog.textContent += `[${ts}] ${line}\n`;
+      motorLog.scrollTop = motorLog.scrollHeight;
+      const lines = motorLog.textContent.split('\n');
+      if (lines.length > 120) {
+        motorLog.textContent = lines.slice(-120).join('\n');
+      }
+    }
+
+    document.querySelectorAll('[data-dispense]').forEach((btn) => {
+      btn.addEventListener('click', async () => {
+        const m = parseInt(btn.dataset.dispense, 10);
+        result.textContent = `Chamber ${m}: dispensing...`;
+        const r = await fetch('/api/dispense', {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ motor: m }),
+        });
+        const j = await r.json().catch(() => ({}));
+        if (!j.ok) result.textContent = `Chamber ${m}: error · ${j.err || 'unknown'}`;
+      });
+    });
+
+    document.getElementById('estop').addEventListener('click', async () => {
+      result.textContent = 'STOP sent';
+      await fetch('/api/stop', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({}),
+      });
+    });
+
+    onMessage('motor_status', (m) => setMotorStatus(m.connected, undefined, m.port));
+    onMessage('motor_ready',  (m) => setMotorStatus(true, m.fw));
+    onMessage('motor_reply',  (m) => appendLog(m.line));
+    onMessage('dispense_done', (m) => {
+      const detail = m.kind === 'dropped' ? `dropped in ${m.ms}ms`
+                   : m.kind === 'jam'     ? 'JAM — no drop detected'
+                   : 'done';
+      result.textContent = `Chamber ${m.motor}: ${detail}`;
+    });
+
+    // Auto-return to idle.
+    let kioskIdleTimeoutMs = 30_000;
+    let autoReturnTimer = null;
+    function bumpAutoReturn() {
+      clearTimeout(autoReturnTimer);
+      autoReturnTimer = setTimeout(() => { location.href = '/'; }, kioskIdleTimeoutMs);
+    }
+    ['pointerdown', 'touchstart', 'keydown', 'mousemove'].forEach((evt) =>
+      window.addEventListener(evt, bumpAutoReturn, { passive: true })
+    );
+    bumpAutoReturn();
+
+    fetch('/api/state').then((r) => r.json()).then((j) => {
+      if (j && j.ok) {
+        setMotorStatus(j.motorConnected, j.motorFw);
+        if (j.settings && Number.isFinite(j.settings.kioskIdleTimeoutSec)) {
+          kioskIdleTimeoutMs = j.settings.kioskIdleTimeoutSec * 1000;
+          bumpAutoReturn();
+        }
+      }
+    }).catch(() => {});
+  </script>
+</body>
+</html>

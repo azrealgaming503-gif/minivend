@@ -1,0 +1,398 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, user-scalable=no" />
+  <title>Network · MiniVend</title>
+  <link rel="stylesheet" href="/css/styles.css" />
+</head>
+<body class="theme-pastel">
+  <div class="page">
+    <header class="page-header">
+      <h1>Network &amp; accounts</h1>
+      <a href="/menu"><button class="ghost">← Menu</button></a>
+    </header>
+
+    <div class="page-body">
+
+      <section class="section">
+        <h2>Wi-Fi</h2>
+        <div id="wifi-info" class="row" style="justify-content: space-between; gap: 14px; flex-wrap: wrap;">
+          <div>
+            <div id="wifi-summary">checking...</div>
+            <div id="wifi-detail" class="meta" style="color: var(--text-2); font-size: 13px;"></div>
+          </div>
+          <div class="row" style="gap: 8px; flex-wrap: wrap;">
+            <button id="wifi-refresh" class="ghost">Refresh</button>
+            <button id="wifi-show-ip">Show IP</button>
+            <button id="wifi-forget" class="danger">Forget Wi-Fi</button>
+          </div>
+        </div>
+        <p class="meta" style="color: var(--text-2); font-size: 13px; margin-top: 10px;">
+          "Forget Wi-Fi" disconnects from the current network and re-opens
+          the captive-portal setup access point so a phone or laptop can
+          re-provision the device.
+        </p>
+      </section>
+
+      <section class="section">
+        <h2>StreamElements live feed</h2>
+        <p class="meta" style="color: var(--text-2); font-size: 13px; margin: 0 0 12px;">
+          Connect the kiosk to your StreamElements account so tips
+          stream in live without webhooks or port forwarding.
+          Outbound connections only — nothing is exposed to the
+          internet.
+        </p>
+        <div id="se-status" class="row"
+             style="justify-content: space-between; align-items: center; gap: 12px; flex-wrap: wrap;">
+          <div>
+            <div><span class="status-pill"><span id="se-dot" class="dot"></span><span id="se-label">checking...</span></span></div>
+            <div id="se-detail" class="meta" style="color: var(--text-2); font-size: 13px; margin-top: 4px;"></div>
+          </div>
+          <div class="row" style="gap: 8px; flex-wrap: wrap;">
+            <button id="se-connect" class="primary">Connect from phone</button>
+            <button id="se-disconnect" class="danger" hidden>Disconnect</button>
+            <button id="se-advanced" class="ghost">Paste JWT here</button>
+          </div>
+        </div>
+
+        <div id="se-phone-pairing" hidden style="margin-top: 16px; padding: 14px;
+                                                 border: 1px solid var(--stroke); border-radius: 12px;
+                                                 background: var(--bg);">
+          <div class="row" style="gap: 16px; align-items: flex-start; flex-wrap: wrap;">
+            <div id="se-phone-qr" style="background: #fff; padding: 8px; border-radius: 8px;
+                                          width: 200px; height: 200px;
+                                          display: flex; align-items: center; justify-content: center;
+                                          color: #000; font-size: 12px;">generating QR...</div>
+            <div class="col" style="gap: 8px; flex: 1; min-width: 220px;">
+              <div style="font-weight: 600;">1. Scan with your phone</div>
+              <div class="meta" style="color: var(--text-2); font-size: 13px;">
+                Phone must be on the same Wi-Fi as the kiosk. Scanning
+                opens this Network page on your phone with the JWT
+                input pre-focused.
+              </div>
+              <div style="font-weight: 600; margin-top: 4px;">2. On your phone</div>
+              <div class="meta" style="color: var(--text-2); font-size: 13px;">
+                Open <a href="https://streamelements.com/dashboard/account/channels"
+                        target="_blank">streamelements.com/dashboard/account/channels</a>
+                in another tab, copy the JWT, then paste it on the
+                kiosk page and tap Save.
+              </div>
+              <div class="meta" style="color: var(--text-2); font-size: 12px; word-break: break-all; margin-top: 6px;">
+                or open this URL manually: <a id="se-phone-url" href="#" target="_blank"></a>
+              </div>
+              <div class="row" style="margin-top: 4px;">
+                <button id="se-phone-cancel" class="ghost">Done</button>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div id="se-jwt-panel" hidden style="margin-top: 16px; padding: 14px;
+                                              border: 1px solid var(--stroke); border-radius: 12px;
+                                              background: var(--bg);">
+          <div style="font-weight: 600; margin-bottom: 6px;">Paste JWT</div>
+          <div class="meta" style="color: var(--text-2); font-size: 12px; margin-bottom: 10px;">
+            Grab your JWT from
+            <a href="https://streamelements.com/dashboard/account/channels" target="_blank">
+              streamelements.com/dashboard/account/channels</a>
+            (click "Show Secret"). The token is stored locally only.
+          </div>
+          <div class="row" style="gap: 8px; align-items: stretch;">
+            <input id="se-jwt-input" type="password" placeholder="paste JWT here"
+                   style="flex: 1; font-family: monospace;" />
+            <button id="se-jwt-save" class="primary">Save</button>
+          </div>
+          <div id="se-jwt-status" class="meta" style="color: var(--text-2); font-size: 13px; margin-top: 8px; min-height: 1.2em;"></div>
+        </div>
+      </section>
+
+      <section class="section">
+        <h2>Software updates</h2>
+        <div class="row" style="justify-content: space-between; gap: 14px; flex-wrap: wrap;">
+          <div>
+            <div>Current: <span id="sw-current">...</span></div>
+            <div id="sw-latest" class="meta" style="color: var(--text-2); font-size: 13px;"></div>
+          </div>
+          <div class="row" style="gap: 8px;">
+            <button id="sw-check">Check for updates</button>
+            <button id="sw-apply" class="primary" disabled>Apply update</button>
+          </div>
+        </div>
+        <pre id="sw-log" style="margin-top: 12px; max-height: 160px; overflow:auto;
+                                background: var(--bg); color: var(--text-2);
+                                font-size: 12px; padding: 10px; border-radius: 10px;
+                                border: 1px solid var(--stroke); display: none; white-space: pre-wrap;"></pre>
+      </section>
+
+    </div>
+  </div>
+
+  <script type="module">
+    import { onMessage } from '/js/ws-client.js';
+    import '/js/alerts.js';
+
+    // ===== Wi-Fi (with IP hidden behind a confirm) =====
+    const wifiSummary  = document.getElementById('wifi-summary');
+    const wifiDetail   = document.getElementById('wifi-detail');
+    const wifiShowIp   = document.getElementById('wifi-show-ip');
+    let cachedIp = null;
+    let cachedIface = null;
+    let ipRevealTimer = null;
+    let ipHidden = true;
+
+    function renderWifiDetail(detailBits, opts = {}) {
+      // detailBits: array like ["hostname: minivend"]
+      const bits = [...detailBits];
+      if (!ipHidden && cachedIp) bits.push(`ip: ${cachedIp}${cachedIface ? ` (${cachedIface})` : ''}`);
+      wifiDetail.textContent = bits.join(' · ');
+    }
+
+    let lastWifiBits = [];
+    async function refreshWifi() {
+      wifiSummary.textContent = 'checking...';
+      wifiDetail.textContent = '';
+      try {
+        const j = await (await fetch('/api/wifi')).json();
+        if (!j.ok) { wifiSummary.textContent = 'unknown'; return; }
+        if (j.setupMode) {
+          wifiSummary.textContent = `Setup AP active — connect a phone to "${j.ssid}"`;
+        } else if (j.connected) {
+          wifiSummary.textContent = `Connected to ${j.ssid}`;
+        } else {
+          wifiSummary.textContent = 'Not connected to Wi-Fi';
+        }
+        cachedIp    = j.ip || null;
+        cachedIface = j.iface || null;
+        lastWifiBits = j.hostname ? [`hostname: ${j.hostname}`] : [];
+        renderWifiDetail(lastWifiBits);
+      } catch (_) {
+        wifiSummary.textContent = 'unknown';
+      }
+    }
+    wifiShowIp.addEventListener('click', () => {
+      if (!cachedIp) return alert('No IP detected yet. Tap Refresh first.');
+      if (ipHidden) {
+        if (!confirm('Show the kiosk\'s LAN IP on screen? Anyone watching the stream will see it.\n\nIt will auto-hide in 10 seconds.')) return;
+        ipHidden = false;
+        wifiShowIp.textContent = 'Hide IP';
+        renderWifiDetail(lastWifiBits);
+        clearTimeout(ipRevealTimer);
+        ipRevealTimer = setTimeout(() => {
+          ipHidden = true;
+          wifiShowIp.textContent = 'Show IP';
+          renderWifiDetail(lastWifiBits);
+        }, 10_000);
+      } else {
+        ipHidden = true;
+        wifiShowIp.textContent = 'Show IP';
+        renderWifiDetail(lastWifiBits);
+        clearTimeout(ipRevealTimer);
+      }
+    });
+    document.getElementById('wifi-refresh').addEventListener('click', refreshWifi);
+    document.getElementById('wifi-forget').addEventListener('click', async () => {
+      if (!confirm('Forget current Wi-Fi network? The device will reboot into setup mode.')) return;
+      await fetch('/api/wifi/forget', { method: 'POST' });
+      wifiSummary.textContent = 'Forget command sent — device will switch to setup mode shortly.';
+    });
+    refreshWifi();
+
+    // ===== StreamElements connection =====
+    const seDot         = document.getElementById('se-dot');
+    const seLabel       = document.getElementById('se-label');
+    const seDetail      = document.getElementById('se-detail');
+    const seConnectBtn  = document.getElementById('se-connect');
+    const seDisconnectBtn = document.getElementById('se-disconnect');
+    const seAdvancedBtn = document.getElementById('se-advanced');
+    const sePhonePairing = document.getElementById('se-phone-pairing');
+    const sePhoneQrBox  = document.getElementById('se-phone-qr');
+    const sePhoneUrl    = document.getElementById('se-phone-url');
+    const sePhoneCancel = document.getElementById('se-phone-cancel');
+    const seJwtPanel    = document.getElementById('se-jwt-panel');
+    const seJwtInput    = document.getElementById('se-jwt-input');
+    const seJwtSave     = document.getElementById('se-jwt-save');
+    const seJwtStatus   = document.getElementById('se-jwt-status');
+    let seHasRelay = false;
+
+    function fmtAgo(ts) {
+      if (!ts) return '';
+      const s = Math.floor((Date.now() - ts) / 1000);
+      if (s < 60)    return `${s}s ago`;
+      if (s < 3600)  return `${Math.floor(s / 60)}m ago`;
+      if (s < 86400) return `${Math.floor(s / 3600)}h ago`;
+      return `${Math.floor(s / 86400)}d ago`;
+    }
+    function renderSeStatus(s) {
+      if (!s) return;
+      seHasRelay = !!s.hasRelay;
+      const connected = !!s.connected;
+      const configured = !!s.configured || !!(s.account && s.account.username);
+      seDot.classList.toggle('ok',   connected);
+      seDot.classList.toggle('warn', configured && !connected);
+      if (connected) {
+        seLabel.textContent = `connected as ${s.account && (s.account.displayName || s.account.username) || '?'}`;
+      } else if (configured) {
+        seLabel.textContent = 'linked, reconnecting...';
+      } else {
+        seLabel.textContent = 'not connected';
+      }
+      const bits = [];
+      if (s.mode)        bits.push(`mode: ${s.mode}`);
+      if (s.account && s.account.provider) bits.push(`provider: ${s.account.provider}`);
+      if (s.lastEventAt) bits.push(`last tip: ${fmtAgo(s.lastEventAt)}`);
+      if (s.lastError)   bits.push(`error: ${s.lastError}`);
+      seDetail.textContent = bits.join(' · ');
+      seDisconnectBtn.hidden = !configured;
+      const verb = configured ? 'Re-connect' : 'Connect';
+      seConnectBtn.textContent = seHasRelay ? verb : `${verb} from phone`;
+    }
+    async function fetchSeStatus() {
+      try {
+        const j = await (await fetch('/api/integrations/streamelements/status')).json();
+        if (j.ok) renderSeStatus(j.status);
+      } catch (_) {}
+    }
+    function closePhonePanel() { sePhonePairing.hidden = true; }
+    async function startPhonePairing() {
+      seJwtPanel.hidden = true;
+      sePhonePairing.hidden = false;
+      sePhoneQrBox.innerHTML = 'detecting IP...';
+      try {
+        const w  = await (await fetch('/api/wifi')).json();
+        const ip = (w && w.ok && w.ip) || location.hostname;
+        const port = location.port || '3000';
+        const url = `http://${ip}:${port}/network?focus=se-jwt`;
+        sePhoneUrl.textContent = url;
+        sePhoneUrl.href = url;
+        const qrSvgUrl = `/api/integrations/streamelements/qr?url=${encodeURIComponent(url)}`;
+        sePhoneQrBox.innerHTML =
+          `<img src="${qrSvgUrl}" alt="phone pairing QR" style="width: 100%; height: 100%; display: block;"/>`;
+      } catch (e) {
+        sePhoneQrBox.innerHTML =
+          `<span style="color:#900; padding:8px; text-align:center;">${e.message}</span>`;
+      }
+    }
+    seConnectBtn.addEventListener('click', startPhonePairing);
+    sePhoneCancel.addEventListener('click', closePhonePanel);
+    seAdvancedBtn.addEventListener('click', () => {
+      closePhonePanel();
+      seJwtPanel.hidden = !seJwtPanel.hidden;
+      if (!seJwtPanel.hidden) seJwtInput.focus();
+    });
+    seDisconnectBtn.addEventListener('click', async () => {
+      if (!confirm('Disconnect StreamElements? The kiosk will stop receiving live tips until you re-connect.')) return;
+      seJwtStatus.textContent = '';
+      await fetch('/api/integrations/streamelements/disconnect', { method: 'POST' });
+      await fetchSeStatus();
+    });
+    seJwtSave.addEventListener('click', async () => {
+      const jwt = seJwtInput.value.trim();
+      if (!jwt) { seJwtStatus.textContent = 'Paste your JWT first.'; return; }
+      seJwtStatus.textContent = 'Validating...';
+      const r = await (await fetch('/api/integrations/streamelements/jwt', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ jwt }),
+      })).json();
+      if (r.ok) {
+        seJwtStatus.textContent = 'Saved. Connecting...';
+        seJwtInput.value = '';
+        await fetchSeStatus();
+        setTimeout(() => { seJwtPanel.hidden = true; seJwtStatus.textContent = ''; }, 1500);
+      } else {
+        seJwtStatus.textContent = `Error: ${r.err}`;
+      }
+    });
+    onMessage('streamelements_state', (m) => renderSeStatus(m.state));
+    fetchSeStatus();
+
+    // Phone-deep-link to JWT panel.
+    (function maybeAutoFocusSeJwt() {
+      const params = new URLSearchParams(location.search);
+      if (params.get('focus') !== 'se-jwt') return;
+      seJwtPanel.hidden = false;
+      setTimeout(() => {
+        seJwtPanel.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        seJwtInput.focus();
+      }, 50);
+    })();
+
+    // ===== Software updates =====
+    const swCurrent = document.getElementById('sw-current');
+    const swLatest  = document.getElementById('sw-latest');
+    const swCheck   = document.getElementById('sw-check');
+    const swApply   = document.getElementById('sw-apply');
+    const swLog     = document.getElementById('sw-log');
+
+    async function refreshVersion() {
+      try {
+        const j = await (await fetch('/api/version')).json();
+        if (j.ok) {
+          const label = j.tag || j.shortCommit || j.commit || '(unknown)';
+          swCurrent.textContent = `${label}${j.branch ? ' · ' + j.branch : ''}`;
+          if (j.lastUpdate) {
+            swLatest.textContent = `Last update: ${j.lastUpdate.status} (${j.lastUpdate.when})`;
+          }
+        } else {
+          swCurrent.textContent = `(not a git checkout — OTA disabled)`;
+          swCheck.disabled = true;
+        }
+      } catch (_) { swCurrent.textContent = '(offline)'; }
+    }
+    swCheck.addEventListener('click', async () => {
+      swCheck.disabled = true; swLatest.textContent = 'checking...';
+      try {
+        const j = await (await fetch('/api/update/check')).json();
+        if (!j.ok)            { swLatest.textContent = `Check failed: ${j.err}`; swApply.disabled = true; }
+        else if (!j.hasUpdate){ swLatest.textContent = 'Up to date.';             swApply.disabled = true; }
+        else {
+          const date = j.latestDate ? new Date(j.latestDate).toLocaleString() : '';
+          swLatest.textContent =
+            `Update available: ${j.latest.slice(0, 7)} — ${j.latestMessage || ''} ${date}`;
+          swApply.disabled = false;
+        }
+      } catch (e) {
+        swLatest.textContent = `Check error: ${e.message}`;
+      } finally { swCheck.disabled = false; }
+    });
+    swApply.addEventListener('click', async () => {
+      if (!confirm('Apply update? The server will restart. If the new revision fails its health check, it will be rolled back automatically.')) return;
+      swApply.disabled = true; swCheck.disabled = true;
+      swLog.style.display = 'block';
+      swLog.textContent = 'starting update...\n';
+      try { await fetch('/api/update/apply', { method: 'POST' }); } catch (_) {}
+    });
+    onMessage('update', (m) => {
+      if (m.phase === 'starting') { swLog.style.display = 'block'; swLog.textContent += '> starting\n'; }
+      else if (m.phase === 'log') { swLog.textContent += m.line + '\n'; swLog.scrollTop = swLog.scrollHeight; }
+    });
+    onMessage('_open', () => refreshVersion());
+    refreshVersion();
+
+    // Auto-return to idle.
+    let kioskIdleTimeoutMs = 30_000;
+    let autoReturnTimer = null;
+    function bumpAutoReturn() {
+      clearTimeout(autoReturnTimer);
+      autoReturnTimer = setTimeout(() => { location.href = '/'; }, kioskIdleTimeoutMs);
+    }
+    ['pointerdown', 'touchstart', 'keydown', 'mousemove'].forEach((evt) =>
+      window.addEventListener(evt, bumpAutoReturn, { passive: true })
+    );
+    bumpAutoReturn();
+    fetch('/api/state').then((r) => r.json()).then((j) => {
+      if (j && j.ok && j.settings && Number.isFinite(j.settings.kioskIdleTimeoutSec)) {
+        kioskIdleTimeoutMs = j.settings.kioskIdleTimeoutSec * 1000;
+        bumpAutoReturn();
+      }
+    }).catch(() => {});
+    onMessage('settings_changed', (m) => {
+      if (m.settings && Number.isFinite(m.settings.kioskIdleTimeoutSec)) {
+        kioskIdleTimeoutMs = m.settings.kioskIdleTimeoutSec * 1000;
+        bumpAutoReturn();
+      }
+    });
+  </script>
+</body>
+</html>

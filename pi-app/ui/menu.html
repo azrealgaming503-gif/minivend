@@ -5,10 +5,27 @@
   <meta name="viewport" content="width=device-width, initial-scale=1, user-scalable=no" />
   <title>Menu · Blukitsune9</title>
   <link rel="stylesheet" href="/css/styles.css" />
+  <style>
+    /* Menu-specific: 2-column tile grid for portrait kiosk. Tiles are
+       large enough to be comfortable for thumbs while still showing
+       six options without scrolling. */
+    .menu-grid-2 {
+      grid-template-columns: 1fr 1fr;
+      gap: 14px;
+      padding: 14px 18px 18px;
+    }
+    .menu-grid-2 .menu-tile {
+      min-height: 130px;
+      padding: 18px 14px;
+      gap: 6px;
+    }
+    .menu-grid-2 .menu-tile-icon { width: 42px; height: 42px; }
+    .menu-grid-2 .menu-tile-title { font-size: 18px; }
+    .menu-grid-2 .menu-tile-sub   { font-size: 10px; }
+  </style>
 </head>
-<body class="menu-body">
+<body class="menu-body theme-pastel">
   <div class="menu-root" id="root">
-    <!-- Brand header -->
     <header class="menu-header">
       <div class="brand-mark">
         <div class="brand-logo"></div>
@@ -17,37 +34,88 @@
       <span class="status-pill"><span id="motor-dot" class="dot"></span><span id="motor-label">motor · …</span></span>
     </header>
 
-    <!-- Big touch tiles. Sized for thumbs on a portrait kiosk. -->
-    <main class="menu-grid">
-      <a class="menu-tile primary" href="/games">
+    <main class="menu-grid menu-grid-2">
+      <a class="menu-tile" href="/games">
         <div class="menu-tile-icon">
-          <!-- joystick / arcade glyph -->
           <svg viewBox="0 0 64 64" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round">
             <rect x="6" y="18" width="52" height="32" rx="14"/>
-            <circle cx="22" cy="34" r="1.5" fill="currentColor"/>
             <path d="M14 30v8M10 34h8"/>
             <circle cx="44" cy="30" r="3"/>
             <circle cx="50" cy="38" r="3"/>
           </svg>
         </div>
         <div class="menu-tile-title">Games</div>
-        <div class="menu-tile-sub">Snake · 2048</div>
+        <div class="menu-tile-sub">arcade</div>
+      </a>
+
+      <a class="menu-tile" href="/idle">
+        <div class="menu-tile-icon">
+          <!-- film + paw -->
+          <svg viewBox="0 0 64 64" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round">
+            <rect x="10" y="14" width="44" height="36" rx="6"/>
+            <circle cx="22" cy="32" r="2"/>
+            <circle cx="32" cy="26" r="2"/>
+            <circle cx="42" cy="32" r="2"/>
+            <path d="M22 40 q10 6 20 0"/>
+          </svg>
+        </div>
+        <div class="menu-tile-title">Idle anim</div>
+        <div class="menu-tile-sub">cat & uploads</div>
+      </a>
+
+      <a class="menu-tile primary" href="/donations">
+        <div class="menu-tile-icon">
+          <!-- heart + dollar -->
+          <svg viewBox="0 0 64 64" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M32 52 C18 42 8 32 14 22 c4 -7 14 -7 18 2 c4 -9 14 -9 18 -2 c6 10 -4 20 -18 30 Z"/>
+            <path d="M32 30 v8 M28 32 q4 -2 8 0 M28 36 q4 2 8 0"/>
+          </svg>
+        </div>
+        <div class="menu-tile-title">Donations</div>
+        <div class="menu-tile-sub">tiers · history</div>
+      </a>
+
+      <a class="menu-tile" href="/motor">
+        <div class="menu-tile-icon">
+          <!-- gear inside circle -->
+          <svg viewBox="0 0 64 64" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round">
+            <circle cx="32" cy="32" r="10"/>
+            <path d="M32 10v8M32 46v8M54 32h-8M18 32h-8M48 16l-6 6M22 42l-6 6M48 48l-6-6M22 22l-6-6"/>
+          </svg>
+        </div>
+        <div class="menu-tile-title">Motor</div>
+        <div class="menu-tile-sub">test · stop</div>
+      </a>
+
+      <a class="menu-tile" href="/network">
+        <div class="menu-tile-icon">
+          <!-- wifi -->
+          <svg viewBox="0 0 64 64" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M8 24 q24 -22 48 0"/>
+            <path d="M16 32 q16 -14 32 0"/>
+            <path d="M24 40 q8 -6 16 0"/>
+            <circle cx="32" cy="48" r="3" fill="currentColor"/>
+          </svg>
+        </div>
+        <div class="menu-tile-title">Network</div>
+        <div class="menu-tile-sub">wi-fi · accounts</div>
       </a>
 
       <a class="menu-tile" href="/settings">
         <div class="menu-tile-icon">
-          <!-- gear glyph -->
+          <!-- sliders -->
           <svg viewBox="0 0 64 64" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round">
-            <circle cx="32" cy="32" r="8"/>
-            <path d="M32 6v6M32 52v6M58 32h-6M12 32H6M50 14l-4 4M22 46l-4 4M50 50l-4-4M22 18l-4-4"/>
+            <path d="M10 18h44M10 32h44M10 46h44"/>
+            <circle cx="22" cy="18" r="4"/>
+            <circle cx="42" cy="32" r="4"/>
+            <circle cx="30" cy="46" r="4"/>
           </svg>
         </div>
         <div class="menu-tile-title">Settings</div>
-        <div class="menu-tile-sub">Dispense · Wi-Fi · Updates</div>
+        <div class="menu-tile-sub">kiosk · updates</div>
       </a>
     </main>
 
-    <!-- Bottom area: swipe-down hint + explicit back button as fallback -->
     <footer class="menu-footer">
       <button class="pill-btn" id="back-btn">← Back to idle</button>
       <div class="swipe-hint swipe-hint-down">
@@ -70,9 +138,7 @@
     // ===== Swipe down → back to idle =====
     (function installSwipe() {
       let startY = null, startX = null, startT = 0;
-      const THRESHOLD = 80;
-      const MAX_TIME  = 800;
-      const MAX_DRIFT = 60;
+      const THRESHOLD = 80, MAX_TIME = 800, MAX_DRIFT = 60;
       function onStart(e) {
         const p = e.touches ? e.touches[0] : e;
         startY = p.clientY; startX = p.clientX; startT = Date.now();
@@ -84,11 +150,8 @@
         const dx = p.clientX - startX;
         const dt = Date.now() - startT;
         startY = startX = null;
-        if (dt > MAX_TIME) return;
-        if (Math.abs(dx) > MAX_DRIFT) return;
-        if (dy > THRESHOLD) {
-          location.href = '/';
-        }
+        if (dt > MAX_TIME || Math.abs(dx) > MAX_DRIFT) return;
+        if (dy > THRESHOLD) location.href = '/';
       }
       window.addEventListener('touchstart', onStart, { passive: true });
       window.addEventListener('touchend',   onEnd,   { passive: true });
@@ -96,25 +159,23 @@
       window.addEventListener('mouseup',    onEnd);
     })();
 
-    // ===== Motor status =====
     function setMotorStatus(connected, fw) {
-      dot.classList.toggle('ok', !!connected);
+      dot.classList.toggle('ok',   !!connected);
       dot.classList.toggle('warn', !connected);
       label.textContent = connected
         ? `motor · ok${fw ? ' · ' + fw : ''}`
         : 'motor · offline';
     }
-    // ===== Auto-return to idle after N sec of inactivity =====
-    // The N comes from /api/settings (kioskIdleTimeoutSec). Default 30s.
-    let idleTimer = null;
-    let idleTimeoutMs = 30_000;
+
+    // Auto-return to idle (settings-driven, default 30s).
+    let idleTimer = null, idleTimeoutMs = 30_000;
     function bumpIdle() {
       clearTimeout(idleTimer);
       idleTimer = setTimeout(() => location.href = '/', idleTimeoutMs);
     }
-    ['pointerdown', 'touchstart', 'keydown', 'mousemove'].forEach((evt) => {
-      window.addEventListener(evt, bumpIdle, { passive: true });
-    });
+    ['pointerdown', 'touchstart', 'keydown', 'mousemove'].forEach((evt) =>
+      window.addEventListener(evt, bumpIdle, { passive: true })
+    );
     bumpIdle();
 
     fetch('/api/state').then((r) => r.json()).then((j) => {

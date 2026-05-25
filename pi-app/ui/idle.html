@@ -1,0 +1,187 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, user-scalable=no" />
+  <title>Idle animation · MiniVend</title>
+  <link rel="stylesheet" href="/css/styles.css" />
+</head>
+<body class="theme-pastel">
+  <div class="page">
+    <header class="page-header">
+      <h1>Idle animation</h1>
+      <a href="/menu"><button class="ghost">← Menu</button></a>
+    </header>
+
+    <div class="page-body">
+
+      <section class="section">
+        <h2>Preinstalled</h2>
+        <p class="meta" style="color: var(--text-2); font-size: 13px; margin: 0 0 12px;">
+          The bundled cat-cycle animation — three nap loops with
+          transitions between them. Tap <strong>Use</strong> to set it
+          as the active idle screen.
+        </p>
+        <div id="preinstalled-list" class="asset-list"></div>
+        <div id="preinstalled-empty" class="meta" style="color: var(--text-2);" hidden>
+          The preinstalled cat pack is missing from the assets folder.
+          Re-upload the clips or restore <code>/var/lib/minivend/assets/idle/cat/</code>.
+        </div>
+      </section>
+
+      <section class="section">
+        <h2>Custom animations</h2>
+        <p class="meta" style="color: var(--text-2); font-size: 13px; margin: 0 0 12px;">
+          Upload your own loops (mp4 / webm / gif / webp / png / jpg,
+          up to 200 MB each). For best fit, author at 600 × 1024.
+        </p>
+        <form id="upload-form">
+          <label for="upload-input" class="upload-zone" id="upload-zone">
+            Tap to choose a file, or drag-drop here.<br />
+            <small>mp4, webm, gif, webp, png, jpg — up to 200 MB</small>
+          </label>
+          <input id="upload-input" type="file" accept="video/*,image/*" hidden />
+        </form>
+        <p id="upload-status" style="color: var(--text-2); margin: 10px 0 0;"></p>
+        <div id="custom-list" class="asset-list" style="margin-top: 14px;"></div>
+      </section>
+
+    </div>
+  </div>
+
+  <script type="module">
+    import { onMessage } from '/js/ws-client.js';
+    import '/js/alerts.js';
+
+    // Names treated as "preinstalled" / "default" — we won't allow
+    // deletion through the UI and we display them in a separate
+    // section with a friendly badge. The cat pack from Blu's source
+    // clips is the only one for now.
+    const PREINSTALLED = new Set(['cat']);
+
+    const preList    = document.getElementById('preinstalled-list');
+    const preEmpty   = document.getElementById('preinstalled-empty');
+    const customList = document.getElementById('custom-list');
+    const uploadZone   = document.getElementById('upload-zone');
+    const uploadInput  = document.getElementById('upload-input');
+    const uploadStatus = document.getElementById('upload-status');
+
+    async function refresh() {
+      let j;
+      try { j = await (await fetch('/api/assets/idle')).json(); }
+      catch (e) {
+        preEmpty.hidden = false;
+        preEmpty.textContent = `Error: ${e.message}`;
+        return;
+      }
+      if (!j.ok) return;
+
+      const pre    = j.files.filter((f) => PREINSTALLED.has(f.name));
+      const custom = j.files.filter((f) => !PREINSTALLED.has(f.name));
+
+      renderList(preList, pre, j.active, true);
+      preEmpty.hidden = pre.length > 0;
+
+      renderList(customList, custom, j.active, false);
+      if (custom.length === 0) {
+        customList.innerHTML = '<div class="meta" style="color: var(--text-2);">' +
+          'No custom animations uploaded yet.</div>';
+      }
+    }
+
+    function renderList(target, files, activeName, preinstalled) {
+      target.innerHTML = '';
+      for (const f of files) {
+        const isActive = f.name === activeName;
+        const row = document.createElement('div');
+        row.className = 'asset-row' + (isActive ? ' active' : '');
+        row.innerHTML = `
+          <div>
+            <div class="name"></div>
+            <div class="meta"></div>
+          </div>
+          <div class="actions">
+            <button data-activate>Use</button>
+            ${preinstalled ? '' : '<button class="danger" data-delete>Delete</button>'}
+          </div>
+        `;
+        const nameEl = row.querySelector('.name');
+        const metaEl = row.querySelector('.meta');
+        nameEl.textContent = f.name;
+        if (preinstalled) nameEl.insertAdjacentHTML('beforeend',
+          ' <span class="badge preinstalled">Preinstalled</span>');
+        if (isActive) nameEl.insertAdjacentHTML('beforeend',
+          ' <span class="badge active">Active</span>');
+        const kind = (f.kind === 'pack') ? 'pack' : 'file';
+        const size = f.size != null ? `${(f.size / 1024 / 1024).toFixed(2)} MB` : '';
+        metaEl.textContent = [kind, size].filter(Boolean).join(' · ');
+
+        row.querySelector('[data-activate]').addEventListener('click', async () => {
+          await fetch('/api/assets/idle/active', {
+            method: 'POST',
+            headers: { 'content-type': 'application/json' },
+            body: JSON.stringify({ name: f.name }),
+          });
+          refresh();
+        });
+        const delBtn = row.querySelector('[data-delete]');
+        if (delBtn) delBtn.addEventListener('click', async () => {
+          if (!confirm(`Delete ${f.name}? This cannot be undone.`)) return;
+          await fetch(`/api/assets/idle/${encodeURIComponent(f.name)}`, { method: 'DELETE' });
+          refresh();
+        });
+        target.appendChild(row);
+      }
+    }
+
+    async function upload(file) {
+      uploadStatus.textContent = `Uploading ${file.name} (${(file.size/1024/1024).toFixed(1)} MB)...`;
+      const fd = new FormData();
+      fd.append('file', file);
+      try {
+        const r = await fetch('/api/assets/idle', { method: 'POST', body: fd });
+        const j = await r.json();
+        if (j.ok) {
+          uploadStatus.textContent = `Uploaded ${j.file}, set as active.`;
+          refresh();
+        } else {
+          uploadStatus.textContent = `Error: ${j.err}`;
+        }
+      } catch (e) {
+        uploadStatus.textContent = `Upload failed: ${e.message}`;
+      }
+    }
+    uploadZone.addEventListener('click', () => uploadInput.click());
+    uploadZone.addEventListener('dragover',  (e) => { e.preventDefault(); uploadZone.classList.add('hover'); });
+    uploadZone.addEventListener('dragleave', ()    => uploadZone.classList.remove('hover'));
+    uploadZone.addEventListener('drop',      (e) => {
+      e.preventDefault(); uploadZone.classList.remove('hover');
+      if (e.dataTransfer.files && e.dataTransfer.files[0]) upload(e.dataTransfer.files[0]);
+    });
+    uploadInput.addEventListener('change', () => {
+      if (uploadInput.files && uploadInput.files[0]) upload(uploadInput.files[0]);
+    });
+    onMessage('idle_changed', refresh);
+
+    // Auto-return to idle.
+    let kioskIdleTimeoutMs = 30_000;
+    let autoReturnTimer = null;
+    function bumpAutoReturn() {
+      clearTimeout(autoReturnTimer);
+      autoReturnTimer = setTimeout(() => { location.href = '/'; }, kioskIdleTimeoutMs);
+    }
+    ['pointerdown', 'touchstart', 'keydown', 'mousemove'].forEach((evt) =>
+      window.addEventListener(evt, bumpAutoReturn, { passive: true })
+    );
+    bumpAutoReturn();
+    fetch('/api/state').then((r) => r.json()).then((j) => {
+      if (j && j.ok && j.settings && Number.isFinite(j.settings.kioskIdleTimeoutSec)) {
+        kioskIdleTimeoutMs = j.settings.kioskIdleTimeoutSec * 1000;
+        bumpAutoReturn();
+      }
+    }).catch(() => {});
+
+    refresh();
+  </script>
+</body>
+</html>

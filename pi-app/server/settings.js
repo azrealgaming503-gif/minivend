@@ -22,12 +22,17 @@ const DEFAULTS = Object.freeze({
   kioskIdleTimeoutSec: 30,
 
   // Mapping of donation amounts → chamber (ESP32 motor id). Each tier
-  // says "donations of at least minAmount go to motor N". The handler
-  // picks the highest-minAmount tier whose threshold the donation meets.
-  // Default mirrors a typical 2-chamber setup: $1+ → motor 1, $5+ → motor 2.
+  // is one of:
+  //   { minAmount, motor, match: 'gte' }   — at-least, classic threshold
+  //   { minAmount, motor, match: 'eq'  }   — exact dollar amount only
+  //
+  // Resolution order: any matching 'eq' tier wins (last declared if
+  // several). Otherwise we fall back to the highest 'gte' tier whose
+  // threshold the donation meets. Default mirrors a typical 2-chamber
+  // setup: $1+ → motor 1, $5+ → motor 2.
   dispenseTiers: [
-    { minAmount: 1, motor: 1 },
-    { minAmount: 5, motor: 2 },
+    { minAmount: 1, motor: 1, match: 'gte' },
+    { minAmount: 5, motor: 2, match: 'gte' },
   ],
 
   // Friendly labels for each chamber, used in the donation overlay.
@@ -105,16 +110,22 @@ class SettingsStore {
     out.dispenseCooldownSec = cd;
 
     if (!Array.isArray(out.dispenseTiers)) {
-      out.dispenseTiers = [...DEFAULTS.dispenseTiers];
+      out.dispenseTiers = DEFAULTS.dispenseTiers.map((t) => ({ ...t }));
     }
     out.dispenseTiers = out.dispenseTiers
       .map((row) => ({
         minAmount: Math.max(0, Number(row && row.minAmount) || 0),
         motor:     (parseInt(row && row.motor, 10) === 2) ? 2 : 1,
+        match:     (row && row.match === 'eq') ? 'eq' : 'gte',
       }))
-      .sort((a, b) => a.minAmount - b.minAmount);
+      // Stable order: 'eq' tiers first (they take precedence), then
+      // 'gte' tiers ascending by minAmount.
+      .sort((a, b) => {
+        if (a.match !== b.match) return a.match === 'eq' ? -1 : 1;
+        return a.minAmount - b.minAmount;
+      });
     if (out.dispenseTiers.length === 0) {
-      out.dispenseTiers = [...DEFAULTS.dispenseTiers];
+      out.dispenseTiers = DEFAULTS.dispenseTiers.map((t) => ({ ...t }));
     }
 
     const labels = (out.chamberLabels && typeof out.chamberLabels === 'object')
@@ -145,15 +156,25 @@ class SettingsStore {
   }
 
   // Resolve a donation amount → motor id using the configured tiers.
-  // Returns the motor for the HIGHEST minAmount the donation meets,
-  // or null if no tier matches (donation too small).
+  // 'eq' tiers (exact dollar amount) win over 'gte' tiers; among
+  // 'gte' tiers the one with the highest threshold the donation meets
+  // is picked. Returns null if no tier matches.
   resolveMotor(amount) {
     const amt = Number(amount) || 0;
+    let exact = null;
     let pick = null;
     for (const tier of this._values.dispenseTiers) {
-      if (amt >= tier.minAmount) pick = tier.motor;
+      if (tier.match === 'eq') {
+        // Tolerate floating-point noise (e.g. 4.99 vs 5.00 from
+        // currency conversion) by comparing rounded cents.
+        if (Math.round(amt * 100) === Math.round(tier.minAmount * 100)) {
+          exact = tier.motor;
+        }
+      } else if (amt >= tier.minAmount) {
+        pick = tier.motor;
+      }
     }
-    return pick;
+    return exact != null ? exact : pick;
   }
 
   getAll() { return { ...this._values }; }
