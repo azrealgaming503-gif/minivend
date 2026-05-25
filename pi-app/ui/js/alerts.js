@@ -1,16 +1,24 @@
 // Donation alert overlay (full-screen takeover).
 //
-// Shows when a donation arrives:
-//   - The active alert emote (uploaded in Settings) bouncing in the center
-//   - Donor name + formatted amount + (optional) message
-//   - Two chamber boxes — the dispensing one lights up + pulses
-//   - A status line that walks through Queued → Dispensing → Dropped / Jam
+// Layout (top-to-bottom on the portrait kiosk):
+//   1. Donor name           — big, top of screen
+//   2. Animated sticker     — center, served from /alert-sticker.gif
+//                             (the server proxies + caches the upstream
+//                             Discord URL so we work offline too)
+//   3. Amount               — big, currency-formatted, below the sticker
+//   4. Dispensing line      — "Dropping <chamber label>…" at the bottom,
+//                             updates to "Dropped!" / "Jam" / etc.
 //
 // State machine driven by WebSocket events from the server:
-//   donation              -> show overlay (status: queued)
-//   donation_dispensing   -> highlight chamber, status: dispensing
+//   donation              -> show overlay (status: queued or thanks)
+//   donation_dispensing   -> status: dispensing
 //   donation_done         -> status: dropped/jam, hide after delay
 //   donation_skipped      -> status: skipped, hide after delay
+//
+// The server only sends `donation` events for amounts that we
+// actually want to celebrate — tiers + the alertsAllAmounts toggle
+// determine that. By the time we get here, the decision to show
+// has already been made.
 
 import { onMessage } from './ws-client.js';
 // Side-effect import: applies the saved screen-brightness CSS filter
@@ -18,7 +26,9 @@ import { onMessage } from './ws-client.js';
 // here so individual pages don't need to remember a second import.
 import './brightness.js';
 
-const HOLD_AFTER_DONE_MS = 4000;     // how long to keep overlay up after motor done
+const STICKER_URL        = '/alert-sticker.gif';
+const HOLD_AFTER_DONE_MS = 4500;     // how long to keep overlay up after motor done
+const HOLD_IF_NO_MOTOR   = 5000;     // alerts with no dispense (all-amounts mode)
 const HOLD_IF_STUCK_MS   = 20000;    // absolute cap (cooldown queue safety)
 
 function fmtAmount(amount, currency) {
@@ -32,21 +42,19 @@ function fmtAmount(amount, currency) {
 }
 
 // --------- runtime state from /api/state ----------
-const env = {
-  alertEmoteUrl: null,
-  chamberLabels: { 1: 'Left', 2: 'Right' },
-};
+// Chamber labels are read once at boot then refreshed via the
+// settings_changed broadcast. We don't show a per-tip emote any
+// more — every alert uses the same sticker.
+const env = { chamberLabels: { 1: 'Left', 2: 'Right' } };
 
 function refreshEnv() {
   return fetch('/api/state')
     .then((r) => r.json())
     .then((j) => {
       if (!j || !j.ok) return;
-      env.alertEmoteUrl = j.activeAlertUrl || null;
       if (j.settings && j.settings.chamberLabels) {
         env.chamberLabels = j.settings.chamberLabels;
       }
-      syncChamberLabels();
     })
     .catch(() => {});
 }
@@ -61,26 +69,18 @@ function buildOverlay() {
   el.id = 'alert-overlay';
   el.className = 'alert-overlay';
   el.innerHTML = `
-    <div class="alert-fill">
-      <div class="alert-emote-wrap">
-        <img class="alert-emote" data-emote alt="" />
+    <div class="alert-stack">
+      <div class="alert-name"     data-name>Anonymous</div>
+      <div class="alert-sticker-wrap">
+        <img class="alert-sticker" data-sticker alt="" />
       </div>
-      <div class="alert-amount"  data-amount></div>
-      <div class="alert-name"    data-name></div>
-      <div class="alert-message" data-message></div>
-      <div class="alert-chambers" data-chambers>
-        <div class="alert-chamber" data-chamber="1">
-          <div class="alert-chamber-label" data-chamber-label="1">${env.chamberLabels[1]}</div>
-          <div class="alert-chamber-light"></div>
-        </div>
-        <div class="alert-chamber" data-chamber="2">
-          <div class="alert-chamber-label" data-chamber-label="2">${env.chamberLabels[2]}</div>
-          <div class="alert-chamber-light"></div>
-        </div>
-      </div>
-      <div class="alert-status" data-status></div>
+      <div class="alert-amount"   data-amount>$0</div>
+      <div class="alert-dispense" data-dispense>—</div>
     </div>
   `;
+  // Preload the sticker so the first real alert doesn't show a
+  // broken image while the GIF is still being fetched/cached.
+  el.querySelector('[data-sticker]').src = STICKER_URL;
   document.body.appendChild(el);
   return el;
 }
@@ -90,37 +90,22 @@ function ensureOverlay() {
   return overlay;
 }
 
-function syncChamberLabels() {
+function setDispense(text, kind) {
   if (!overlay) return;
-  const a = overlay.querySelector('[data-chamber-label="1"]');
-  const b = overlay.querySelector('[data-chamber-label="2"]');
-  if (a) a.textContent = env.chamberLabels[1] || 'Left';
-  if (b) b.textContent = env.chamberLabels[2] || 'Right';
-}
-
-function setStatus(text, kind) {
-  if (!overlay) return;
-  const s = overlay.querySelector('[data-status]');
+  const s = overlay.querySelector('[data-dispense]');
   if (!s) return;
   s.textContent = text;
   s.dataset.kind = kind || '';
 }
 
-function setChamberActive(motorId) {
-  if (!overlay) return;
-  overlay.querySelectorAll('.alert-chamber').forEach((c) => {
-    c.classList.toggle('active', String(motorId) === c.dataset.chamber);
-  });
-}
-
 function setFields(evt) {
   ensureOverlay();
-  overlay.querySelector('[data-amount]').textContent  = fmtAmount(evt.amount, evt.currency);
-  overlay.querySelector('[data-name]').textContent    = evt.name || 'Anonymous';
-  overlay.querySelector('[data-message]').textContent = evt.message || '';
-  const emote = overlay.querySelector('[data-emote]');
-  if (env.alertEmoteUrl) { emote.src = env.alertEmoteUrl; emote.hidden = false; }
-  else                   { emote.hidden = true; }
+  overlay.querySelector('[data-amount]').textContent = fmtAmount(evt.amount, evt.currency);
+  overlay.querySelector('[data-name]').textContent   = evt.name || 'Anonymous';
+  // Re-set the src on every show so an animated GIF restarts from
+  // the first frame (otherwise back-to-back tips look frozen).
+  const sticker = overlay.querySelector('[data-sticker]');
+  sticker.src = STICKER_URL + '?t=' + Date.now();
 }
 
 function showOverlay() {
@@ -147,17 +132,26 @@ const state = {
   safetyTimer: null,
 };
 
+function chamberLabelFor(motor, fallback) {
+  if (!motor) return null;
+  return (env.chamberLabels && env.chamberLabels[motor]) ||
+         fallback || `Chamber ${motor}`;
+}
+
 function show(evt) {
   setFields(evt);
-  setChamberActive(evt.motor);
-  setStatus(evt.motor ? 'Queued…' : 'Thanks for the tip!', evt.motor ? 'queued' : 'no_dispense');
+  const label = chamberLabelFor(evt.motor, evt.chamberLabel);
+  if (label) setDispense(`Dropping ${label}…`, 'queued');
+  else       setDispense('Thanks for the tip!', 'no_dispense');
   showOverlay();
   state.currentId = evt.id;
 
   if (state.hideTimer)   clearTimeout(state.hideTimer);
   if (state.safetyTimer) clearTimeout(state.safetyTimer);
   state.safetyTimer = setTimeout(hideOverlay, HOLD_IF_STUCK_MS);
-  if (!evt.motor) state.hideTimer = setTimeout(hideOverlay, HOLD_AFTER_DONE_MS);
+  // Alerts with no associated dispense (e.g. alertsAllAmounts=true,
+  // sub-tier tip) auto-hide on their own short timer.
+  if (!evt.motor) state.hideTimer = setTimeout(hideOverlay, HOLD_IF_NO_MOTOR);
 }
 
 onMessage('donation', (m) => {
@@ -168,33 +162,33 @@ onMessage('donation', (m) => {
 onMessage('donation_dispensing', (m) => {
   if (state.currentId !== m.id) {
     show({ id: m.id, name: m.name, amount: m.amount, motor: m.motor,
-           currency: 'USD', message: '' });
+           chamberLabel: m.chamberLabel, currency: 'USD' });
   }
-  setChamberActive(m.motor);
-  setStatus(`Dispensing from ${m.chamberLabel || ('Chamber ' + m.motor)}…`, 'dispensing');
+  const label = chamberLabelFor(m.motor, m.chamberLabel);
+  setDispense(`Dropping ${label}…`, 'dispensing');
 });
 
 onMessage('donation_done', (m) => {
   if (state.currentId !== m.id) return;
-  if (m.kind === 'dropped')   setStatus(`Dropped in ${m.ms}ms`, 'dropped');
-  else if (m.kind === 'jam')  setStatus('Jam — please check chamber', 'jam');
-  else                        setStatus('Done', 'done');
+  const label = chamberLabelFor(m.motor) || 'Chamber';
+  if (m.kind === 'dropped')   setDispense(`${label} dropped!`, 'dropped');
+  else if (m.kind === 'jam')  setDispense(`${label} jammed — please check`, 'jam');
+  else                        setDispense('Done', 'done');
   if (state.hideTimer) clearTimeout(state.hideTimer);
   state.hideTimer = setTimeout(hideOverlay, HOLD_AFTER_DONE_MS);
 });
 
 onMessage('donation_skipped', (m) => {
   if (state.currentId !== m.id) return;
-  setStatus(
+  setDispense(
     m.reason === 'motor_offline' ? 'Motor offline — check device' :
-    m.reason === 'no_tier'       ? 'Below minimum tier' : 'Skipped',
+    m.reason === 'no_tier'       ? 'Thanks for the tip!' : 'Skipped',
     'skipped',
   );
   if (state.hideTimer) clearTimeout(state.hideTimer);
   state.hideTimer = setTimeout(hideOverlay, HOLD_AFTER_DONE_MS);
 });
 
-onMessage('settings_changed',    refreshEnv);
-onMessage('alert_asset_changed', refreshEnv);
+onMessage('settings_changed', refreshEnv);
 
 refreshEnv();

@@ -355,7 +355,18 @@ a { color: var(--accent); text-decoration: none; }
 
 /* ===== Donation alert overlay (full-screen takeover) =====
    Sits above the idle videos, menu, settings — anything. Driven by
-   ui/js/alerts.js. */
+   ui/js/alerts.js.
+
+   Layout (portrait kiosk):
+     ┌──────────────────────┐
+     │   Donator name       │  ← top
+     │                      │
+     │      [GIF]           │  ← center-top sticker
+     │                      │
+     │       $5.00          │  ← amount
+     │                      │
+     │   Dropping Left…     │  ← bottom dispense line
+     └──────────────────────┘                                          */
 .alert-overlay {
   position: fixed;
   inset: 0;
@@ -363,123 +374,105 @@ a { color: var(--accent); text-decoration: none; }
   align-items: stretch;
   justify-content: stretch;
   background:
-    radial-gradient(ellipse at top, rgba(78,200,255,0.20), transparent 60%),
-    radial-gradient(ellipse at bottom, rgba(192,132,252,0.20), transparent 60%),
+    radial-gradient(ellipse at top,    rgba(184, 134, 229, 0.28), transparent 60%),
+    radial-gradient(ellipse at bottom, rgba(255, 163, 209, 0.28), transparent 60%),
     var(--bg);
   opacity: 0;
   pointer-events: none;
   transition: opacity 0.18s ease;
   z-index: 100;
+  color: var(--text);
 }
 .alert-overlay.visible { opacity: 1; pointer-events: auto; }
 
-.alert-fill {
+.alert-stack {
   flex: 1;
-  display: flex;
-  flex-direction: column;
+  display: grid;
+  grid-template-rows: auto 1fr auto auto;
   align-items: center;
-  justify-content: center;
+  justify-items: center;
+  padding: 32px 24px;
+  gap: 16px;
   text-align: center;
-  padding: 24px 18px;
-  gap: 14px;
+}
+
+.alert-name {
+  font-size: clamp(28px, 7vmin, 52px);
+  font-weight: 700;
+  letter-spacing: -0.01em;
+  line-height: 1.1;
+  max-width: 92%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
   color: var(--text);
 }
 
-.alert-emote-wrap {
-  width: 60vmin;
-  max-width: 320px;
+.alert-sticker-wrap {
+  width: min(70vmin, 360px);
   aspect-ratio: 1 / 1;
   display: flex; align-items: center; justify-content: center;
-  filter: drop-shadow(0 0 22px rgba(78,200,255,0.35));
+  filter: drop-shadow(0 14px 30px rgba(184, 134, 229, 0.35));
+  animation: alertSticker 1.5s ease-in-out infinite;
 }
-.alert-emote {
+.alert-sticker {
   width: 100%; height: 100%;
   object-fit: contain;
-  animation: alertBounce 1.05s ease-in-out infinite;
+  image-rendering: -webkit-optimize-contrast;
 }
-@keyframes alertBounce {
-  0%, 100% { transform: translateY(0) rotate(-2deg); }
-  50%      { transform: translateY(-10px) rotate(2deg); }
+@keyframes alertSticker {
+  0%, 100% { transform: translateY(0)    rotate(-3deg); }
+  50%      { transform: translateY(-14px) rotate(3deg); }
 }
 
 .alert-amount {
-  font-size: clamp(48px, 12vmin, 96px);
-  font-weight: 800;
+  font-size: clamp(64px, 18vmin, 140px);
+  font-weight: 900;
   color: var(--accent);
   line-height: 1;
-  text-shadow: var(--glow-cyan);
-  letter-spacing: -0.02em;
-}
-.alert-name {
-  font-size: clamp(22px, 5vmin, 36px);
-  font-weight: 600;
-}
-.alert-message {
-  font-size: clamp(14px, 3vmin, 18px);
-  color: var(--text-2);
-  max-width: 90%;
-  max-height: 4.5em;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: pre-wrap;
+  letter-spacing: -0.03em;
+  text-shadow: 0 6px 24px rgba(184, 134, 229, 0.35);
+  background: linear-gradient(135deg, var(--accent), var(--accent-2, var(--accent)));
+  -webkit-background-clip: text;
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
 }
 
-.alert-chambers {
-  display: flex;
-  gap: 14px;
-  margin-top: 8px;
-}
-.alert-chamber {
-  width: clamp(70px, 16vmin, 120px);
-  border: 2px solid var(--stroke);
-  border-radius: 14px;
-  padding: 10px 8px;
-  background: var(--surface);
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 8px;
-  transition: border-color 0.15s ease, background 0.15s ease, transform 0.15s ease;
-}
-.alert-chamber-label {
-  font-size: 14px;
-  color: var(--text-2);
-  text-transform: uppercase;
-  letter-spacing: 0.06em;
-}
-.alert-chamber-light {
-  width: 28px; height: 28px;
-  border-radius: 50%;
-  background: var(--bg-2);
-  border: 1px solid var(--stroke);
-  transition: background 0.15s ease, box-shadow 0.15s ease;
-}
-.alert-chamber.active {
-  border-color: var(--accent);
-  background: linear-gradient(180deg, rgba(78,200,255,0.12), var(--surface));
-  transform: scale(1.05);
-}
-.alert-chamber.active .alert-chamber-light {
-  background: var(--accent);
-  box-shadow: var(--glow-cyan);
-  animation: chamberPulse 0.9s ease-in-out infinite;
-}
-@keyframes chamberPulse {
-  0%, 100% { box-shadow: 0 0 0 0 rgba(78,200,255,0.55); }
-  50%      { box-shadow: 0 0 0 14px rgba(78,200,255,0); }
-}
-
-.alert-status {
-  margin-top: 6px;
-  font-size: clamp(16px, 3.6vmin, 22px);
+.alert-dispense {
+  font-size: clamp(20px, 4.6vmin, 32px);
   font-weight: 600;
   color: var(--text-2);
   min-height: 1.4em;
+  padding: 10px 22px;
+  background: var(--surface);
+  border: 1px solid var(--stroke);
+  border-radius: 999px;
+  box-shadow: 0 6px 18px rgba(123, 101, 147, 0.10);
+  transition: color 0.15s ease, background 0.15s ease, border-color 0.15s ease;
 }
-.alert-status[data-kind="dispensing"] { color: var(--accent);     }
-.alert-status[data-kind="dropped"]    { color: var(--success);    }
-.alert-status[data-kind="jam"]        { color: var(--danger);     }
-.alert-status[data-kind="skipped"]    { color: var(--accent-warm);}
+.alert-dispense[data-kind="queued"]      { color: var(--text); }
+.alert-dispense[data-kind="dispensing"]  {
+  color: #fff;
+  background: linear-gradient(135deg, var(--accent), var(--accent-2, var(--accent)));
+  border-color: transparent;
+  animation: dispensePulse 1.1s ease-in-out infinite;
+}
+.alert-dispense[data-kind="dropped"]     {
+  color: #fff;
+  background: var(--success);
+  border-color: transparent;
+}
+.alert-dispense[data-kind="jam"]         {
+  color: #fff;
+  background: var(--danger);
+  border-color: transparent;
+}
+.alert-dispense[data-kind="skipped"]     { color: var(--accent-warm); }
+.alert-dispense[data-kind="no_dispense"] { color: var(--text); font-weight: 700; }
+@keyframes dispensePulse {
+  0%, 100% { box-shadow: 0 6px 18px rgba(184, 134, 229, 0.35); }
+  50%      { box-shadow: 0 8px 28px rgba(184, 134, 229, 0.55); }
+}
 
 /* ===== Generic page chrome (settings, games launcher) ===== */
 .page {
@@ -1039,6 +1032,52 @@ body.theme-pastel .numpad-ok {
   color: #fff;
 }
 body.theme-pastel .kbd-key:active { background: #f1e5f8; }
+
+/* ===== Toggle row (label + iOS-style switch) =====
+   Used for boolean settings where the explanation needs more room
+   than a tight checkbox label can give. Tap anywhere on the row to
+   flip the switch — the <label> wraps the whole thing. */
+.toggle-row {
+  display: flex;
+  align-items: center;
+  gap: 18px;
+  cursor: pointer;
+  padding: 4px 0;
+}
+.toggle-text { flex: 1; min-width: 0; }
+.toggle-switch {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 64px;
+  height: 36px;
+  border-radius: 999px;
+  background: var(--bg);
+  border: 1px solid var(--stroke);
+  position: relative;
+  cursor: pointer;
+  flex: 0 0 auto;
+  transition: background 0.18s ease, border-color 0.18s ease;
+  padding: 0;
+  margin: 0;
+}
+.toggle-switch::after {
+  content: '';
+  position: absolute;
+  top: 3px; left: 3px;
+  width: 28px; height: 28px;
+  border-radius: 50%;
+  background: var(--surface);
+  box-shadow: 0 2px 6px rgba(0,0,0,0.18);
+  transition: transform 0.18s ease, background 0.18s ease;
+}
+.toggle-switch:checked {
+  background: linear-gradient(135deg, var(--accent), var(--accent-2, var(--accent)));
+  border-color: transparent;
+}
+.toggle-switch:checked::after {
+  transform: translateX(28px);
+  background: #fff;
+}
 
 /* ===== Brightness slider =====
    Big touch-friendly range input. Track is the pastel surface,

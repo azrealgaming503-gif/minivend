@@ -98,6 +98,19 @@ const DEFAULTS = Object.freeze({
   // logged, but their dispense is queued FIFO. Set 0 to disable.
   dispenseCooldownSec: 0,
 
+  // Alert filtering. Default behavior matches what most streamers
+  // want: only celebrate tips that actually trigger a dispense.
+  //   false (default): if a donation amount doesn't match any
+  //                    dispenseTier, drop it silently — no overlay,
+  //                    no history entry, no sound. Keeps the kiosk
+  //                    from popping a full-screen alert for $0.10
+  //                    test tips, sub-bombs, etc.
+  //   true:            show the overlay (and log to history) for
+  //                    EVERY donation, even ones that don't trigger
+  //                    a dispense. Useful for charity streams or
+  //                    when you want every supporter on-screen.
+  alertsAllAmounts: false,
+
   // Screen brightness, 10–100. Implemented two ways at once:
   //   1. CSS filter on the UI (always works, even on dumb HDMI panels).
   //   2. Hardware backlight via /sys/class/backlight/*/brightness
@@ -174,6 +187,8 @@ class SettingsStore {
     if (br < 10)  br = 10;     // never let the user blank the screen entirely
     if (br > 100) br = 100;
     out.brightness = br;
+
+    out.alertsAllAmounts = !!out.alertsAllAmounts;
 
     if (!Array.isArray(out.dispenseTiers)) {
       out.dispenseTiers = DEFAULTS.dispenseTiers.map((t) => ({ ...t }));

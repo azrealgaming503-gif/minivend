@@ -11,6 +11,7 @@
 
 const http = require('http');
 const path = require('path');
+const fs   = require('fs');
 const { spawn } = require('child_process');
 const express = require('express');
 const { WebSocketServer } = require('ws');
@@ -133,6 +134,42 @@ app.post('/api/dispense', express.json({ limit: '4kb' }), (req, res) => {
   if (!ok) return res.status(503).json({ ok: false, err: 'motor_not_connected' });
   broadcast({ type: 'dispense_started', motor: id, dir, speed, max_ms: maxMs });
   res.json({ ok: true });
+});
+
+// ---------- Alert sticker proxy ----------
+// The donation alert overlay uses a single animated sticker for all
+// tips. We host it locally so the kiosk works offline and so we
+// don't depend on a 3rd-party CDN at the worst possible moment
+// (right when a real donation comes in). On first request we fetch
+// from the upstream URL and write it to disk; every request after
+// that is served straight off disk.
+//
+// To swap the sticker: either replace the cached file at
+// <assetsDir>/alert-sticker.<ext> on the Pi, or edit the URL below
+// and delete the cached file so the next request re-downloads.
+const ALERT_STICKER_URL = 'https://media.discordapp.net/stickers/1307104612414783578.gif?size=160';
+const alertStickerPath  = path.join(config.assetsDir, 'alert-sticker.gif');
+app.get('/alert-sticker.gif', async (_req, res) => {
+  try {
+    if (!fs.existsSync(alertStickerPath)) {
+      console.log('[alert-sticker] fetching upstream:', ALERT_STICKER_URL);
+      const r = await fetch(ALERT_STICKER_URL, {
+        // Discord's CDN sometimes 403s requests without a UA.
+        headers: { 'user-agent': 'MiniVend-Kiosk/1.0' },
+      });
+      if (!r.ok) throw new Error(`upstream ${r.status}`);
+      const buf = Buffer.from(await r.arrayBuffer());
+      fs.mkdirSync(path.dirname(alertStickerPath), { recursive: true });
+      fs.writeFileSync(alertStickerPath, buf);
+      console.log(`[alert-sticker] cached ${buf.length} bytes to ${alertStickerPath}`);
+    }
+    res.type('image/gif');
+    res.set('cache-control', 'public, max-age=3600');
+    res.sendFile(alertStickerPath);
+  } catch (e) {
+    console.warn('[alert-sticker] proxy failed, redirecting to upstream:', e.message);
+    res.redirect(302, ALERT_STICKER_URL);
+  }
 });
 
 // ---------- Boot splash handoff ----------
@@ -296,13 +333,24 @@ motor.on('dispense_result', (info) => {
 
 function dispatchDonation(evt) {
   const resolvedMotor = settings.resolveMotor(evt.amount);
-  console.log(`[donation] ${evt.source} ${evt.name} ${evt.amount} ${evt.currency} → motor ${resolvedMotor}`);
+  const allAmounts    = !!settings.getAll().alertsAllAmounts;
+  console.log(`[donation] ${evt.source} ${evt.name} ${evt.amount} ${evt.currency} → motor ${resolvedMotor}${allAmounts ? ' (all-amounts mode)' : ''}`);
   if (!resolvedMotor) {
-    const entry = history.add({ ...evt, motor: null, status: 'skipped_no_tier',
+    // No tier matched. By default we drop the event entirely — no
+    // overlay, no history entry, no sound. The user can flip
+    // `alertsAllAmounts` in settings to celebrate every tip
+    // regardless of whether it triggers a dispense.
+    if (!allAmounts) {
+      console.log(`[donation]   ↳ dropped (no tier, alertsAllAmounts=false)`);
+      return;
+    }
+    const entry = history.add({ ...evt, motor: null, status: 'no_tier_alert_only',
                                 detail: `no tier matched amount ${evt.amount}` });
-    broadcast({ type: 'donation', ...evt, id: entry.id, motor: null });
-    broadcast({ type: 'donation_skipped', id: entry.id, reason: 'no_tier',
-                name: evt.name, amount: evt.amount });
+    broadcast({
+      type: 'donation', id: entry.id, motor: null,
+      source: evt.source, name: evt.name, amount: evt.amount,
+      currency: evt.currency, message: evt.message,
+    });
     return;
   }
   const labels = settings.getAll().chamberLabels;

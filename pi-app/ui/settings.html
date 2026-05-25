@@ -37,6 +37,24 @@
       </section>
 
       <section class="section">
+        <h2>Donation alerts</h2>
+        <label class="toggle-row" for="alerts-all-input">
+          <div class="toggle-text">
+            <div>Play alerts for <strong>all</strong> donations</div>
+            <div class="meta" style="color: var(--text-2); font-size: 13px;">
+              Off (default): only donations that match a configured
+              dispense tier trigger an on-screen alert and get logged
+              to history. Sub-tier tips are dropped silently.<br />
+              On: every donation pops a celebration alert and is
+              written to history, even if no tier matched (no dispense
+              fires for those).
+            </div>
+          </div>
+          <input id="alerts-all-input" type="checkbox" class="toggle-switch" />
+        </label>
+      </section>
+
+      <section class="section">
         <h2>Screen brightness</h2>
         <div class="row" style="align-items: center; gap: 14px; flex-wrap: wrap;">
           <input id="brightness-slider" type="range" min="10" max="100" step="5" value="100"
@@ -72,6 +90,8 @@
     const idleTimeoutSave   = document.getElementById('idle-timeout-save');
     const idleTimeoutStatus = document.getElementById('idle-timeout-status');
 
+    const alertsAllInput   = document.getElementById('alerts-all-input');
+
     const brightnessSlider = document.getElementById('brightness-slider');
     const brightnessValue  = document.getElementById('brightness-value');
     const brightnessHw     = document.getElementById('brightness-hw');
@@ -83,6 +103,9 @@
         idleTimeoutInput.value = s.kioskIdleTimeoutSec;
         kioskIdleTimeoutMs = s.kioskIdleTimeoutSec * 1000;
         bumpAutoReturn();
+      }
+      if (typeof s.alertsAllAmounts === 'boolean') {
+        alertsAllInput.checked = s.alertsAllAmounts;
       }
       if (Number.isFinite(s.brightness)) {
         // Only override the slider if it isn't actively being dragged
@@ -116,6 +139,20 @@
     }
     brightnessSlider.addEventListener('input', (e) => {
       queueBrightness(parseInt(e.target.value, 10));
+    });
+
+    // ===== Alerts toggle =====
+    // Single source of truth lives server-side; we just push the
+    // change and let settings_changed bring it back to us.
+    alertsAllInput.addEventListener('change', async (e) => {
+      const checked = !!e.target.checked;
+      try {
+        await fetch('/api/settings', {
+          method: 'PUT',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ alertsAllAmounts: checked }),
+        });
+      } catch (_) { /* server will reject; UI will re-sync on next state */ }
     });
     // Fetch hardware backlight status once so we can tell the user
     // whether the slider drives only the UI filter or the real LED.
