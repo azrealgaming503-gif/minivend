@@ -1,27 +1,25 @@
 // Donation alert overlay.
 //
-// Full-screen takeover that appears when a donation arrives. Shows:
-//   - An animated emote (the active alert asset uploaded in Settings)
-//   - The donor name + formatted amount + (optional) message
-//   - A "chamber indicator" — two stacked boxes that light up to show
-//     which side of the machine is dispensing this tip.
-//   - A status line: "Queued", "Dispensing…", "Dropped", "Jam!", etc.
+// Two visual modes, picked automatically from settings.seOverlayUrl:
 //
-// State machine driven by WebSocket events from the server:
+//   "builtin"        — animated emote + name + amount + chamber boxes,
+//                      branded for the kiosk. No internet needed.
+//
+//   "streamelements" — full-screen iframe of the streamer's SE overlay
+//                      URL (the same one OBS uses), with a chamber
+//                      indicator strip overlaid across the bottom.
+//                      Keeps stream and kiosk visually consistent.
+//
+// Both modes consume the same WS event stream from the server:
 //   donation              -> show overlay (status: queued)
 //   donation_dispensing   -> highlight chamber, status: dispensing
 //   donation_done         -> status: dropped/jam, hide after delay
 //   donation_skipped      -> status: skipped, hide after delay
-//
-// If multiple donations pile up faster than the cooldown, the server
-// queues them FIFO and emits a sequence of donation_dispensing /
-// donation_done events. The overlay tracks the *current* dispensing job
-// so the streamer sees a coherent picture rather than flickering.
 
 import { onMessage } from './ws-client.js';
 
-const HOLD_AFTER_DONE_MS = 4000;     // how long to keep overlay up after motor done
-const HOLD_IF_STUCK_MS   = 20000;    // absolute cap (cooldown queue safety)
+const HOLD_AFTER_DONE_MS = 4000;
+const HOLD_IF_STUCK_MS   = 20000;
 
 function fmtAmount(amount, currency) {
   const n = Number(amount);
@@ -33,134 +31,191 @@ function fmtAmount(amount, currency) {
   } catch (_) { return `$${n.toFixed(2)}`; }
 }
 
-let alertEmoteUrl = null;
-function refreshAlertEmote() {
+// --------- runtime state from /api/state ----------
+const env = {
+  alertEmoteUrl:  null,
+  seOverlayUrl:   '',
+  chamberLabels:  { 1: 'Left', 2: 'Right' },
+};
+
+function refreshEnv() {
   return fetch('/api/state')
     .then((r) => r.json())
-    .then((j) => { if (j && j.ok) alertEmoteUrl = j.activeAlertUrl || null; })
+    .then((j) => {
+      if (!j || !j.ok) return;
+      env.alertEmoteUrl = j.activeAlertUrl || null;
+      if (j.settings) {
+        env.seOverlayUrl  = j.settings.seOverlayUrl  || '';
+        env.chamberLabels = j.settings.chamberLabels || env.chamberLabels;
+      }
+      rebuildOverlay();
+    })
     .catch(() => {});
 }
-refreshAlertEmote();
-onMessage('alert_asset_changed', refreshAlertEmote);
 
-function ensureOverlay() {
-  let el = document.getElementById('alert-overlay');
-  if (el) return el;
-  el = document.createElement('div');
+// =================================================================
+// Overlay element builder. Tears down + rebuilds when mode changes.
+// =================================================================
+let overlay   = null;     // root .alert-overlay element
+let mode      = null;     // 'builtin' | 'streamelements'
+let builtSeUrl = '';      // the seOverlayUrl baked into the current iframe
+
+function buildBuiltin() {
+  const el = document.createElement('div');
   el.id = 'alert-overlay';
-  el.className = 'alert-overlay';
+  el.className = 'alert-overlay alert-overlay-builtin';
   el.innerHTML = `
     <div class="alert-fill">
       <div class="alert-emote-wrap">
         <img class="alert-emote" data-emote alt="" />
       </div>
-      <div class="alert-amount" data-amount></div>
-      <div class="alert-name" data-name></div>
+      <div class="alert-amount"  data-amount></div>
+      <div class="alert-name"    data-name></div>
       <div class="alert-message" data-message></div>
       <div class="alert-chambers" data-chambers>
         <div class="alert-chamber" data-chamber="1">
-          <div class="alert-chamber-label" data-chamber-label="1">Left</div>
+          <div class="alert-chamber-label" data-chamber-label="1">${env.chamberLabels[1]}</div>
           <div class="alert-chamber-light"></div>
         </div>
         <div class="alert-chamber" data-chamber="2">
-          <div class="alert-chamber-label" data-chamber-label="2">Right</div>
+          <div class="alert-chamber-label" data-chamber-label="2">${env.chamberLabels[2]}</div>
           <div class="alert-chamber-light"></div>
         </div>
       </div>
       <div class="alert-status" data-status></div>
     </div>
   `;
-  document.body.appendChild(el);
   return el;
 }
 
-const state = {
-  currentId: null,      // history id we're currently showing
-  hideTimer: null,
-  safetyTimer: null,
-};
+function buildStreamElements() {
+  const el = document.createElement('div');
+  el.id = 'alert-overlay';
+  el.className = 'alert-overlay alert-overlay-se';
+  el.innerHTML = `
+    <iframe class="alert-se-frame"
+            src="${env.seOverlayUrl}"
+            allow="autoplay; encrypted-media"
+            referrerpolicy="no-referrer-when-downgrade"></iframe>
+    <div class="alert-strip">
+      <div class="alert-strip-chambers">
+        <div class="alert-chamber" data-chamber="1">
+          <div class="alert-chamber-label" data-chamber-label="1">${env.chamberLabels[1]}</div>
+          <div class="alert-chamber-light"></div>
+        </div>
+        <div class="alert-chamber" data-chamber="2">
+          <div class="alert-chamber-label" data-chamber-label="2">${env.chamberLabels[2]}</div>
+          <div class="alert-chamber-light"></div>
+        </div>
+      </div>
+      <div class="alert-strip-info">
+        <div class="alert-strip-line1">
+          <span class="alert-amount-small" data-amount></span>
+          <span class="alert-name-small"   data-name></span>
+        </div>
+        <div class="alert-status alert-status-small" data-status></div>
+      </div>
+    </div>
+  `;
+  return el;
+}
 
+function rebuildOverlay() {
+  const want = env.seOverlayUrl ? 'streamelements' : 'builtin';
+  const sameMode = (overlay && mode === want);
+  const sameUrl  = (want !== 'streamelements' || builtSeUrl === env.seOverlayUrl);
+  if (sameMode && sameUrl) {
+    syncChamberLabels();
+    return;
+  }
+  if (overlay && overlay.parentNode) overlay.parentNode.removeChild(overlay);
+  mode = want;
+  builtSeUrl = (want === 'streamelements') ? env.seOverlayUrl : '';
+  overlay = (want === 'streamelements') ? buildStreamElements() : buildBuiltin();
+  document.body.appendChild(overlay);
+}
+
+// ====== Public-ish view operations (work in either mode) ======
+function syncChamberLabels() {
+  if (!overlay) return;
+  const a = overlay.querySelector('[data-chamber-label="1"]');
+  const b = overlay.querySelector('[data-chamber-label="2"]');
+  if (a) a.textContent = env.chamberLabels[1] || 'Left';
+  if (b) b.textContent = env.chamberLabels[2] || 'Right';
+}
 function setStatus(text, kind) {
-  const el = ensureOverlay();
-  const s = el.querySelector('[data-status]');
+  if (!overlay) return;
+  const s = overlay.querySelector('[data-status]');
+  if (!s) return;
   s.textContent = text;
   s.dataset.kind = kind || '';
 }
-
 function setChamberActive(motorId) {
-  const el = ensureOverlay();
-  el.querySelectorAll('.alert-chamber').forEach((c) => {
+  if (!overlay) return;
+  overlay.querySelectorAll('.alert-chamber').forEach((c) => {
     c.classList.toggle('active', String(motorId) === c.dataset.chamber);
   });
 }
-
-function setChamberLabels(labels) {
-  const el = ensureOverlay();
-  if (!labels) return;
-  if (labels[1]) el.querySelector('[data-chamber-label="1"]').textContent = labels[1];
-  if (labels[2]) el.querySelector('[data-chamber-label="2"]').textContent = labels[2];
+function setBuiltinFields(evt) {
+  if (!overlay) return;
+  const amt = overlay.querySelector('[data-amount]');
+  const nm  = overlay.querySelector('[data-name]');
+  const msg = overlay.querySelector('[data-message]');
+  if (amt) amt.textContent = fmtAmount(evt.amount, evt.currency);
+  if (nm)  nm.textContent  = evt.name || 'Anonymous';
+  if (msg) msg.textContent = evt.message || '';
+  const emote = overlay.querySelector('[data-emote]');
+  if (emote) {
+    if (env.alertEmoteUrl) { emote.src = env.alertEmoteUrl; emote.hidden = false; }
+    else                   { emote.hidden = true; }
+  }
 }
-
-function show(evt) {
-  const el = ensureOverlay();
-  el.querySelector('[data-amount]').textContent  = fmtAmount(evt.amount, evt.currency);
-  el.querySelector('[data-name]').textContent    = evt.name || 'Anonymous';
-  el.querySelector('[data-message]').textContent = evt.message || '';
-  const emote = el.querySelector('[data-emote]');
-  if (alertEmoteUrl) {
-    emote.src = alertEmoteUrl;
-    emote.hidden = false;
-  } else {
-    emote.hidden = true;
-  }
-  setChamberActive(evt.motor);
-  if (evt.motor) {
-    setStatus('Queued…', 'queued');
-  } else {
-    setStatus('Thanks for the tip!', 'no_dispense');
-  }
-  el.classList.add('visible');
+function showOverlay() {
+  if (!overlay) return;
+  overlay.classList.add('visible');
   document.body.classList.add('alert-active');
-  state.currentId = evt.id;
-
-  if (state.hideTimer)   clearTimeout(state.hideTimer);
-  if (state.safetyTimer) clearTimeout(state.safetyTimer);
-  // If we never see a 'done' event (eg. motor offline, very long cooldown
-  // queue), still drop the overlay after this cap so the cat reappears.
-  state.safetyTimer = setTimeout(hide, HOLD_IF_STUCK_MS);
-  // If there's no motor to wait on, schedule normal hide.
-  if (!evt.motor) {
-    state.hideTimer = setTimeout(hide, HOLD_AFTER_DONE_MS);
-  }
 }
-
-function hide() {
-  const el = document.getElementById('alert-overlay');
-  if (!el) return;
-  el.classList.remove('visible');
+function hideOverlay() {
+  if (!overlay) return;
+  overlay.classList.remove('visible');
   document.body.classList.remove('alert-active');
   if (state.hideTimer)   { clearTimeout(state.hideTimer);   state.hideTimer = null; }
   if (state.safetyTimer) { clearTimeout(state.safetyTimer); state.safetyTimer = null; }
   state.currentId = null;
 }
 
+// =================================================================
+// Per-donation state machine
+// =================================================================
+const state = {
+  currentId: null,
+  hideTimer: null,
+  safetyTimer: null,
+};
+
+function show(evt) {
+  if (!overlay) rebuildOverlay();
+  setBuiltinFields(evt);
+  setChamberActive(evt.motor);
+  setStatus(evt.motor ? 'Queued…' : 'Thanks for the tip!', evt.motor ? 'queued' : 'no_dispense');
+  showOverlay();
+  state.currentId = evt.id;
+
+  if (state.hideTimer)   clearTimeout(state.hideTimer);
+  if (state.safetyTimer) clearTimeout(state.safetyTimer);
+  state.safetyTimer = setTimeout(hideOverlay, HOLD_IF_STUCK_MS);
+  if (!evt.motor) state.hideTimer = setTimeout(hideOverlay, HOLD_AFTER_DONE_MS);
+}
+
 onMessage('donation', (m) => {
-  // If a different donation is already on screen and not yet dispensed,
-  // queue this one visually by NOT clobbering the current view. The
-  // server's queue will deliver donation_dispensing in order; we'll
-  // update then.
   if (state.currentId && state.currentId !== m.id) return;
   show(m);
 });
 
 onMessage('donation_dispensing', (m) => {
-  // Even if we missed the initial 'donation' event (e.g. UI reloaded
-  // mid-queue), show overlay now from whatever info this carries.
   if (state.currentId !== m.id) {
-    show({
-      id: m.id, name: m.name, amount: m.amount, motor: m.motor,
-      currency: 'USD', message: '',
-    });
+    show({ id: m.id, name: m.name, amount: m.amount, motor: m.motor,
+           currency: 'USD', message: '' });
   }
   setChamberActive(m.motor);
   setStatus(`Dispensing from ${m.chamberLabel || ('Chamber ' + m.motor)}…`, 'dispensing');
@@ -168,36 +223,26 @@ onMessage('donation_dispensing', (m) => {
 
 onMessage('donation_done', (m) => {
   if (state.currentId !== m.id) return;
-  if (m.kind === 'dropped') {
-    setStatus(`Dropped in ${m.ms}ms`, 'dropped');
-  } else if (m.kind === 'jam') {
-    setStatus('Jam — please check chamber', 'jam');
-  } else {
-    setStatus('Done', 'done');
-  }
+  if (m.kind === 'dropped')   setStatus(`Dropped in ${m.ms}ms`, 'dropped');
+  else if (m.kind === 'jam')  setStatus('Jam — please check chamber', 'jam');
+  else                        setStatus('Done', 'done');
   if (state.hideTimer) clearTimeout(state.hideTimer);
-  state.hideTimer = setTimeout(hide, HOLD_AFTER_DONE_MS);
+  state.hideTimer = setTimeout(hideOverlay, HOLD_AFTER_DONE_MS);
 });
 
 onMessage('donation_skipped', (m) => {
   if (state.currentId !== m.id) return;
   setStatus(
     m.reason === 'motor_offline' ? 'Motor offline — check device' :
-    m.reason === 'no_tier'       ? 'Below minimum tier' :
-    'Skipped',
+    m.reason === 'no_tier'       ? 'Below minimum tier' : 'Skipped',
     'skipped',
   );
   if (state.hideTimer) clearTimeout(state.hideTimer);
-  state.hideTimer = setTimeout(hide, HOLD_AFTER_DONE_MS);
+  state.hideTimer = setTimeout(hideOverlay, HOLD_AFTER_DONE_MS);
 });
 
-onMessage('settings_changed', (m) => {
-  if (m.settings && m.settings.chamberLabels) setChamberLabels(m.settings.chamberLabels);
-});
+// React to live settings + asset changes.
+onMessage('settings_changed', refreshEnv);
+onMessage('alert_asset_changed', refreshEnv);
 
-// Pick up chamber labels on first load.
-fetch('/api/state').then((r) => r.json()).then((j) => {
-  if (j && j.ok && j.settings && j.settings.chamberLabels) {
-    setChamberLabels(j.settings.chamberLabels);
-  }
-}).catch(() => {});
+refreshEnv();
