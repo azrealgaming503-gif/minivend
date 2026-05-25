@@ -367,6 +367,18 @@ systemctl enable minivend-server.service
 systemctl enable minivend-kiosk.service
 systemctl enable minivend-updater.timer
 
+# ---------- 8b. Boot splash ----------
+# Hides the rainbow / kernel log / login prompt between firmware and
+# the cage compositor with a branded "Blu" plymouth theme. Self-
+# contained installer; failures here are non-fatal (the kiosk still
+# works, you just get a more noisy boot).
+echo "==> Installing boot splash"
+if bash "${PI_APP_DIR}/scripts/install-splash.sh"; then
+  echo "    splash installed."
+else
+  echo "WARN: boot splash install failed; continuing without it."
+fi
+
 # Free up tty1 so the kiosk service can grab the active VT (HDMI default).
 # Without this, getty + any autologin on tty1 keep the display, and cage
 # silently ends up on an inactive VT (tty7) — kiosk runs but nothing shows

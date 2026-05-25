@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1, user-scalable=no" />
-  <title>Tetris · MiniVend</title>
+  <title>Tetris · Blu</title>
   <link rel="stylesheet" href="/css/styles.css" />
   <style>
     .t-page    { display: flex; flex-direction: column; height: 100vh; }
@@ -20,12 +20,12 @@
       padding: 10px; position: relative;
     }
     canvas {
-      background: #07080b;
+      background: #ffffff;
       border-radius: 12px;
       border: 1px solid var(--stroke);
       touch-action: none;
       max-width: 100%; max-height: 100%;
-      box-shadow: 0 6px 24px rgba(0,0,0,0.4);
+      box-shadow: 0 8px 22px rgba(123, 101, 147, 0.12);
     }
     .t-controls {
       display: grid; grid-template-columns: 1fr 1fr 1fr;
@@ -37,19 +37,23 @@
       background: var(--surface); color: var(--text);
       border: 1px solid var(--stroke); border-radius: 10px;
     }
-    .t-controls button:active { background: var(--accent); color: #000; }
+    .t-controls button:active {
+      background: linear-gradient(135deg, var(--accent), var(--accent-2));
+      color: #fff; border-color: transparent;
+    }
     .overlay {
       position: absolute; inset: 0;
       display: flex; align-items: center; justify-content: center;
-      background: rgba(0,0,0,0.72);
+      background: rgba(247, 238, 252, 0.85);
+      backdrop-filter: blur(4px);
       flex-direction: column; gap: 16px;
       border-radius: 12px;
     }
-    .overlay h2 { font-size: 30px; margin: 0; text-align: center; padding: 0 16px; }
+    .overlay h2 { font-size: 30px; margin: 0; text-align: center; padding: 0 16px; color: var(--text); }
     .overlay .sub { color: var(--text-2); font-size: 15px; }
   </style>
 </head>
-<body>
+<body class="theme-pastel">
   <div class="t-page">
     <header class="t-header">
       <a href="/games"><button class="ghost">← Back</button></a>
@@ -81,15 +85,18 @@
 
     const COLS = 10;
     const ROWS = 20;
+    // Pastel tetromino palette so the pieces feel at home on the
+    // lavender/pink kiosk theme but each shape is still instantly
+    // distinguishable from its neighbors.
     const COLORS = [
       null,
-      '#42d4ff', // I
-      '#3a7bff', // J
-      '#ff9c3a', // L
-      '#ffe552', // O
-      '#5fd07a', // S
-      '#c46bff', // T
-      '#ff5a5a', // Z
+      '#a3b6f0', // I  periwinkle
+      '#8c9ee8', // J  deeper periwinkle
+      '#ffc488', // L  peach
+      '#ffe2a3', // O  butter
+      '#9ed8b7', // S  mint
+      '#b886e5', // T  lavender (theme accent)
+      '#ff8fb6', // Z  pink
     ];
     // Tetromino shapes in their initial rotation.
     const SHAPES = [
@@ -270,10 +277,10 @@
     }
 
     function draw() {
-      ctx.fillStyle = '#07080b';
+      ctx.fillStyle = '#ffffff';
       ctx.fillRect(0, 0, canvas.width, canvas.height);
-      // grid lines
-      ctx.strokeStyle = 'rgba(255,255,255,0.04)';
+      // grid lines — soft plum
+      ctx.strokeStyle = 'rgba(123, 101, 147, 0.08)';
       ctx.lineWidth = 1;
       for (let x = 1; x < COLS; x++) {
         ctx.beginPath(); ctx.moveTo(x * cell, 0); ctx.lineTo(x * cell, canvas.height); ctx.stroke();

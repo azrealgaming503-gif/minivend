@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=1024, initial-scale=1, user-scalable=no" />
-  <title>Snake · MiniVend</title>
+  <title>Snake · Blu</title>
   <link rel="stylesheet" href="/css/styles.css" />
   <style>
     .snake-page { display: flex; flex-direction: column; height: 100vh; }
@@ -21,23 +21,26 @@
       min-height: 0;
     }
     canvas {
-      background: #0a0a0d;
+      background: #ffffff;
       border-radius: 14px;
       border: 1px solid var(--stroke);
       touch-action: none;
       max-width: 100%;
       max-height: 100%;
+      box-shadow: 0 8px 22px rgba(123, 101, 147, 0.10);
     }
     .overlay {
       position: absolute; inset: 0;
       display: flex; align-items: center; justify-content: center;
-      background: rgba(0,0,0,0.6);
+      background: rgba(247, 238, 252, 0.85);
+      backdrop-filter: blur(4px);
       flex-direction: column; gap: 14px;
+      border-radius: 14px;
     }
-    .overlay h2 { font-size: 32px; margin: 0; text-align: center; padding: 0 16px; }
+    .overlay h2 { font-size: 32px; margin: 0; text-align: center; padding: 0 16px; color: var(--text); }
   </style>
 </head>
-<body>
+<body class="theme-pastel">
   <div class="snake-page">
     <header class="snake-header">
       <a href="/games"><button class="ghost">← Back</button></a>
@@ -165,10 +168,10 @@
     }
 
     function draw() {
-      ctx.fillStyle = '#0a0a0d';
+      ctx.fillStyle = '#ffffff';
       ctx.fillRect(0, 0, canvas.width, canvas.height);
-      // grid (very faint)
-      ctx.strokeStyle = 'rgba(255,255,255,0.04)';
+      // grid (very faint plum)
+      ctx.strokeStyle = 'rgba(123, 101, 147, 0.08)';
       ctx.lineWidth = 1;
       for (let x = 0; x <= COLS; x++) {
         ctx.beginPath();
@@ -182,18 +185,42 @@
         ctx.lineTo(COLS * CELL, y * CELL);
         ctx.stroke();
       }
-      // food
-      ctx.fillStyle = '#d97a7a';
+      // food — soft pink
+      ctx.fillStyle = '#ffa3d1';
       const [fx, fy] = food;
       const fpad = 6;
-      ctx.fillRect(fx * CELL + fpad, fy * CELL + fpad, CELL - fpad * 2, CELL - fpad * 2);
-      // snake
+      const fcx = fx * CELL + CELL / 2;
+      const fcy = fy * CELL + CELL / 2;
+      ctx.beginPath();
+      ctx.arc(fcx, fcy, (CELL - fpad * 2) / 2, 0, Math.PI * 2);
+      ctx.fill();
+      // snake — lavender body, deeper-lavender head
       const len = snake.length;
       snake.forEach(([x, y], i) => {
         const t = i / Math.max(1, len - 1);
-        ctx.fillStyle = i === len - 1 ? '#62b6cb' : `rgba(98, 182, 203, ${0.45 + 0.45 * t})`;
-        const pad = i === len - 1 ? 3 : 4;
-        ctx.fillRect(x * CELL + pad, y * CELL + pad, CELL - pad * 2, CELL - pad * 2);
+        const head = i === len - 1;
+        if (head) {
+          ctx.fillStyle = '#9669c6';
+        } else {
+          // gradient from pale pink (tail) → soft lavender (toward head)
+          const r = Math.round(255 + (184 - 255) * t);
+          const g = Math.round(163 + (134 - 163) * t);
+          const b = Math.round(209 + (229 - 209) * t);
+          ctx.fillStyle = `rgb(${r}, ${g}, ${b})`;
+        }
+        const pad = head ? 3 : 4;
+        const px = x * CELL + pad;
+        const py = y * CELL + pad;
+        const sz = CELL - pad * 2;
+        const r  = Math.min(8, sz / 3);
+        ctx.beginPath();
+        ctx.moveTo(px + r, py);
+        ctx.arcTo(px + sz, py, px + sz, py + sz, r);
+        ctx.arcTo(px + sz, py + sz, px, py + sz, r);
+        ctx.arcTo(px, py + sz, px, py, r);
+        ctx.arcTo(px, py, px + sz, py, r);
+        ctx.closePath();
+        ctx.fill();
       });
     }
 

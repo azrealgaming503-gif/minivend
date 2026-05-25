@@ -1,0 +1,57 @@
+// MiniVend "Blu" boot splash.
+//
+// Plymouth script-plugin theme. Shows a centered "Blu" wordmark
+// (logo.png, generated at install time by install-splash.sh) on
+// a soft lavender background, with a subtle opacity pulse so the
+// screen never looks frozen. Plymouth stays on screen until the
+// cage compositor opens its Wayland socket and Chromium starts
+// drawing the kiosk, then fades the logo out.
+
+// ----- background -----
+// Soft lavender gradient that matches the pastel UI theme.
+// Top:    #f7eefc  (very light lavender)
+// Bottom: #e8d6f0  (slightly deeper)
+Window.SetBackgroundTopColor    (0.97, 0.93, 0.99);
+Window.SetBackgroundBottomColor (0.91, 0.84, 0.94);
+
+// ----- logo -----
+logo.image  = Image("logo.png");
+logo.sprite = Sprite(logo.image);
+
+// Re-center on every frame in case the rotation / output size
+// changes between plymouth start and the first refresh (the Pi's
+// KMS driver occasionally renegotiates the mode during early boot).
+fun place_logo () {
+  logo.sprite.SetX(Window.GetWidth()  / 2 - logo.image.GetWidth()  / 2);
+  logo.sprite.SetY(Window.GetHeight() / 2 - logo.image.GetHeight() / 2);
+}
+place_logo();
+
+// ----- animation state -----
+//   pulse_t      : counts frames; drives the breathing animation
+//   fading       : 1 once Plymouth.SetQuitFunction fires
+//   fade_t       : counts frames since fade started
+//
+// Plymouth's refresh callback fires ~50x/sec. pulse_t / 22 gives
+// roughly one breath per ~2.8s. Fade runs over ~18 frames (~0.36s).
+pulse_t = 0;
+fading  = 0;
+fade_t  = 0;
+
+fun refresh () {
+  place_logo();
+  if (fading) {
+    fade_t++;
+    o = 1 - (fade_t / 18);
+    if (o < 0) o = 0;
+    logo.sprite.SetOpacity(o);
+  } else {
+    pulse_t++;
+    o = 0.89 + 0.11 * Math.Cos(pulse_t / 22);
+    logo.sprite.SetOpacity(o);
+  }
+}
+Plymouth.SetRefreshFunction(refresh);
+
+fun quit_callback () { fading = 1; }
+Plymouth.SetQuitFunction(quit_callback);

@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1, user-scalable=no" />
-  <title>Simon Says · MiniVend</title>
+  <title>Simon Says · Blu</title>
   <link rel="stylesheet" href="/css/styles.css" />
   <style>
     .s-page    { display: flex; flex-direction: column; height: 100vh; }
@@ -22,45 +22,55 @@
     .pad-grid {
       width: min(82vmin, 480px); aspect-ratio: 1 / 1;
       display: grid; grid-template-columns: 1fr 1fr; grid-template-rows: 1fr 1fr;
-      gap: 12px;
+      gap: 14px;
+      padding: 14px;
+      background: var(--surface);
+      border: 1px solid var(--stroke);
+      border-radius: 28px;
+      box-shadow: 0 10px 26px rgba(123, 101, 147, 0.14);
     }
     .pad {
       border-radius: 22px;
       cursor: pointer;
       transition: filter 80ms ease, box-shadow 80ms ease, transform 80ms ease;
       touch-action: manipulation;
-      filter: brightness(0.45);
-      border: 2px solid rgba(0,0,0,0.35);
+      filter: brightness(0.78) saturate(0.9);
+      border: 1px solid rgba(123, 101, 147, 0.12);
     }
-    .pad.lit { filter: brightness(1.25); box-shadow: 0 0 36px currentColor; transform: scale(0.985); }
-    .pad-green  { background:#3ddc6a; color:#3ddc6a; }
-    .pad-red    { background:#ff5a5a; color:#ff5a5a; }
-    .pad-yellow { background:#ffe552; color:#ffe552; }
-    .pad-blue   { background:#42a4ff; color:#42a4ff; }
+    .pad.lit { filter: brightness(1.08) saturate(1.2); box-shadow: 0 0 36px currentColor; transform: scale(0.985); }
+    /* Pastel pads — softer than classic Simon but still
+       instantly distinguishable. */
+    .pad-green  { background:#9ed8b7; color:#9ed8b7; }
+    .pad-red    { background:#ff8fb6; color:#ff8fb6; }
+    .pad-yellow { background:#ffd28a; color:#ffd28a; }
+    .pad-blue   { background:#a3b6f0; color:#a3b6f0; }
 
     .center-label {
       position: absolute; left: 50%; top: 50%;
       transform: translate(-50%, -50%);
-      background: var(--bg);
+      background: var(--surface);
       border: 1px solid var(--stroke);
+      color: var(--text);
       border-radius: 999px;
       padding: 14px 22px;
       font-weight: 700; font-size: 18px;
       pointer-events: none;
       min-width: 110px; text-align: center;
+      box-shadow: 0 4px 12px rgba(123, 101, 147, 0.10);
     }
 
     .overlay {
       position: absolute; inset: 0;
       display: flex; align-items: center; justify-content: center;
-      background: rgba(0,0,0,0.7);
+      background: rgba(247, 238, 252, 0.88);
+      backdrop-filter: blur(4px);
       flex-direction: column; gap: 14px;
     }
-    .overlay h2 { font-size: 30px; margin: 0; text-align: center; }
+    .overlay h2 { font-size: 30px; margin: 0; text-align: center; color: var(--text); }
     .overlay .sub { color: var(--text-2); font-size: 15px; }
   </style>
 </head>
-<body>
+<body class="theme-pastel">
   <div class="s-page">
     <header class="s-header">
       <a href="/games"><button class="ghost">← Back</button></a>

@@ -1,0 +1,8 @@
+[Plymouth Theme]
+Name=Blu
+Description=MiniVend boot splash — soft lavender background with the Blu wordmark pulsing gently. Hides the rainbow / kernel log / login prompt between firmware and the Chromium kiosk.
+ModuleName=script
+
+[script]
+ImageDir=/usr/share/plymouth/themes/blu
+ScriptFile=/usr/share/plymouth/themes/blu/blu.script

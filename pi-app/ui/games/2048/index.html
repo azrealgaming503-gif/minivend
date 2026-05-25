@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=1024, initial-scale=1, user-scalable=no" />
-  <title>2048 · MiniVend</title>
+  <title>2048 · Blu</title>
   <link rel="stylesheet" href="/css/styles.css" />
   <style>
     .g2-page { display: flex; flex-direction: column; height: 100vh; }
@@ -17,49 +17,54 @@
     .g2-grid {
       position: relative;
       width: 520px; height: 520px;
-      background: #181820;
+      background: #ece1f4;
       border: 1px solid var(--stroke);
       border-radius: 16px;
       padding: 12px;
+      box-shadow: 0 10px 26px rgba(123, 101, 147, 0.12);
     }
     .g2-cell-bg, .g2-tile {
       position: absolute;
       width: 116px; height: 116px;
-      border-radius: 10px;
+      border-radius: 12px;
       display: flex; align-items: center; justify-content: center;
       font-weight: 700;
     }
-    .g2-cell-bg { background: #20202a; }
+    .g2-cell-bg { background: rgba(255, 255, 255, 0.55); }
     .g2-tile {
       transition: transform 0.12s ease, background 0.05s ease;
       will-change: transform;
-      color: #f0f0f4;
+      color: #3d2e54;
+      box-shadow: 0 2px 6px rgba(123, 101, 147, 0.12);
     }
-    .g2-tile[data-v="2"]    { background: #3a3a48; color: #d7d7e0; }
-    .g2-tile[data-v="4"]    { background: #424256; }
-    .g2-tile[data-v="8"]    { background: #5b6f8a; }
-    .g2-tile[data-v="16"]   { background: #6e8aa6; }
-    .g2-tile[data-v="32"]   { background: #62b6cb; color: #07242b; }
-    .g2-tile[data-v="64"]   { background: #5fc5b8; color: #07242b; }
-    .g2-tile[data-v="128"]  { background: #d4c66f; color: #2a260e; }
-    .g2-tile[data-v="256"]  { background: #d9b25b; color: #2a1f08; }
-    .g2-tile[data-v="512"]  { background: #de9c52; color: #2a1808; }
-    .g2-tile[data-v="1024"] { background: #d97a7a; color: #2b0d0d; font-size: 30px; }
-    .g2-tile[data-v="2048"] { background: #b86fd9; color: #220a2a; font-size: 30px; }
+    /* Pastel progression: pale lavender → bold lavender → pink → coral
+       → soft gold for the "win" tile. */
+    .g2-tile[data-v="2"]    { background: #faf2ff; color: #6f5a8d; }
+    .g2-tile[data-v="4"]    { background: #f1e1fa; color: #5d4b7a; }
+    .g2-tile[data-v="8"]    { background: #e6cdf4; color: #4d3b69; }
+    .g2-tile[data-v="16"]   { background: #d6b3ef; color: #3d2e54; }
+    .g2-tile[data-v="32"]   { background: #c799ea; color: #ffffff; }
+    .g2-tile[data-v="64"]   { background: #b886e5; color: #ffffff; }
+    .g2-tile[data-v="128"]  { background: #ffcfe3; color: #6b2347; }
+    .g2-tile[data-v="256"]  { background: #ffb8d6; color: #6b2347; }
+    .g2-tile[data-v="512"]  { background: #ffa3d1; color: #ffffff; }
+    .g2-tile[data-v="1024"] { background: #ff8fb6; color: #ffffff; font-size: 30px; }
+    .g2-tile[data-v="2048"] { background: linear-gradient(135deg, #b886e5, #ffa3d1); color: #ffffff; font-size: 30px; }
     .g2-tile { font-size: 36px; }
     .g2-tile.small  { font-size: 28px; }
 
     .g2-overlay {
       position: absolute; inset: 0;
       display: flex; align-items: center; justify-content: center;
-      background: rgba(10,10,15,0.7);
+      background: rgba(247, 238, 252, 0.88);
+      backdrop-filter: blur(6px);
       border-radius: 16px;
       flex-direction: column; gap: 14px;
     }
-    .g2-overlay h2 { margin: 0; font-size: 36px; }
+    .g2-overlay h2 { margin: 0; font-size: 36px; color: var(--text); }
   </style>
 </head>
-<body>
+<body class="theme-pastel">
   <div class="g2-page">
     <header class="g2-header">
       <a href="/games"><button class="ghost">← Back</button></a>
