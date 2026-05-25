@@ -47,18 +47,19 @@
 
       <section class="section">
         <h2>Dispense cooldown</h2>
-        <div class="row" style="justify-content: space-between; align-items: center;">
+        <div class="row" style="justify-content: space-between; align-items: center; gap: 14px; flex-wrap: wrap;">
           <div>
-            <div>Minimum seconds between dispenses</div>
+            <div>Minimum minutes between dispenses</div>
             <div class="meta" style="color: var(--text-2); font-size: 13px;">
               Tips that arrive during cooldown still show their alert
               and are logged; the motor is held until cooldown expires.
-              Set 0 to disable.
+              Set 0 to disable. Fractional minutes are fine — 0.5 = 30 sec.
             </div>
           </div>
           <div class="row" style="align-items: center; gap: 8px;">
-            <input id="cooldown-input" type="number" min="0" max="3600" step="1" style="width: 96px;" />
-            <span class="meta" style="color: var(--text-2);">sec</span>
+            <input id="cooldown-input" type="number" min="0" max="60" step="0.5"
+                   data-numpad-title="Cooldown (minutes)" style="width: 110px;" />
+            <span class="meta" style="color: var(--text-2);">min</span>
             <button id="cooldown-save" class="primary">Save</button>
           </div>
         </div>
@@ -84,6 +85,8 @@
   <script type="module">
     import { onMessage } from '/js/ws-client.js';
     import '/js/alerts.js';
+    import { attachNumpad } from '/js/numpad.js';
+    attachNumpad();
 
     // ===== Tier editor =====
     const tiersList   = document.getElementById('tiers-list');
@@ -109,7 +112,7 @@
             <option value="eq">=</option>
           </select>
           <span class="meta" style="color: var(--text-2);">$</span>
-          <input type="number" min="0" step="0.01" data-min style="width: 110px;" />
+          <input type="number" min="0" step="0.01" data-min data-numpad-title="Tier amount" style="width: 110px;" />
           <span class="meta" style="color: var(--text-2);">→</span>
           <select data-motor style="width: 120px;">
             <option value="1">Chamber 1</option>
@@ -177,16 +180,19 @@
     });
 
     // ===== Cooldown =====
+    // The server stores seconds. The UI exposes minutes — convert at
+    // the API boundary in both directions.
     const cooldownInput = document.getElementById('cooldown-input');
     document.getElementById('cooldown-save').addEventListener('click', async () => {
-      const sec = parseInt(cooldownInput.value, 10);
+      const minutes = parseFloat(cooldownInput.value) || 0;
+      const sec = Math.round(minutes * 60);
       const r = await fetch('/api/settings', {
         method: 'PUT',
         headers: { 'content-type': 'application/json' },
         body: JSON.stringify({ dispenseCooldownSec: sec }),
       });
       const j = await r.json();
-      if (j.ok) cooldownInput.value = j.settings.dispenseCooldownSec;
+      if (j.ok) cooldownInput.value = (j.settings.dispenseCooldownSec / 60).toString();
     });
 
     // ===== Apply settings to all inputs =====
@@ -201,7 +207,9 @@
         label2.value = s.chamberLabels[2] || 'Right';
       }
       if (Number.isFinite(s.dispenseCooldownSec)) {
-        cooldownInput.value = s.dispenseCooldownSec;
+        // Stored as seconds, edited as minutes.
+        const m = s.dispenseCooldownSec / 60;
+        cooldownInput.value = Number.isInteger(m) ? String(m) : m.toFixed(2);
       }
     }
     onMessage('settings_changed', (m) => applySettings(m.settings));

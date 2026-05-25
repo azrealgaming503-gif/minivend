@@ -27,7 +27,8 @@
             </div>
           </div>
           <div class="row" style="align-items: center; gap: 8px;">
-            <input id="idle-timeout-input" type="number" min="5" max="3600" step="5" style="width: 96px;" />
+            <input id="idle-timeout-input" type="number" min="5" max="3600" step="5"
+                   data-numpad-title="Idle timeout (seconds)" style="width: 96px;" />
             <span class="meta" style="color: var(--text-2);">sec</span>
             <button id="idle-timeout-save" class="primary">Save</button>
           </div>
@@ -51,6 +52,8 @@
   <script type="module">
     import { onMessage } from '/js/ws-client.js';
     import '/js/alerts.js';
+    import { attachNumpad } from '/js/numpad.js';
+    attachNumpad();
 
     const idleTimeoutInput  = document.getElementById('idle-timeout-input');
     const idleTimeoutSave   = document.getElementById('idle-timeout-save');

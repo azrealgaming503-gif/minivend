@@ -41,9 +41,13 @@
       text-decoration: none;
       text-align: center;
       transition: transform 0.12s ease, border-color 0.12s ease, box-shadow 0.12s ease;
+      box-shadow: 0 4px 14px rgba(123, 101, 147, 0.06);
     }
     .game-tile:active { transform: scale(0.97); }
-    .game-tile:hover  { border-color: var(--accent); box-shadow: var(--glow-cyan); }
+    .game-tile:hover  {
+      border-color: var(--accent);
+      box-shadow: var(--glow-cyan);
+    }
     .game-tile-icon {
       width: 64px; height: 64px;
       color: var(--accent);
@@ -63,7 +67,7 @@
     }
   </style>
 </head>
-<body>
+<body class="theme-pastel">
   <div class="games-root">
     <header class="games-header">
       <a href="/menu"><button class="ghost">← Back</button></a>

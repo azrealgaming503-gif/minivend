@@ -43,6 +43,46 @@
       </section>
 
       <section class="section">
+        <h2>Manual jog</h2>
+        <p class="meta" style="color: var(--text-2); font-size: 13px; margin: 0 0 14px;">
+          Press and hold a button to run the motor at low speed in
+          that direction. Release to stop. Useful for aligning a
+          carousel or freeing a half-stuck item without firing a
+          full dispense.
+        </p>
+
+        <div class="jog-grid" id="jog-grid">
+          <div class="jog-cell">
+            <div class="jog-label">Chamber 1</div>
+            <div class="jog-buttons">
+              <button class="jog-btn" data-jog="1" data-dir="-1" aria-label="Chamber 1 reverse">◀ Reverse</button>
+              <button class="jog-btn" data-jog="1" data-dir="1"  aria-label="Chamber 1 forward">Forward ▶</button>
+            </div>
+          </div>
+          <div class="jog-cell">
+            <div class="jog-label">Chamber 2</div>
+            <div class="jog-buttons">
+              <button class="jog-btn" data-jog="2" data-dir="-1" aria-label="Chamber 2 reverse">◀ Reverse</button>
+              <button class="jog-btn" data-jog="2" data-dir="1"  aria-label="Chamber 2 forward">Forward ▶</button>
+            </div>
+          </div>
+        </div>
+
+        <div class="row" style="gap: 14px; align-items: center; flex-wrap: wrap; margin-top: 14px;">
+          <label class="col" style="gap: 4px;">
+            <span class="meta" style="color: var(--text-2); font-size: 13px;">Jog speed</span>
+            <input id="jog-speed" type="number" min="100" max="3000" step="50" value="500"
+                   data-numpad-title="Jog speed (steps/sec)" style="width: 120px;" />
+          </label>
+          <div class="meta" style="color: var(--text-2); font-size: 12px; max-width: 320px;">
+            Steps per second sent to the stepper. Default 500 is a
+            slow, controllable crawl. The motor stops the instant
+            you lift your finger.
+          </div>
+        </div>
+      </section>
+
+      <section class="section">
         <h2>Emergency stop</h2>
         <p class="meta" style="color: var(--text-2); font-size: 13px; margin: 0 0 12px;">
           Cuts power to both stepper drivers immediately. Use if you
@@ -70,6 +110,8 @@
   <script type="module">
     import { onMessage } from '/js/ws-client.js';
     import '/js/alerts.js';
+    import { attachNumpad } from '/js/numpad.js';
+    attachNumpad();
 
     const dot      = document.getElementById('motor-dot');
     const label    = document.getElementById('motor-label');
@@ -117,6 +159,59 @@
         headers: { 'content-type': 'application/json' },
         body: JSON.stringify({}),
       });
+    });
+
+    // ===== Manual jog =====
+    // Press = fire dispense with a long max_ms at slow speed.
+    // Release (pointerup, pointercancel, pointerleave) = motor stop.
+    // The server will also auto-stop after max_ms as a safety net in
+    // case the release event is missed (e.g. browser hides the page).
+    const JOG_MAX_MS = 8000;
+    const jogSpeedInput = document.getElementById('jog-speed');
+    const activeJogs = new Map(); // motor id -> true
+
+    async function jogStart(motor, dir) {
+      if (activeJogs.get(motor)) return;
+      activeJogs.set(motor, true);
+      const speed = Math.max(100, Math.min(3000, parseInt(jogSpeedInput.value, 10) || 500));
+      result.textContent = `Chamber ${motor}: jog ${dir > 0 ? 'forward' : 'reverse'} @ ${speed}`;
+      try {
+        await fetch('/api/dispense', {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ motor, dir, speed, max_ms: JOG_MAX_MS }),
+        });
+      } catch (_) { /* server may drop while we're holding */ }
+    }
+    async function jogStop(motor) {
+      if (!activeJogs.get(motor)) return;
+      activeJogs.set(motor, false);
+      try {
+        await fetch('/api/stop', {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ motor }),
+        });
+      } catch (_) {}
+      result.textContent = `Chamber ${motor}: jog stopped`;
+    }
+
+    document.querySelectorAll('[data-jog]').forEach((btn) => {
+      const motor = parseInt(btn.dataset.jog, 10);
+      const dir   = parseInt(btn.dataset.dir, 10);
+      const start = (e) => { e.preventDefault(); jogStart(motor, dir); btn.classList.add('jog-active'); };
+      const stop  = ()  => { jogStop(motor); btn.classList.remove('jog-active'); };
+      btn.addEventListener('pointerdown',   start);
+      btn.addEventListener('pointerup',     stop);
+      btn.addEventListener('pointercancel', stop);
+      btn.addEventListener('pointerleave',  stop);
+      btn.addEventListener('contextmenu',   (e) => e.preventDefault());
+    });
+    // Safety: if the page is hidden mid-jog, stop everything.
+    document.addEventListener('visibilitychange', () => {
+      if (document.hidden) {
+        for (const motor of activeJogs.keys()) jogStop(motor);
+      }
     });
 
     onMessage('motor_status', (m) => setMotorStatus(m.connected, undefined, m.port));

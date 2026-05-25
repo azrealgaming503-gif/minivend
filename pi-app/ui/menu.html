@@ -6,22 +6,50 @@
   <title>Menu · Blukitsune9</title>
   <link rel="stylesheet" href="/css/styles.css" />
   <style>
-    /* Menu-specific: 2-column tile grid for portrait kiosk. Tiles are
-       large enough to be comfortable for thumbs while still showing
-       six options without scrolling. */
-    .menu-grid-2 {
-      grid-template-columns: 1fr 1fr;
+    /* Menu-specific: vertical scrolling list of large tiles. The
+       whole menu fits comfortably without scroll for 4–5 tiles, and
+       scrolls smoothly with momentum on touch for longer lists. */
+    .menu-grid-vert {
+      grid-template-columns: 1fr;
       gap: 14px;
       padding: 14px 18px 18px;
+      overflow-y: auto;
+      align-content: start;
+      -webkit-overflow-scrolling: touch;
+      scroll-snap-type: y proximity;
     }
-    .menu-grid-2 .menu-tile {
-      min-height: 130px;
-      padding: 18px 14px;
-      gap: 6px;
+    .menu-grid-vert .menu-tile {
+      flex-direction: row;
+      justify-content: flex-start;
+      gap: 18px;
+      min-height: 110px;
+      padding: 18px 22px;
+      text-align: left;
+      scroll-snap-align: start;
     }
-    .menu-grid-2 .menu-tile-icon { width: 42px; height: 42px; }
-    .menu-grid-2 .menu-tile-title { font-size: 18px; }
-    .menu-grid-2 .menu-tile-sub   { font-size: 10px; }
+    .menu-grid-vert .menu-tile-icon {
+      width: 56px; height: 56px;
+      flex: 0 0 56px;
+    }
+    .menu-grid-vert .menu-tile-text {
+      display: flex; flex-direction: column; gap: 4px;
+      min-width: 0;
+    }
+    .menu-grid-vert .menu-tile-title { font-size: 22px; line-height: 1.05; }
+    .menu-grid-vert .menu-tile-sub {
+      font-size: 12px;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      color: var(--text-2);
+    }
+    .menu-grid-vert .menu-tile-chev {
+      margin-left: auto;
+      color: var(--text-2);
+      opacity: 0.45;
+      flex: 0 0 auto;
+      font-size: 32px;
+      line-height: 1;
+    }
   </style>
 </head>
 <body class="menu-body theme-pastel">
@@ -29,12 +57,12 @@
     <header class="menu-header">
       <div class="brand-mark">
         <div class="brand-logo"></div>
-        <div class="brand-name">Blukitsune9</div>
+        <div class="brand-name">Blu</div>
       </div>
       <span class="status-pill"><span id="motor-dot" class="dot"></span><span id="motor-label">motor · …</span></span>
     </header>
 
-    <main class="menu-grid menu-grid-2">
+    <main class="menu-grid menu-grid-vert">
       <a class="menu-tile" href="/games">
         <div class="menu-tile-icon">
           <svg viewBox="0 0 64 64" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round">
@@ -44,13 +72,15 @@
             <circle cx="50" cy="38" r="3"/>
           </svg>
         </div>
-        <div class="menu-tile-title">Games</div>
-        <div class="menu-tile-sub">arcade</div>
+        <div class="menu-tile-text">
+          <div class="menu-tile-title">Games</div>
+          <div class="menu-tile-sub">Tetris · Whack · Flappy · 7 total</div>
+        </div>
+        <div class="menu-tile-chev">›</div>
       </a>
 
       <a class="menu-tile" href="/idle">
         <div class="menu-tile-icon">
-          <!-- film + paw -->
           <svg viewBox="0 0 64 64" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round">
             <rect x="10" y="14" width="44" height="36" rx="6"/>
             <circle cx="22" cy="32" r="2"/>
@@ -59,37 +89,43 @@
             <path d="M22 40 q10 6 20 0"/>
           </svg>
         </div>
-        <div class="menu-tile-title">Idle anim</div>
-        <div class="menu-tile-sub">cat & uploads</div>
+        <div class="menu-tile-text">
+          <div class="menu-tile-title">Idle animation</div>
+          <div class="menu-tile-sub">Preinstalled cat · upload more</div>
+        </div>
+        <div class="menu-tile-chev">›</div>
       </a>
 
       <a class="menu-tile primary" href="/donations">
         <div class="menu-tile-icon">
-          <!-- heart + dollar -->
           <svg viewBox="0 0 64 64" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round">
             <path d="M32 52 C18 42 8 32 14 22 c4 -7 14 -7 18 2 c4 -9 14 -9 18 -2 c6 10 -4 20 -18 30 Z"/>
             <path d="M32 30 v8 M28 32 q4 -2 8 0 M28 36 q4 2 8 0"/>
           </svg>
         </div>
-        <div class="menu-tile-title">Donations</div>
-        <div class="menu-tile-sub">tiers · history</div>
+        <div class="menu-tile-text">
+          <div class="menu-tile-title">Donations</div>
+          <div class="menu-tile-sub">Tiers · cooldown · history</div>
+        </div>
+        <div class="menu-tile-chev">›</div>
       </a>
 
       <a class="menu-tile" href="/motor">
         <div class="menu-tile-icon">
-          <!-- gear inside circle -->
           <svg viewBox="0 0 64 64" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round">
             <circle cx="32" cy="32" r="10"/>
             <path d="M32 10v8M32 46v8M54 32h-8M18 32h-8M48 16l-6 6M22 42l-6 6M48 48l-6-6M22 22l-6-6"/>
           </svg>
         </div>
-        <div class="menu-tile-title">Motor</div>
-        <div class="menu-tile-sub">test · stop</div>
+        <div class="menu-tile-text">
+          <div class="menu-tile-title">Motor controls</div>
+          <div class="menu-tile-sub">Test · jog · emergency stop</div>
+        </div>
+        <div class="menu-tile-chev">›</div>
       </a>
 
       <a class="menu-tile" href="/network">
         <div class="menu-tile-icon">
-          <!-- wifi -->
           <svg viewBox="0 0 64 64" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round">
             <path d="M8 24 q24 -22 48 0"/>
             <path d="M16 32 q16 -14 32 0"/>
@@ -97,13 +133,15 @@
             <circle cx="32" cy="48" r="3" fill="currentColor"/>
           </svg>
         </div>
-        <div class="menu-tile-title">Network</div>
-        <div class="menu-tile-sub">wi-fi · accounts</div>
+        <div class="menu-tile-text">
+          <div class="menu-tile-title">Network &amp; accounts</div>
+          <div class="menu-tile-sub">Wi-Fi · StreamElements · updates</div>
+        </div>
+        <div class="menu-tile-chev">›</div>
       </a>
 
       <a class="menu-tile" href="/settings">
         <div class="menu-tile-icon">
-          <!-- sliders -->
           <svg viewBox="0 0 64 64" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round">
             <path d="M10 18h44M10 32h44M10 46h44"/>
             <circle cx="22" cy="18" r="4"/>
@@ -111,8 +149,11 @@
             <circle cx="30" cy="46" r="4"/>
           </svg>
         </div>
-        <div class="menu-tile-title">Settings</div>
-        <div class="menu-tile-sub">kiosk · updates</div>
+        <div class="menu-tile-text">
+          <div class="menu-tile-title">Settings</div>
+          <div class="menu-tile-sub">Kiosk behavior</div>
+        </div>
+        <div class="menu-tile-chev">›</div>
       </a>
     </main>
 
