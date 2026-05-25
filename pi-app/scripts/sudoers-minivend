@@ -15,5 +15,10 @@ Cmnd_Alias MINIVEND_SVC    = /bin/systemctl restart minivend-server.service, \
                              /bin/systemctl restart minivend-kiosk.service, \
                              /bin/systemctl status  minivend-server.service, \
                              /bin/systemctl status  minivend-kiosk.service
+# Used by the server's /api/kiosk-ready endpoint to tear down the
+# plymouth boot splash once the idle page has actually painted.
+Cmnd_Alias MINIVEND_SPLASH = /usr/bin/plymouth quit, \
+                             /usr/bin/plymouth quit --retain-splash, \
+                             /usr/bin/plymouth --quit
 
-minivend ALL=(root) NOPASSWD: MINIVEND_UPDATE, MINIVEND_WIFI, MINIVEND_SVC
+minivend ALL=(root) NOPASSWD: MINIVEND_UPDATE, MINIVEND_WIFI, MINIVEND_SVC, MINIVEND_SPLASH

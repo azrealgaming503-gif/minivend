@@ -794,6 +794,49 @@ body:not(.theme-pastel) .upload-zone-big {
 .badge.preinstalled { color: var(--accent); }
 .badge.active       { color: var(--success); }
 
+/* ===== Boot splash overlay =====
+   In-page version of the plymouth splash. Visible from the very
+   first frame chromium paints, then fades when the cat video has
+   actually composited its first frame. Colors and wordmark MUST
+   stay in sync with pi-app/splash/blu/blu.script and
+   pi-app/scripts/install-splash.sh so the transition from plymouth
+   → in-page → cat is visually continuous. */
+.boot-splash {
+  position: fixed;
+  inset: 0;
+  z-index: 50;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: linear-gradient(180deg, #f7eefc 0%, #e8d6f0 100%);
+  transition: opacity 0.55s ease;
+  opacity: 1;
+  pointer-events: none;
+}
+.boot-splash.hidden { opacity: 0; }
+.boot-splash-wordmark {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  font-family: 'DejaVu Sans', 'Segoe UI', system-ui, sans-serif;
+  font-weight: 800;
+  font-size: 160px;
+  letter-spacing: -0.03em;
+  color: #3d2e54;
+  animation: boot-splash-pulse 2.8s ease-in-out infinite;
+}
+.boot-splash-dot {
+  display: inline-block;
+  width: 18px; height: 18px;
+  border-radius: 50%;
+  background: #ff8fb6;
+  transform: translateY(-6px);
+}
+@keyframes boot-splash-pulse {
+  0%, 100% { opacity: 1; }
+  50%      { opacity: 0.78; }
+}
+
 /* ===== On-screen number pad =====
    Big-button modal for entering numbers on a kiosk that has no
    physical keyboard and no Wayland on-screen keyboard. Driven by

@@ -11,6 +11,7 @@
 
 const http = require('http');
 const path = require('path');
+const { spawn } = require('child_process');
 const express = require('express');
 const { WebSocketServer } = require('ws');
 
@@ -132,6 +133,36 @@ app.post('/api/dispense', express.json({ limit: '4kb' }), (req, res) => {
   if (!ok) return res.status(503).json({ ok: false, err: 'motor_not_connected' });
   broadcast({ type: 'dispense_started', motor: id, dir, speed, max_ms: maxMs });
   res.json({ ok: true });
+});
+
+// ---------- Boot splash handoff ----------
+// The kiosk page hits this endpoint as soon as its first frame is
+// composited. We tear down plymouth at that moment so the splash
+// and the kiosk overlap by exactly one frame — no black gap.
+//
+// `plymouth quit --retain-splash` keeps the splash image in the
+// framebuffer until something else writes to it (i.e. Chromium's
+// first paint), so even if our shellout is a millisecond early the
+// user doesn't see a flash.
+//
+// The sudoers drop-in (MINIVEND_SPLASH) lets the minivend user run
+// exactly this command without a password. If plymouth isn't
+// installed (dev machine, splash skipped, etc) we just no-op.
+let kioskReadyFired = false;
+app.post('/api/kiosk-ready', (_req, res) => {
+  res.json({ ok: true, alreadyFired: kioskReadyFired });
+  if (kioskReadyFired) return;
+  kioskReadyFired = true;
+  try {
+    const p = spawn('sudo', ['-n', '/usr/bin/plymouth', 'quit', '--retain-splash'], {
+      stdio: 'ignore',
+      detached: true,
+    });
+    p.on('error', (e) => console.warn('[kiosk-ready] plymouth quit failed:', e.message));
+    p.unref();
+  } catch (e) {
+    console.warn('[kiosk-ready] could not spawn plymouth:', e.message);
+  }
 });
 
 // ---------- Emergency stop ----------

@@ -7,6 +7,16 @@
   <link rel="stylesheet" href="/css/styles.css" />
 </head>
 <body class="idle-body">
+  <!-- Boot splash overlay. Painted on the very first frame so it
+       visually continues from the plymouth splash and covers the
+       gap while the cat video loads / first-frame-paints. Fades
+       out the moment the cat is actually playing. -->
+  <div id="boot-splash" class="boot-splash">
+    <div class="boot-splash-wordmark">
+      <span>Blu</span><span class="boot-splash-dot"></span>
+    </div>
+  </div>
+
   <!-- Idle screen: only the looping cat animation. Donation alerts still
        overlay on top (alerts.js). Swipe UP anywhere on the screen to open
        the menu page; swipe DOWN from the menu to return. -->
@@ -48,6 +58,33 @@
     const cover     = document.getElementById('idle-cover');
     const empty     = document.getElementById('idle-empty');
     const swipeHint = document.getElementById('swipe-hint');
+    const bootSplash = document.getElementById('boot-splash');
+
+    // ===== Boot-splash handoff =====
+    // The plymouth splash stays on-screen for the whole boot, then
+    // we ask the server to tear it down via /api/kiosk-ready. To
+    // avoid even a single-frame gap, we keep a matching in-page
+    // splash visible until the cat video has actually painted its
+    // first frame, then fade both at once.
+    let kioskReadyFired = false;
+    function dismissBootSplash() {
+      if (kioskReadyFired) return;
+      kioskReadyFired = true;
+      // Two rAFs: lets the new frame be presented BEFORE we tell
+      // plymouth to quit, so the chromium framebuffer is guaranteed
+      // to have content the moment plymouth releases.
+      requestAnimationFrame(() => requestAnimationFrame(() => {
+        bootSplash.classList.add('hidden');
+        fetch('/api/kiosk-ready', { method: 'POST' }).catch(() => {});
+        // Remove from the DOM after the fade so it can't intercept
+        // touches (z-index: 50; pointer-events: none would also work).
+        setTimeout(() => bootSplash.remove(), 900);
+      }));
+    }
+    // Hard backstop: if no idle clip ever paints (no animations
+    // installed, server unreachable, etc.) we still drop the splash
+    // after 12s so the user can see the empty-state UI / menu swipe.
+    setTimeout(dismissBootSplash, 12000);
 
     // ===== Cover layer =====
     // Cover is an <img> that shows the FIRST FRAME of the upcoming clip
@@ -147,12 +184,15 @@
       videoA.classList.remove('active'); videoA.hidden = true;
       videoB.classList.remove('active'); videoB.hidden = true;
       image.hidden = false;
+      // Static image idle = no first-frame event; dismiss splash on load.
+      image.onload = dismissBootSplash;
     }
     function showEmpty() {
       videoA.classList.remove('active');
       videoB.classList.remove('active');
       image.hidden = true;
       empty.hidden = false;
+      dismissBootSplash();
     }
 
     function setActiveVideo(el) {
@@ -217,6 +257,11 @@
           activeEl.loop = true;
           await preloadInto(activeEl, this.url);
           safePlay(activeEl);
+          if (typeof activeEl.requestVideoFrameCallback === 'function') {
+            activeEl.requestVideoFrameCallback(dismissBootSplash);
+          } else {
+            activeEl.addEventListener('playing', dismissBootSplash, { once: true });
+          }
         } else {
           showImageMode();
           image.src = this.url;
@@ -258,6 +303,12 @@
         await preloadInto(activeEl, this._absUrl(step.loop));
         if (this.stopped) return;
         safePlay(activeEl);
+        // First cat frame painted = boot splash can go.
+        if (typeof activeEl.requestVideoFrameCallback === 'function') {
+          activeEl.requestVideoFrameCallback(dismissBootSplash);
+        } else {
+          activeEl.addEventListener('playing', dismissBootSplash, { once: true });
+        }
         this._scheduleTransition();
         // Preload the upcoming transition video AND its cover image.
         if (step.transition) {
