@@ -41,15 +41,6 @@ const DEFAULTS = Object.freeze({
   // active, incoming donations are still acknowledged on-screen and
   // logged, but their dispense is queued FIFO. Set 0 to disable.
   dispenseCooldownSec: 0,
-
-  // Optional StreamElements overlay URL. When set, the kiosk's donation
-  // overlay shows the streamer's own SE alert (the same one OBS uses)
-  // full-screen, with a thin chamber-indicator strip overlaid at the
-  // bottom. When blank, the kiosk uses the built-in overlay (animated
-  // emote + amount + name + chamber boxes). The URL must be the public
-  // widget URL (the kind you paste into OBS as a browser source); no
-  // JWT or API token is required.
-  seOverlayUrl: '',
 });
 
 function ensureDir(dir) {
@@ -118,11 +109,6 @@ class SettingsStore {
       1: String(labels[1] || labels['1'] || DEFAULTS.chamberLabels[1]).slice(0, 32),
       2: String(labels[2] || labels['2'] || DEFAULTS.chamberLabels[2]).slice(0, 32),
     };
-
-    let url = typeof out.seOverlayUrl === 'string' ? out.seOverlayUrl.trim() : '';
-    if (url.length > 500) url = url.slice(0, 500);
-    if (url && !/^https?:\/\//i.test(url)) url = '';   // require an absolute URL
-    out.seOverlayUrl = url;
 
     return out;
   }
