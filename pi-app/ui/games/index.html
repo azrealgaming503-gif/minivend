@@ -1,0 +1,176 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, user-scalable=no" />
+  <title>Games · Blukitsune9</title>
+  <link rel="stylesheet" href="/css/styles.css" />
+  <style>
+    /* Games launcher: card grid that mirrors the menu page's layout but
+       lists whatever subdirectories exist under ui/games/ that contain
+       an index.html. Add a new game by dropping it into pi-app/ui/games/. */
+    .games-root {
+      width: 100vw; height: 100vh;
+      display: flex; flex-direction: column;
+    }
+    .games-header {
+      display: flex; align-items: center; justify-content: space-between;
+      padding: 18px 22px;
+      border-bottom: 1px solid var(--stroke);
+    }
+    .games-title { font-size: 22px; font-weight: 600; }
+    .games-grid {
+      flex: 1;
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+      gap: 18px;
+      padding: 22px;
+      overflow: auto;
+      align-content: start;
+    }
+    .game-tile {
+      display: flex; flex-direction: column;
+      align-items: center; justify-content: center;
+      gap: 10px;
+      padding: 28px 18px;
+      min-height: 180px;
+      background: var(--surface);
+      border: 1px solid var(--stroke);
+      border-radius: 16px;
+      color: var(--text);
+      text-decoration: none;
+      text-align: center;
+      transition: transform 0.12s ease, border-color 0.12s ease, box-shadow 0.12s ease;
+    }
+    .game-tile:active { transform: scale(0.97); }
+    .game-tile:hover  { border-color: var(--accent); box-shadow: var(--glow-cyan); }
+    .game-tile-icon {
+      width: 64px; height: 64px;
+      color: var(--accent);
+    }
+    .game-tile-icon svg { width: 100%; height: 100%; }
+    .game-tile-name {
+      font-size: 22px; font-weight: 600;
+    }
+    .game-tile-sub {
+      font-size: 13px; color: var(--text-2);
+    }
+    .games-empty {
+      color: var(--text-2);
+      grid-column: 1 / -1;
+      text-align: center;
+      padding: 50px 20px;
+    }
+  </style>
+</head>
+<body>
+  <div class="games-root">
+    <header class="games-header">
+      <a href="/menu"><button class="ghost">← Back</button></a>
+      <div class="games-title">Games</div>
+      <a href="/"><button class="ghost">Idle</button></a>
+    </header>
+    <main class="games-grid" id="grid">
+      <div class="games-empty" id="empty" hidden>Loading games…</div>
+    </main>
+  </div>
+
+  <script type="module">
+    import { onMessage } from '/js/ws-client.js';
+    import '/js/alerts.js';
+
+    // Hand-picked icons + descriptions for known games. Unknown game
+    // folders still appear, just with a default joystick glyph.
+    const META = {
+      snake: {
+        title: 'Snake',
+        sub:   'Eat the squares · don\'t hit yourself',
+        icon: `<svg viewBox="0 0 64 64" fill="none" stroke="currentColor"
+                    stroke-width="3" stroke-linecap="round" stroke-linejoin="round">
+                 <path d="M10 50 H30 a8 8 0 0 0 8 -8 V18 a8 8 0 0 1 8 -8 H56"/>
+                 <circle cx="56" cy="10" r="3" fill="currentColor"/>
+               </svg>`,
+      },
+      '2048': {
+        title: '2048',
+        sub:   'Swipe to combine matching tiles',
+        icon: `<svg viewBox="0 0 64 64" fill="none" stroke="currentColor"
+                    stroke-width="3" stroke-linecap="round" stroke-linejoin="round">
+                 <rect x="8"  y="8"  width="20" height="20" rx="4"/>
+                 <rect x="36" y="8"  width="20" height="20" rx="4"/>
+                 <rect x="8"  y="36" width="20" height="20" rx="4"/>
+                 <rect x="36" y="36" width="20" height="20" rx="4"/>
+               </svg>`,
+      },
+    };
+    const DEFAULT_ICON = `<svg viewBox="0 0 64 64" fill="none" stroke="currentColor"
+        stroke-width="3" stroke-linecap="round" stroke-linejoin="round">
+        <rect x="6" y="18" width="52" height="32" rx="14"/>
+        <path d="M14 30v8M10 34h8"/>
+        <circle cx="44" cy="30" r="3"/>
+        <circle cx="50" cy="38" r="3"/>
+      </svg>`;
+
+    const grid  = document.getElementById('grid');
+    const empty = document.getElementById('empty');
+
+    async function loadGames() {
+      empty.hidden = false; empty.textContent = 'Loading games…';
+      let j;
+      try {
+        const r = await fetch('/api/games');
+        j = await r.json();
+      } catch (e) {
+        empty.textContent = `Error: ${e.message}`;
+        return;
+      }
+      grid.innerHTML = '';
+      if (!j.ok || !j.games || j.games.length === 0) {
+        grid.appendChild(empty);
+        empty.hidden = false;
+        empty.textContent = 'No games installed yet. Drop a folder containing index.html into pi-app/ui/games/.';
+        return;
+      }
+      for (const g of j.games) {
+        const meta = META[g.name] || {};
+        const a = document.createElement('a');
+        a.className = 'game-tile';
+        a.href = g.path;
+        a.innerHTML = `
+          <div class="game-tile-icon">${meta.icon || DEFAULT_ICON}</div>
+          <div class="game-tile-name">${meta.title || g.name}</div>
+          <div class="game-tile-sub">${meta.sub || ''}</div>
+        `;
+        grid.appendChild(a);
+      }
+    }
+    loadGames();
+
+    // ===== Auto-return to idle after inactivity =====
+    // Driven by /api/settings.kioskIdleTimeoutSec; falls back to 30s.
+    let idleTimeoutMs = 30_000;
+    let idleTimer = null;
+    function bumpIdle() {
+      clearTimeout(idleTimer);
+      idleTimer = setTimeout(() => { location.href = '/'; }, idleTimeoutMs);
+    }
+    ['pointerdown', 'touchstart', 'keydown', 'mousemove'].forEach((evt) =>
+      window.addEventListener(evt, bumpIdle, { passive: true })
+    );
+    bumpIdle();
+
+    fetch('/api/state').then((r) => r.json()).then((j) => {
+      if (j && j.ok && j.settings && Number.isFinite(j.settings.kioskIdleTimeoutSec)) {
+        idleTimeoutMs = j.settings.kioskIdleTimeoutSec * 1000;
+        bumpIdle();
+      }
+    }).catch(() => {});
+    onMessage('settings_changed', (m) => {
+      if (m.settings && Number.isFinite(m.settings.kioskIdleTimeoutSec)) {
+        idleTimeoutMs = m.settings.kioskIdleTimeoutSec * 1000;
+        bumpIdle();
+      }
+    });
+  </script>
+</body>
+</html>
