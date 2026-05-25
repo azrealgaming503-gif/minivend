@@ -21,6 +21,7 @@ const { mount: mountDonations } = require('./donations');
 const { mount: mountWifi } = require('./wifi');
 const { mount: mountUpdater } = require('./updater');
 const { SettingsStore, mount: mountSettings } = require('./settings');
+const { HistoryStore, mount: mountHistory } = require('./history');
 
 const app = express();
 const server = http.createServer(app);
@@ -80,6 +81,11 @@ const settings = new SettingsStore({
   file: path.join(config.assetsDir, '..', 'settings.json'),
 });
 
+// ---------- Donation history ----------
+const history = new HistoryStore({
+  file: path.join(config.assetsDir, '..', 'donations.json'),
+});
+
 // ---------- Static UI ----------
 const uiDir = path.resolve(__dirname, '..', 'ui');
 app.use('/', express.static(uiDir, { extensions: ['html'] }));
@@ -87,11 +93,14 @@ app.use('/games', express.static(config.gamesDir));
 
 // ---------- Read-only state for UI bootstrap ----------
 app.get('/api/state', (_req, res) => {
+  const activeAlert = store.getActiveAlert();
   res.json({
     ok: true,
     motorConnected: motor.connected,
     motorFw: motor.lastFw,
     activeIdle: store.getActiveIdle(),
+    activeAlert,
+    activeAlertUrl: activeAlert ? `/assets/alerts/${encodeURIComponent(activeAlert)}` : null,
     dispense: config.dispense,
     settings: settings.getAll(),
   });
@@ -120,17 +129,151 @@ app.post('/api/stop', express.json({ limit: '4kb' }), (req, res) => {
 });
 
 // ---------- Donation pipeline ----------
+//
+// Flow:
+//   webhook -> normalize -> onDonation()
+//     -> resolve motor from configured tiers (settings.dispenseTiers)
+//     -> log history entry (status="queued")
+//     -> broadcast {type:"donation", ...} so the UI shows the overlay
+//     -> push onto dispenseQueue
+//     -> drainDispenseQueue() if not in cooldown
+//
+// drainDispenseQueue:
+//   - if cooldown active, schedule a retry at cooldownEndAt
+//   - else pop one job, motor.dispense(...), broadcast "donation_dispensing"
+//
+// On motor 'dispense_result':
+//   - update history entry status (dropped/jam/done)
+//   - broadcast "donation_done"
+//   - start cooldown (lastDispenseAt = Date.now())
+//   - drainDispenseQueue() (will respect cooldown automatically)
+let lastDispenseAt = 0;
+let activeJob = null;          // job currently dispensing (or null)
+const dispenseQueue = [];      // FIFO of {historyId, motor, evt}
+let drainTimer = null;
+
+function cooldownMsRemaining() {
+  const cd = (settings.getAll().dispenseCooldownSec || 0) * 1000;
+  if (cd <= 0) return 0;
+  const elapsed = Date.now() - lastDispenseAt;
+  return Math.max(0, cd - elapsed);
+}
+
+function snapshotQueue() {
+  return dispenseQueue.map((j) => ({
+    id: j.historyId, name: j.evt.name, amount: j.evt.amount, motor: j.motor,
+  }));
+}
+
+function broadcastDispenseState(extra = {}) {
+  broadcast({
+    type: 'dispense_state',
+    cooldownMs: cooldownMsRemaining(),
+    queue: snapshotQueue(),
+    active: activeJob ? {
+      id: activeJob.historyId,
+      name: activeJob.evt.name,
+      amount: activeJob.evt.amount,
+      motor: activeJob.motor,
+    } : null,
+    ...extra,
+  });
+}
+
+function drainDispenseQueue() {
+  if (drainTimer) { clearTimeout(drainTimer); drainTimer = null; }
+  if (activeJob) return;                          // wait for current to finish
+  if (dispenseQueue.length === 0) return;
+
+  const wait = cooldownMsRemaining();
+  if (wait > 0) {
+    drainTimer = setTimeout(drainDispenseQueue, wait + 50);
+    return;
+  }
+
+  const job = dispenseQueue.shift();
+  if (!motor.connected) {
+    history.update(job.historyId, {
+      status: 'skipped_motor_offline',
+      detail: 'motor controller not connected',
+    });
+    broadcast({
+      type: 'donation_skipped',
+      id: job.historyId, reason: 'motor_offline',
+      name: job.evt.name, amount: job.evt.amount, motor: job.motor,
+    });
+    broadcastDispenseState();
+    return drainDispenseQueue();
+  }
+
+  activeJob = job;
+  const { dir, speed, maxMs } = config.dispense;
+  const labels = settings.getAll().chamberLabels;
+  motor.dispense(job.motor, dir, speed, maxMs);
+  history.update(job.historyId, { status: 'dispensing' });
+  broadcast({
+    type: 'donation_dispensing',
+    id: job.historyId,
+    motor: job.motor,
+    chamberLabel: labels[job.motor] || `Chamber ${job.motor}`,
+    name: job.evt.name,
+    amount: job.evt.amount,
+  });
+  broadcast({ type: 'dispense_started', motor: job.motor, dir, speed, max_ms: maxMs });
+  broadcastDispenseState();
+}
+
+// Hook motor results into the dispense state machine. The existing
+// motor.on('dispense_result') registered above also broadcasts a generic
+// dispense_done event; this one is donation-specific and updates history.
+motor.on('dispense_result', (info) => {
+  if (!activeJob) return;
+  // Match by motor id since the firmware doesn't echo a job id; in
+  // practice activeJob's motor === info.motor for the only outstanding job.
+  if (activeJob.motor !== info.motor) return;
+  history.update(activeJob.historyId, {
+    status: info.kind,
+    detail: info.ms != null ? `${info.ms}ms` : '',
+  });
+  broadcast({
+    type: 'donation_done',
+    id: activeJob.historyId,
+    motor: activeJob.motor,
+    kind: info.kind,
+    ms:   info.ms,
+  });
+  activeJob = null;
+  lastDispenseAt = Date.now();
+  broadcastDispenseState();
+  drainDispenseQueue();
+});
+
 mountDonations(app, {
   config,
   onDonation: (evt) => {
-    console.log(`[donation] ${evt.source} ${evt.name} ${evt.amount} ${evt.currency}`);
-    // 1. Tell the UI to show the alert.
-    broadcast({ type: 'donation', ...evt });
-    // 2. Dispense. The default policy is "dispense one item per tip".
-    //    Real-world deployments will want tier mapping in the dashboard.
-    const { motor: id, dir, speed, maxMs } = config.dispense;
-    motor.dispense(id, dir, speed, maxMs);
-    broadcast({ type: 'dispense_started', motor: id, dir, speed, max_ms: maxMs });
+    const resolvedMotor = settings.resolveMotor(evt.amount);
+    console.log(`[donation] ${evt.source} ${evt.name} ${evt.amount} ${evt.currency} → motor ${resolvedMotor}`);
+    if (!resolvedMotor) {
+      const entry = history.add({ ...evt, motor: null, status: 'skipped_no_tier',
+                                  detail: `no tier matched amount ${evt.amount}` });
+      broadcast({ type: 'donation', ...evt, id: entry.id, motor: null });
+      broadcast({ type: 'donation_skipped', id: entry.id, reason: 'no_tier',
+                  name: evt.name, amount: evt.amount });
+      return;
+    }
+    const labels = settings.getAll().chamberLabels;
+    const entry = history.add({ ...evt, motor: resolvedMotor, status: 'queued' });
+    broadcast({
+      type: 'donation',
+      id: entry.id,
+      motor: resolvedMotor,
+      chamberLabel: labels[resolvedMotor] || `Chamber ${resolvedMotor}`,
+      source: evt.source, name: evt.name, amount: evt.amount,
+      currency: evt.currency, message: evt.message,
+    });
+    dispenseQueue.push({ historyId: entry.id, motor: resolvedMotor, evt });
+    broadcastDispenseState();
+    drainDispenseQueue();
   },
 });
 
@@ -138,10 +281,11 @@ mountDonations(app, {
 mountAssets(app, { store, broadcast });
 mountGames(app, { gamesDir: config.gamesDir });
 
-// ---------- Wi-Fi + Updater + Settings endpoints ----------
+// ---------- Wi-Fi + Updater + Settings + History endpoints ----------
 mountWifi(app);
 mountUpdater(app, { broadcast });
 mountSettings(app, { store: settings, broadcast });
+mountHistory(app, { store: history, broadcast });
 
 // ---------- Boot ----------
 server.listen(config.port, () => {

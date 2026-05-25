@@ -76,6 +76,93 @@
       </section>
 
       <section class="section">
+        <h2>Donation tiers</h2>
+        <p class="meta" style="color: var(--text-2); font-size: 13px; margin: 0 0 12px;">
+          Map donation amounts to chambers. Each row says "donations of
+          at least $X go to chamber N". The highest matching row wins, so
+          ordering by amount is automatic.
+        </p>
+        <div id="tiers-list" class="col" style="gap: 8px;"></div>
+        <div class="row" style="margin-top: 10px;">
+          <button id="tiers-add">Add tier</button>
+          <button id="tiers-save" class="primary">Save tiers</button>
+          <span id="tiers-status" class="meta" style="color: var(--text-2); font-size: 13px;"></span>
+        </div>
+      </section>
+
+      <section class="section">
+        <h2>Chamber labels</h2>
+        <div class="row" style="gap: 18px; flex-wrap: wrap;">
+          <label class="col" style="gap: 4px;">
+            <span class="meta" style="color: var(--text-2); font-size: 13px;">Chamber 1</span>
+            <input id="label-1" type="text" maxlength="32"
+                   style="padding: 8px 10px; font-size: 16px; background: var(--bg);
+                          color: var(--text); border: 1px solid var(--stroke); border-radius: 8px;" />
+          </label>
+          <label class="col" style="gap: 4px;">
+            <span class="meta" style="color: var(--text-2); font-size: 13px;">Chamber 2</span>
+            <input id="label-2" type="text" maxlength="32"
+                   style="padding: 8px 10px; font-size: 16px; background: var(--bg);
+                          color: var(--text); border: 1px solid var(--stroke); border-radius: 8px;" />
+          </label>
+          <button id="labels-save" class="primary" style="align-self: end;">Save labels</button>
+        </div>
+      </section>
+
+      <section class="section">
+        <h2>Dispense cooldown</h2>
+        <div class="row" style="justify-content: space-between; align-items: center;">
+          <div>
+            <div>Minimum seconds between dispenses</div>
+            <div class="meta" style="color: var(--text-2); font-size: 13px;">
+              Tips that arrive during a cooldown still show their alert
+              and are logged; the motor is held until the cooldown expires.
+              Set to 0 to disable.
+            </div>
+          </div>
+          <div class="row" style="align-items: center; gap: 8px;">
+            <input id="cooldown-input" type="number" min="0" max="3600" step="1"
+                   style="width: 88px; padding: 8px 10px; font-size: 16px;
+                          background: var(--bg); color: var(--text);
+                          border: 1px solid var(--stroke); border-radius: 8px;" />
+            <span class="meta" style="color: var(--text-2);">sec</span>
+            <button id="cooldown-save" class="primary">Save</button>
+          </div>
+        </div>
+      </section>
+
+      <section class="section">
+        <h2>Alert emote</h2>
+        <p class="meta" style="color: var(--text-2); font-size: 13px; margin: 0 0 10px;">
+          A small animated image (gif / webp / png / mp4) that bounces in
+          the donation overlay. Drop a file to upload and activate.
+        </p>
+        <form id="emote-form">
+          <label for="emote-input" class="upload-zone" id="emote-zone">
+            Tap to choose an emote, or drag-drop here.<br />
+            <small>gif, webp, png, mp4 — up to 50 MB</small>
+          </label>
+          <input id="emote-input" type="file" accept="image/*,video/*" hidden />
+        </form>
+        <p id="emote-status" style="color: var(--text-2); margin: 10px 0 0;"></p>
+        <div id="emote-list" class="asset-list" style="margin-top: 14px;"></div>
+      </section>
+
+      <section class="section">
+        <h2>Donation history</h2>
+        <div class="row" style="justify-content: space-between; align-items: center;">
+          <span id="history-summary" class="meta" style="color: var(--text-2); font-size: 13px;">loading...</span>
+          <div class="row">
+            <button id="history-refresh" class="ghost">Refresh</button>
+            <button id="history-clear" class="danger">Clear</button>
+          </div>
+        </div>
+        <div id="history-list" style="margin-top: 12px; max-height: 360px; overflow: auto;
+                                     border: 1px solid var(--stroke); border-radius: 10px;">
+        </div>
+      </section>
+
+      <section class="section">
         <h2>Kiosk behavior</h2>
         <div class="row" style="justify-content: space-between; align-items: center;">
           <div>
@@ -176,13 +263,20 @@
     const idleTimeoutStatus = document.getElementById('idle-timeout-status');
 
     let kioskIdleTimeoutMs = 30_000;
-
+    // Other settings sections register themselves here so a single
+    // /api/settings round-trip (or a settings_changed WS event) updates
+    // every section's inputs in one place.
+    const settingsHandlers = [];
+    function registerSettingsHandler(fn) { settingsHandlers.push(fn); }
     function applySettings(s) {
       if (!s) return;
       if (Number.isFinite(s.kioskIdleTimeoutSec)) {
         idleTimeoutInput.value = s.kioskIdleTimeoutSec;
         kioskIdleTimeoutMs = s.kioskIdleTimeoutSec * 1000;
         bumpAutoReturn();
+      }
+      for (const fn of settingsHandlers) {
+        try { fn(s); } catch (e) { console.warn('[settings] handler error', e); }
       }
     }
 
@@ -208,6 +302,271 @@
     });
 
     onMessage('settings_changed', (m) => applySettings(m.settings));
+
+    // ===== Donation tiers =====
+    const tiersList   = document.getElementById('tiers-list');
+    const tiersAdd    = document.getElementById('tiers-add');
+    const tiersSave   = document.getElementById('tiers-save');
+    const tiersStatus = document.getElementById('tiers-status');
+    let workingTiers  = [];
+
+    function renderTiers() {
+      tiersList.innerHTML = '';
+      if (workingTiers.length === 0) {
+        tiersList.innerHTML = '<div class="meta" style="color: var(--text-2);">No tiers — all donations will be skipped. Add at least one.</div>';
+        return;
+      }
+      workingTiers.forEach((t, i) => {
+        const row = document.createElement('div');
+        row.className = 'row';
+        row.style.gap = '8px';
+        row.innerHTML = `
+          <span class="meta" style="color: var(--text-2);">≥</span>
+          <span class="meta" style="color: var(--text-2);">$</span>
+          <input type="number" min="0" step="0.01" data-min
+                 style="width: 90px; padding: 6px 8px; font-size: 15px;
+                        background: var(--bg); color: var(--text);
+                        border: 1px solid var(--stroke); border-radius: 6px;" />
+          <span class="meta" style="color: var(--text-2);">→</span>
+          <select data-motor
+                  style="padding: 6px 8px; font-size: 15px; background: var(--bg);
+                         color: var(--text); border: 1px solid var(--stroke); border-radius: 6px;">
+            <option value="1">Chamber 1</option>
+            <option value="2">Chamber 2</option>
+          </select>
+          <button class="danger" data-remove>Remove</button>
+        `;
+        const minInput = row.querySelector('[data-min]');
+        const motorSel = row.querySelector('[data-motor]');
+        minInput.value = t.minAmount;
+        motorSel.value = String(t.motor);
+        minInput.addEventListener('input', () => {
+          workingTiers[i].minAmount = parseFloat(minInput.value) || 0;
+        });
+        motorSel.addEventListener('change', () => {
+          workingTiers[i].motor = parseInt(motorSel.value, 10);
+        });
+        row.querySelector('[data-remove]').addEventListener('click', () => {
+          workingTiers.splice(i, 1);
+          renderTiers();
+        });
+        tiersList.appendChild(row);
+      });
+    }
+    tiersAdd.addEventListener('click', () => {
+      workingTiers.push({ minAmount: 1, motor: 1 });
+      renderTiers();
+    });
+    tiersSave.addEventListener('click', async () => {
+      tiersStatus.textContent = 'Saving...';
+      try {
+        const r = await fetch('/api/settings', {
+          method: 'PUT',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ dispenseTiers: workingTiers }),
+        });
+        const j = await r.json();
+        if (!j.ok) {
+          tiersStatus.textContent = `Error: ${j.err || 'unknown'}`;
+          return;
+        }
+        workingTiers = j.settings.dispenseTiers.map((t) => ({ ...t }));
+        renderTiers();
+        tiersStatus.textContent = `Saved · ${workingTiers.length} tier(s)`;
+      } catch (e) {
+        tiersStatus.textContent = `Save failed: ${e.message}`;
+      }
+    });
+
+    // ===== Chamber labels =====
+    const label1 = document.getElementById('label-1');
+    const label2 = document.getElementById('label-2');
+    document.getElementById('labels-save').addEventListener('click', async () => {
+      const r = await fetch('/api/settings', {
+        method: 'PUT',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ chamberLabels: { 1: label1.value, 2: label2.value } }),
+      });
+      const j = await r.json();
+      if (j.ok) {
+        label1.value = j.settings.chamberLabels[1];
+        label2.value = j.settings.chamberLabels[2];
+      }
+    });
+
+    // ===== Cooldown =====
+    const cooldownInput = document.getElementById('cooldown-input');
+    document.getElementById('cooldown-save').addEventListener('click', async () => {
+      const sec = parseInt(cooldownInput.value, 10);
+      const r = await fetch('/api/settings', {
+        method: 'PUT',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ dispenseCooldownSec: sec }),
+      });
+      const j = await r.json();
+      if (j.ok) cooldownInput.value = j.settings.dispenseCooldownSec;
+    });
+
+    // Whenever /api/settings is fetched (or settings_changed comes over
+    // WS), sync our local controls.
+    registerSettingsHandler((s) => {
+      if (Array.isArray(s.dispenseTiers)) {
+        workingTiers = s.dispenseTiers.map((t) => ({ ...t }));
+        renderTiers();
+      }
+      if (s.chamberLabels) {
+        label1.value = s.chamberLabels[1] || 'Left';
+        label2.value = s.chamberLabels[2] || 'Right';
+      }
+      if (Number.isFinite(s.dispenseCooldownSec)) {
+        cooldownInput.value = s.dispenseCooldownSec;
+      }
+    });
+
+    // ===== Alert emote =====
+    const emoteZone   = document.getElementById('emote-zone');
+    const emoteInput  = document.getElementById('emote-input');
+    const emoteStatus = document.getElementById('emote-status');
+    const emoteList   = document.getElementById('emote-list');
+
+    async function refreshEmotes() {
+      const r = await fetch('/api/assets/alerts');
+      const j = await r.json();
+      if (!j.ok) return;
+      emoteList.innerHTML = '';
+      if (j.files.length === 0) {
+        emoteList.innerHTML = '<div class="meta" style="color: var(--text-2);">No alert emotes uploaded yet.</div>';
+        return;
+      }
+      for (const f of j.files) {
+        const row = document.createElement('div');
+        row.className = 'asset-row' + (f.name === j.active ? ' active' : '');
+        row.innerHTML = `
+          <div style="display:flex; align-items:center; gap:10px;">
+            <img src="/assets/alerts/${encodeURIComponent(f.name)}" alt=""
+                 style="width:38px; height:38px; object-fit:contain; background: var(--bg); border-radius:6px; border:1px solid var(--stroke);" />
+            <div>
+              <div class="name"></div>
+              <div class="meta"></div>
+            </div>
+          </div>
+          <div class="actions">
+            <button data-activate>Use</button>
+            <button class="danger" data-delete>Delete</button>
+          </div>
+        `;
+        row.querySelector('.name').textContent = f.name;
+        row.querySelector('.meta').textContent =
+          `${(f.size / 1024).toFixed(1)} KB` + (f.name === j.active ? ' · active' : '');
+        row.querySelector('[data-activate]').addEventListener('click', async () => {
+          await fetch('/api/assets/alerts/active', {
+            method: 'POST', headers: { 'content-type': 'application/json' },
+            body: JSON.stringify({ name: f.name }),
+          });
+          refreshEmotes();
+        });
+        row.querySelector('[data-delete]').addEventListener('click', async () => {
+          await fetch(`/api/assets/alerts/${encodeURIComponent(f.name)}`, { method: 'DELETE' });
+          refreshEmotes();
+        });
+        emoteList.appendChild(row);
+      }
+    }
+    emoteZone.addEventListener('click', () => emoteInput.click());
+    emoteInput.addEventListener('change', async () => {
+      if (!emoteInput.files || !emoteInput.files[0]) return;
+      const file = emoteInput.files[0];
+      emoteStatus.textContent = `Uploading ${file.name}...`;
+      const fd = new FormData(); fd.append('file', file);
+      try {
+        const r = await fetch('/api/assets/alerts', { method: 'POST', body: fd });
+        const j = await r.json();
+        if (j.ok) {
+          emoteStatus.textContent = `Uploaded ${j.file}, set as active.`;
+          refreshEmotes();
+        } else {
+          emoteStatus.textContent = `Error: ${j.err}`;
+        }
+      } catch (e) { emoteStatus.textContent = `Upload failed: ${e.message}`; }
+    });
+    onMessage('alert_asset_changed', refreshEmotes);
+    refreshEmotes();
+
+    // ===== Donation history =====
+    const historyList    = document.getElementById('history-list');
+    const historySummary = document.getElementById('history-summary');
+    function fmtMoney(amt, ccy) {
+      try {
+        return new Intl.NumberFormat(undefined, {
+          style: 'currency', currency: ccy || 'USD', maximumFractionDigits: 2,
+        }).format(Number(amt) || 0);
+      } catch (_) { return `$${(Number(amt) || 0).toFixed(2)}`; }
+    }
+    function fmtTs(ts) {
+      const d = new Date(ts);
+      return d.toLocaleString();
+    }
+    function statusBadge(s) {
+      const colors = {
+        dropped: 'var(--success)', jam: 'var(--danger)',
+        skipped_no_tier: 'var(--accent-warm)', skipped_motor_offline: 'var(--accent-warm)',
+        queued: 'var(--text-2)', dispensing: 'var(--accent)', done: 'var(--success)',
+      };
+      const color = colors[s] || 'var(--text-2)';
+      return `<span style="display:inline-block; padding:2px 8px; border-radius:10px;
+                          font-size:11px; text-transform:uppercase; letter-spacing:0.04em;
+                          color:${color}; border:1px solid ${color};">${s}</span>`;
+    }
+    async function refreshHistory() {
+      try {
+        const j = await (await fetch('/api/donations/history?limit=100')).json();
+        if (!j.ok) return;
+        historyList.innerHTML = '';
+        if (j.entries.length === 0) {
+          historyList.innerHTML = '<div class="meta" style="color: var(--text-2); padding: 16px;">No donations yet.</div>';
+          historySummary.textContent = '0 entries';
+          return;
+        }
+        const total = j.entries.reduce((sum, e) =>
+          (e.status === 'dropped' || e.status === 'done') ? sum + (Number(e.amount) || 0) : sum, 0);
+        historySummary.textContent =
+          `${j.entries.length} entries · ${fmtMoney(total)} dispensed`;
+        for (const e of j.entries) {
+          const row = document.createElement('div');
+          row.style.cssText = 'display:grid; grid-template-columns: 110px 1fr auto auto; gap:10px; align-items:center; padding:10px 12px; border-bottom:1px solid var(--stroke);';
+          row.innerHTML = `
+            <span class="meta" style="color: var(--text-2); font-size: 11px;"></span>
+            <div>
+              <div style="font-weight:600;"></div>
+              <div class="meta" style="color: var(--text-2); font-size: 12px;"></div>
+            </div>
+            <div style="font-weight:700; color: var(--accent);"></div>
+            <div></div>
+          `;
+          const cells = row.children;
+          cells[0].textContent = fmtTs(e.ts);
+          cells[1].children[0].textContent = e.name;
+          cells[1].children[1].textContent =
+            `${e.source}${e.motor ? ' · chamber ' + e.motor : ''}${e.detail ? ' · ' + e.detail : ''}`;
+          cells[2].textContent = fmtMoney(e.amount, e.currency);
+          cells[3].innerHTML = statusBadge(e.status);
+          historyList.appendChild(row);
+        }
+      } catch (e) {
+        historySummary.textContent = `Error: ${e.message}`;
+      }
+    }
+    document.getElementById('history-refresh').addEventListener('click', refreshHistory);
+    document.getElementById('history-clear').addEventListener('click', async () => {
+      if (!confirm('Clear the entire donation history? This cannot be undone.')) return;
+      await fetch('/api/donations/history', { method: 'DELETE' });
+      refreshHistory();
+    });
+    onMessage('donation', refreshHistory);
+    onMessage('donation_done', refreshHistory);
+    onMessage('donation_skipped', refreshHistory);
+    onMessage('donations_history_cleared', refreshHistory);
+    refreshHistory();
 
     // ===== Auto-return to idle after inactivity =====
     let autoReturnTimer = null;

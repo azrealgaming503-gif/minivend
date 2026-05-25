@@ -17,7 +17,30 @@ const fs   = require('fs');
 const path = require('path');
 
 const DEFAULTS = Object.freeze({
+  // Seconds of touch inactivity before menu/settings/games auto-return
+  // to the idle animation.
   kioskIdleTimeoutSec: 30,
+
+  // Mapping of donation amounts → chamber (ESP32 motor id). Each tier
+  // says "donations of at least minAmount go to motor N". The handler
+  // picks the highest-minAmount tier whose threshold the donation meets.
+  // Default mirrors a typical 2-chamber setup: $1+ → motor 1, $5+ → motor 2.
+  dispenseTiers: [
+    { minAmount: 1, motor: 1 },
+    { minAmount: 5, motor: 2 },
+  ],
+
+  // Friendly labels for each chamber, used in the donation overlay.
+  // Keys are the motor id as a string.
+  chamberLabels: {
+    1: 'Left',
+    2: 'Right',
+  },
+
+  // Minimum seconds between two physical dispenses. While a cooldown is
+  // active, incoming donations are still acknowledged on-screen and
+  // logged, but their dispense is queued FIFO. Set 0 to disable.
+  dispenseCooldownSec: 0,
 });
 
 function ensureDir(dir) {
@@ -55,15 +78,51 @@ class SettingsStore {
   // Coerce + clamp every field so bad client input can't brick the UI.
   _sanitize(v) {
     const out = { ...v };
+
     let t = parseInt(out.kioskIdleTimeoutSec, 10);
     if (!Number.isFinite(t)) t = DEFAULTS.kioskIdleTimeoutSec;
-    // 5 sec floor (so we can't lock ourselves out of /settings instantly)
-    // 1 hour ceiling (anything longer is effectively "off"; users can use
-    // the explicit "Back to idle" buttons).
     if (t < 5)    t = 5;
     if (t > 3600) t = 3600;
     out.kioskIdleTimeoutSec = t;
+
+    let cd = parseInt(out.dispenseCooldownSec, 10);
+    if (!Number.isFinite(cd) || cd < 0) cd = 0;
+    if (cd > 3600) cd = 3600;
+    out.dispenseCooldownSec = cd;
+
+    if (!Array.isArray(out.dispenseTiers)) {
+      out.dispenseTiers = [...DEFAULTS.dispenseTiers];
+    }
+    out.dispenseTiers = out.dispenseTiers
+      .map((row) => ({
+        minAmount: Math.max(0, Number(row && row.minAmount) || 0),
+        motor:     (parseInt(row && row.motor, 10) === 2) ? 2 : 1,
+      }))
+      .sort((a, b) => a.minAmount - b.minAmount);
+    if (out.dispenseTiers.length === 0) {
+      out.dispenseTiers = [...DEFAULTS.dispenseTiers];
+    }
+
+    const labels = (out.chamberLabels && typeof out.chamberLabels === 'object')
+      ? out.chamberLabels : {};
+    out.chamberLabels = {
+      1: String(labels[1] || labels['1'] || DEFAULTS.chamberLabels[1]).slice(0, 32),
+      2: String(labels[2] || labels['2'] || DEFAULTS.chamberLabels[2]).slice(0, 32),
+    };
+
     return out;
+  }
+
+  // Resolve a donation amount → motor id using the configured tiers.
+  // Returns the motor for the HIGHEST minAmount the donation meets,
+  // or null if no tier matches (donation too small).
+  resolveMotor(amount) {
+    const amt = Number(amount) || 0;
+    let pick = null;
+    for (const tier of this._values.dispenseTiers) {
+      if (amt >= tier.minAmount) pick = tier.motor;
+    }
+    return pick;
   }
 
   getAll() { return { ...this._values }; }

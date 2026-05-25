@@ -157,7 +157,7 @@ class AssetStore {
     this.statePath = path.join(assetsDir, 'state.json');
     ensureDir(this.idleDir);
     ensureDir(this.alertsDir);
-    this.state = { activeIdle: null };
+    this.state = { activeIdle: null, activeAlert: null };
     this._load();
     // Auto-pick something if nothing's chosen yet — prefer packs over flat
     // files since they're usually the curated artist asset.
@@ -167,6 +167,10 @@ class AssetStore {
       const file = entries.find((e) => e.kind === 'file');
       const pick = pack || file;
       if (pick) this.setActiveIdle(pick.name);
+    }
+    if (!this.state.activeAlert) {
+      const alerts = listFolderFlat(this.alertsDir);
+      if (alerts[0]) this.setActiveAlert(alerts[0].name);
     }
   }
 
@@ -202,6 +206,27 @@ class AssetStore {
   getActiveIdle() {
     const d = this.getActiveIdleDescription();
     return d ? d.name : null;
+  }
+
+  // ----- Alert emote (donation-overlay animation) -----
+  setActiveAlert(name) {
+    if (!name) { this.state.activeAlert = null; this._save(); return null; }
+    const safe = safeName(name);
+    const full = path.join(this.alertsDir, safe);
+    if (!fs.existsSync(full) || !fs.statSync(full).isFile()) {
+      throw new Error(`no such alert asset: ${name}`);
+    }
+    this.state.activeAlert = safe;
+    this._save();
+    return safe;
+  }
+
+  getActiveAlert() {
+    const name = this.state.activeAlert;
+    if (!name) return null;
+    const full = path.join(this.alertsDir, name);
+    if (!fs.existsSync(full)) return null;
+    return name;
   }
 }
 
@@ -281,6 +306,66 @@ function mount(app, { store, broadcast }) {
     } catch (e) {
       res.status(400).json({ ok: false, err: e.message });
     }
+  });
+
+  // ----- Alert emote endpoints -----
+  const alertUpload = multer({
+    storage: multer.diskStorage({
+      destination: (_req, _file, cb) => cb(null, store.alertsDir),
+      filename:    (_req, file, cb) => cb(null, safeName(file.originalname)),
+    }),
+    limits: { fileSize: 50 * 1024 * 1024 }, // emotes are small
+    fileFilter: (_req, file, cb) => {
+      const ext = path.extname(file.originalname).toLowerCase();
+      cb(ALL_EXTS.has(ext) ? null : new Error('unsupported file type'), ALL_EXTS.has(ext));
+    },
+  });
+
+  app.get('/api/assets/alerts', (_req, res) => {
+    const active = store.getActiveAlert();
+    res.json({
+      ok: true,
+      active,
+      activeUrl: active ? `/assets/alerts/${encodeURIComponent(active)}` : null,
+      files: listFolderFlat(store.alertsDir),
+    });
+  });
+
+  app.post('/api/assets/alerts',
+    alertUpload.single('file'),
+    (req, res) => {
+      if (!req.file) return res.status(400).json({ ok: false, err: 'no_file' });
+      const setActive = req.query.activate !== '0';
+      let active = store.getActiveAlert();
+      if (setActive) active = store.setActiveAlert(req.file.filename);
+      broadcast({ type: 'alert_asset_changed', active });
+      res.json({ ok: true, file: req.file.filename, active });
+    },
+  );
+
+  app.post('/api/assets/alerts/active', express.json({ limit: '4kb' }), (req, res) => {
+    try {
+      const name = store.setActiveAlert((req.body && req.body.name) || '');
+      broadcast({ type: 'alert_asset_changed', active: name });
+      res.json({ ok: true, active: name });
+    } catch (e) {
+      res.status(400).json({ ok: false, err: e.message });
+    }
+  });
+
+  app.delete('/api/assets/alerts/:name', (req, res) => {
+    const safe = safeName(req.params.name);
+    const target = path.join(store.alertsDir, safe);
+    if (!fs.existsSync(target)) return res.status(404).json({ ok: false, err: 'not_found' });
+    fs.unlinkSync(target);
+    if (store.state.activeAlert === safe) {
+      const remaining = listFolderFlat(store.alertsDir);
+      try {
+        store.setActiveAlert(remaining[0] ? remaining[0].name : null);
+      } catch (_) { store.state.activeAlert = null; store._save(); }
+      broadcast({ type: 'alert_asset_changed', active: store.getActiveAlert() });
+    }
+    res.json({ ok: true });
   });
 
   app.delete('/api/assets/idle/:name', (req, res) => {

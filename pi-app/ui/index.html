@@ -410,6 +410,24 @@
     // ===== Live updates =====
     onMessage('idle_changed', () => loadActiveIdle());
 
+    // ===== Pause the cat while a donation overlay is active =====
+    // alerts.js toggles document.body.classList "alert-active". When it's
+    // on, pause both video elements (we don't know which is active right
+    // now) — pause is a no-op on a paused video. When it goes off, resume
+    // the one with the highest z-index (the "active" one).
+    const bodyObserver = new MutationObserver(() => {
+      const alerting = document.body.classList.contains('alert-active');
+      if (alerting) {
+        try { videoA.pause(); videoB.pause(); } catch (_) {}
+      } else {
+        // Active is whichever has the "active" class (z-index 2).
+        const top = videoA.classList.contains('active') ? videoA :
+                    videoB.classList.contains('active') ? videoB : null;
+        if (top) safePlay(top);
+      }
+    });
+    bodyObserver.observe(document.body, { attributes: true, attributeFilter: ['class'] });
+
     loadActiveIdle();
   </script>
 </body>
