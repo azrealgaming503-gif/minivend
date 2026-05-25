@@ -324,6 +324,31 @@ Comment=Inherits the MiniVend blank cursor theme so touchscreen kiosks
 Inherits=blank
 EOF
 
+# Some wlroots / cage builds ignore $XCURSOR_THEME for at least one
+# code path and fall back to whatever cursor theme GTK has installed
+# (usually Adwaita on Debian-derived systems). To bulletproof this,
+# we replace every cursor in every other installed cursor theme with
+# a symlink to our blank cursor. Backups are kept alongside (.bak dir)
+# so an OS desktop install can be restored later if ever needed.
+echo "==> Pointing other cursor themes at blank (backups kept as .minivend-backup)"
+for theme_dir in /usr/share/icons/*/cursors; do
+  [ -d "$theme_dir" ] || continue
+  # Skip our own blank theme
+  case "$theme_dir" in *blank/cursors) continue ;; esac
+  backup_dir="${theme_dir}.minivend-backup"
+  if [ ! -d "$backup_dir" ]; then
+    cp -a "$theme_dir" "$backup_dir"
+  fi
+  for f in "$theme_dir"/*; do
+    [ -e "$f" ] || continue
+    if [ -L "$f" ] && readlink "$f" | grep -q "blank/cursors"; then
+      continue
+    fi
+    rm -f "$f"
+    ln -s /usr/share/icons/blank/cursors/left_ptr "$f"
+  done
+done
+
 # ---------- 7. sudoers drop-in ----------
 echo "==> Installing sudoers drop-in for OTA + Wi-Fi management"
 install -m 0440 "${PI_APP_DIR}/scripts/sudoers-minivend" /etc/sudoers.d/minivend
