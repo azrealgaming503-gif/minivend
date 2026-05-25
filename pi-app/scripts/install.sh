@@ -237,6 +237,20 @@ echo "    using touch matrix '${ts_matrix}' for rotation '${rotate_value:-normal
 sed "s|__MATRIX__|${ts_matrix}|" "${PI_APP_DIR}/systemd/99-minivend-touchscreen.rules" \
   > /etc/udev/rules.d/99-minivend-touchscreen.rules
 
+# Backlight brightness: kernel exposes /sys/class/backlight/*/brightness
+# as root-only by default. Give the `video` group write access so the
+# minivend service (which is already in `video`) can adjust brightness
+# from the settings UI. Harmless on panels with no backlight node.
+echo "==> Installing backlight permissions udev rule"
+cat >/etc/udev/rules.d/99-minivend-backlight.rules <<'EOF'
+# Allow the `video` group (which the minivend service user is in) to
+# adjust the panel backlight. Applies to every backlight device the
+# kernel exposes; ignored if there isn't one.
+SUBSYSTEM=="backlight", ACTION=="add|change", \
+  RUN+="/bin/chgrp video /sys/class/backlight/%k/brightness", \
+  RUN+="/bin/chmod 0664 /sys/class/backlight/%k/brightness"
+EOF
+
 udevadm control --reload-rules
 udevadm trigger
 

@@ -16,6 +16,57 @@
 const fs   = require('fs');
 const path = require('path');
 
+// ---------- Hardware backlight (optional) ----------
+// On panels that expose /sys/class/backlight/X/brightness we can
+// dim the actual LED backlight, which saves power and is more
+// effective at night than a CSS filter. On HDMI panels there's
+// usually no such node and we fall back to CSS-only dimming.
+//
+// Cached at module load — backlight devices don't appear/disappear
+// at runtime in any setup we care about.
+let _backlight = null;
+function detectBacklight() {
+  if (_backlight !== null) return _backlight;
+  try {
+    const dir = '/sys/class/backlight';
+    if (!fs.existsSync(dir)) return (_backlight = { ok: false });
+    const entries = fs.readdirSync(dir);
+    for (const name of entries) {
+      const base = path.join(dir, name);
+      const brightnessFile = path.join(base, 'brightness');
+      const maxFile        = path.join(base, 'max_brightness');
+      if (!fs.existsSync(brightnessFile) || !fs.existsSync(maxFile)) continue;
+      try {
+        const max = parseInt(fs.readFileSync(maxFile, 'utf8').trim(), 10);
+        if (!Number.isFinite(max) || max <= 0) continue;
+        // Try a probe write so we know we actually have permission.
+        const cur = parseInt(fs.readFileSync(brightnessFile, 'utf8').trim(), 10) || max;
+        fs.writeFileSync(brightnessFile, String(cur)); // idempotent
+        return (_backlight = { ok: true, name, max, file: brightnessFile });
+      } catch (_) { /* try next */ }
+    }
+  } catch (_) { /* fall through */ }
+  return (_backlight = { ok: false });
+}
+
+function applyHardwareBrightness(pct) {
+  const bl = detectBacklight();
+  if (!bl.ok) return false;
+  // Map 10–100% → 10%–100% of max_brightness. Many panels go fully
+  // black at 0, so we never write less than ~5% of max even at the
+  // floor of our slider.
+  const clamped = Math.max(10, Math.min(100, parseInt(pct, 10) || 100));
+  const raw = Math.max(Math.round(bl.max * 0.05),
+                       Math.round(bl.max * (clamped / 100)));
+  try {
+    fs.writeFileSync(bl.file, String(raw));
+    return true;
+  } catch (e) {
+    console.warn(`[settings] backlight write failed: ${e.message}`);
+    return false;
+  }
+}
+
 const DEFAULTS = Object.freeze({
   // Seconds of touch inactivity before menu/settings/games auto-return
   // to the idle animation.
@@ -46,6 +97,15 @@ const DEFAULTS = Object.freeze({
   // active, incoming donations are still acknowledged on-screen and
   // logged, but their dispense is queued FIFO. Set 0 to disable.
   dispenseCooldownSec: 0,
+
+  // Screen brightness, 10–100. Implemented two ways at once:
+  //   1. CSS filter on the UI (always works, even on dumb HDMI panels).
+  //   2. Hardware backlight via /sys/class/backlight/*/brightness
+  //      when available (DSI/SPI panels, some HDMI bridges).
+  // The hardware path is best-effort: if the kernel doesn't expose
+  // a backlight node or we can't write to it, the CSS filter still
+  // dims the visible output. 100 = full brightness.
+  brightness: 100,
 
   // Public connection state for the StreamElements integration. Secrets
   // (tokens, client_secret) live elsewhere — this is just what the UI
@@ -108,6 +168,12 @@ class SettingsStore {
     if (!Number.isFinite(cd) || cd < 0) cd = 0;
     if (cd > 3600) cd = 3600;
     out.dispenseCooldownSec = cd;
+
+    let br = parseInt(out.brightness, 10);
+    if (!Number.isFinite(br)) br = DEFAULTS.brightness;
+    if (br < 10)  br = 10;     // never let the user blank the screen entirely
+    if (br > 100) br = 100;
+    out.brightness = br;
 
     if (!Array.isArray(out.dispenseTiers)) {
       out.dispenseTiers = DEFAULTS.dispenseTiers.map((t) => ({ ...t }));
@@ -202,12 +268,34 @@ function mount(app, { store, broadcast }) {
   app.put('/api/settings', express.json({ limit: '4kb' }), (req, res) => {
     try {
       const next = store.patch(req.body || {});
+      // If brightness changed in this patch, push it to the hardware
+      // backlight too. The CSS-filter side is handled client-side via
+      // the settings_changed broadcast.
+      if (req.body && Object.prototype.hasOwnProperty.call(req.body, 'brightness')) {
+        applyHardwareBrightness(next.brightness);
+      }
       if (broadcast) broadcast({ type: 'settings_changed', settings: next });
       res.json({ ok: true, settings: next });
     } catch (e) {
       res.status(400).json({ ok: false, err: e.message });
     }
   });
+
+  // Tells the UI whether real backlight control is available so it
+  // can show "Hardware backlight: yes/no" next to the slider.
+  app.get('/api/brightness/info', (_req, res) => {
+    const bl = detectBacklight();
+    res.json({
+      ok: true,
+      brightness: store.getAll().brightness,
+      hardware: !!bl.ok,
+      device: bl.ok ? bl.name : null,
+    });
+  });
+
+  // Reapply hardware brightness on startup so a reboot doesn't reset
+  // the panel to its kernel default.
+  try { applyHardwareBrightness(store.getAll().brightness); } catch (_) {}
 }
 
 module.exports = { SettingsStore, mount, DEFAULTS };

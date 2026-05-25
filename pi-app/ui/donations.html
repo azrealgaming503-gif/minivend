@@ -35,11 +35,11 @@
         <div class="row" style="gap: 18px; flex-wrap: wrap;">
           <label class="col" style="gap: 4px;">
             <span class="meta" style="color: var(--text-2); font-size: 13px;">Chamber 1</span>
-            <input id="label-1" type="text" maxlength="32" />
+            <input id="label-1" type="text" maxlength="32" data-keyboard-title="Chamber 1 label" />
           </label>
           <label class="col" style="gap: 4px;">
             <span class="meta" style="color: var(--text-2); font-size: 13px;">Chamber 2</span>
-            <input id="label-2" type="text" maxlength="32" />
+            <input id="label-2" type="text" maxlength="32" data-keyboard-title="Chamber 2 label" />
           </label>
           <button id="labels-save" class="primary" style="align-self: end;">Save labels</button>
         </div>
@@ -86,7 +86,9 @@
     import { onMessage } from '/js/ws-client.js';
     import '/js/alerts.js';
     import { attachNumpad } from '/js/numpad.js';
+    import { attachKeyboard } from '/js/keyboard.js';
     attachNumpad();
+    attachKeyboard();
 
     // ===== Tier editor =====
     const tiersList   = document.getElementById('tiers-list');

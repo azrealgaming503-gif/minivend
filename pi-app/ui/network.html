@@ -100,6 +100,7 @@
           </div>
           <div class="row" style="gap: 8px; align-items: stretch;">
             <input id="se-jwt-input" type="password" placeholder="paste JWT here"
+                   data-keyboard-title="StreamElements JWT"
                    style="flex: 1; font-family: monospace;" />
             <button id="se-jwt-save" class="primary">Save</button>
           </div>
@@ -131,6 +132,8 @@
   <script type="module">
     import { onMessage } from '/js/ws-client.js';
     import '/js/alerts.js';
+    import { attachKeyboard } from '/js/keyboard.js';
+    attachKeyboard();
 
     // ===== Wi-Fi (with IP hidden behind a confirm) =====
     const wifiSummary  = document.getElementById('wifi-summary');

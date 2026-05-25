@@ -37,6 +37,19 @@
       </section>
 
       <section class="section">
+        <h2>Screen brightness</h2>
+        <div class="row" style="align-items: center; gap: 14px; flex-wrap: wrap;">
+          <input id="brightness-slider" type="range" min="10" max="100" step="5" value="100"
+                 class="brightness-slider" />
+          <div class="row" style="align-items: baseline; gap: 4px;">
+            <span id="brightness-value" style="font-size: 22px; font-weight: 600; min-width: 3.2em; text-align: right;">100</span>
+            <span class="meta" style="color: var(--text-2);">%</span>
+          </div>
+        </div>
+        <div id="brightness-hw" class="meta" style="color: var(--text-2); font-size: 12px; margin-top: 10px; min-height: 1.2em;"></div>
+      </section>
+
+      <section class="section">
         <h2>About</h2>
         <p class="meta" style="color: var(--text-2); font-size: 13px; margin: 0;">
           Donations, motor controls, network & accounts, software
@@ -59,6 +72,10 @@
     const idleTimeoutSave   = document.getElementById('idle-timeout-save');
     const idleTimeoutStatus = document.getElementById('idle-timeout-status');
 
+    const brightnessSlider = document.getElementById('brightness-slider');
+    const brightnessValue  = document.getElementById('brightness-value');
+    const brightnessHw     = document.getElementById('brightness-hw');
+
     let kioskIdleTimeoutMs = 30_000;
     function applySettings(s) {
       if (!s) return;
@@ -67,7 +84,52 @@
         kioskIdleTimeoutMs = s.kioskIdleTimeoutSec * 1000;
         bumpAutoReturn();
       }
+      if (Number.isFinite(s.brightness)) {
+        // Only override the slider if it isn't actively being dragged
+        // — otherwise the live broadcast from our own PUT would jump
+        // the thumb under the user's finger.
+        if (document.activeElement !== brightnessSlider) {
+          brightnessSlider.value = s.brightness;
+        }
+        brightnessValue.textContent = s.brightness;
+      }
     }
+
+    // ===== Brightness slider =====
+    // Debounce PUTs while the user is dragging so we don't fire 50+
+    // requests/sec. The CSS filter applies instantly via brightness.js
+    // (which also listens for settings_changed), so visual feedback
+    // is immediate even before the server replies.
+    let brightnessSaveTimer = null;
+    function queueBrightness(pct) {
+      brightnessValue.textContent = pct;
+      clearTimeout(brightnessSaveTimer);
+      brightnessSaveTimer = setTimeout(async () => {
+        try {
+          await fetch('/api/settings', {
+            method: 'PUT',
+            headers: { 'content-type': 'application/json' },
+            body: JSON.stringify({ brightness: pct }),
+          });
+        } catch (_) { /* will retry on next slider movement */ }
+      }, 120);
+    }
+    brightnessSlider.addEventListener('input', (e) => {
+      queueBrightness(parseInt(e.target.value, 10));
+    });
+    // Fetch hardware backlight status once so we can tell the user
+    // whether the slider drives only the UI filter or the real LED.
+    fetch('/api/brightness/info').then((r) => r.json()).then((j) => {
+      if (!j || !j.ok) return;
+      if (j.hardware) {
+        brightnessHw.textContent =
+          `Hardware backlight: yes (${j.device}). Slider dims the panel LED.`;
+      } else {
+        brightnessHw.textContent =
+          'Hardware backlight: not available on this panel. ' +
+          'Slider dims the UI by software filter.';
+      }
+    }).catch(() => {});
     idleTimeoutSave.addEventListener('click', async () => {
       const sec = parseInt(idleTimeoutInput.value, 10);
       idleTimeoutStatus.textContent = 'Saving...';

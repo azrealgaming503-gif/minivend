@@ -926,3 +926,165 @@ body.theme-pastel .numpad-ok {
   background: linear-gradient(135deg, var(--accent), var(--accent-2));
   color: #fff;
 }
+
+/* ===== On-screen QWERTY keyboard =====
+   Sibling component to .numpad. Triggered by tapping any text-ish
+   input on a kiosk that has no physical keyboard. Driven by
+   ui/js/keyboard.js. Layout is roughly the iOS/Android phone OSK:
+   number row, 3 letter rows, shift+letters+backspace, then the
+   utility row (?123, space, Cancel, Done). */
+.kbd-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(10, 8, 18, 0.55);
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  z-index: 200;
+  padding: 12px;
+}
+.kbd-pad {
+  width: min(960px, 100%);
+  background: var(--surface);
+  color: var(--text);
+  border: 1px solid var(--stroke);
+  border-radius: 18px;
+  box-shadow: 0 30px 60px rgba(0,0,0,0.4);
+  padding: 14px;
+}
+.kbd-header {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-bottom: 10px;
+}
+.kbd-title {
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--text-2);
+}
+.kbd-display {
+  background: var(--bg);
+  border: 1px solid var(--stroke);
+  border-radius: 12px;
+  padding: 10px 14px;
+  font-size: 22px;
+  min-height: 1.4em;
+  color: var(--text);
+  display: flex;
+  align-items: center;
+  word-break: break-all;
+}
+.kbd-display span[data-display] { white-space: pre-wrap; }
+.kbd-caret {
+  display: inline-block;
+  width: 2px;
+  height: 1em;
+  background: var(--accent);
+  margin-left: 1px;
+  animation: kbd-blink 1s steps(1) infinite;
+}
+@keyframes kbd-blink {
+  50% { opacity: 0; }
+}
+.kbd-hint {
+  font-size: 11px;
+  color: var(--text-2);
+  min-height: 1em;
+}
+.kbd-grid {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.kbd-row {
+  display: flex;
+  gap: 6px;
+  justify-content: center;
+}
+.kbd-key {
+  flex: 1 1 0;
+  min-width: 0;
+  font-size: 18px;
+  font-weight: 500;
+  padding: 14px 0;
+  min-height: 52px;
+  border-radius: 10px;
+  background: var(--surface);
+  color: var(--text);
+  border: 1px solid var(--stroke);
+  cursor: pointer;
+  transition: transform 0.04s ease, background 0.08s ease;
+  user-select: none;
+}
+.kbd-key:active { transform: scale(0.96); background: var(--bg); }
+.kbd-key-act    { background: var(--bg); color: var(--text-2); font-size: 14px; font-weight: 600; }
+.kbd-key-space  { flex: 4 1 0; }
+.kbd-key-ok {
+  background: linear-gradient(135deg, var(--accent), var(--accent-2, var(--accent)));
+  color: #fff;
+  border-color: transparent;
+  font-weight: 700;
+  font-size: 16px;
+}
+.kbd-key.kbd-active {
+  background: rgba(184,134,229,0.18);
+  border-color: var(--accent);
+  color: var(--accent);
+}
+.kbd-key.kbd-locked {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #fff;
+}
+body.theme-pastel .kbd-key:active { background: #f1e5f8; }
+
+/* ===== Brightness slider =====
+   Big touch-friendly range input. Track is the pastel surface,
+   thumb is the accent gradient — visually echoes the menu's
+   primary button. */
+.brightness-slider {
+  flex: 1;
+  min-width: 200px;
+  -webkit-appearance: none;
+  appearance: none;
+  height: 36px;
+  background: transparent;
+  cursor: pointer;
+}
+.brightness-slider::-webkit-slider-runnable-track {
+  height: 14px;
+  border-radius: 999px;
+  background: linear-gradient(90deg, var(--bg) 0%, var(--accent) 100%);
+  border: 1px solid var(--stroke);
+}
+.brightness-slider::-moz-range-track {
+  height: 14px;
+  border-radius: 999px;
+  background: linear-gradient(90deg, var(--bg) 0%, var(--accent) 100%);
+  border: 1px solid var(--stroke);
+}
+.brightness-slider::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  background: linear-gradient(135deg, var(--accent), var(--accent-2, var(--accent)));
+  border: 3px solid var(--surface);
+  box-shadow: 0 4px 12px rgba(184,134,229,0.35);
+  margin-top: -12px;
+  cursor: grab;
+}
+.brightness-slider::-moz-range-thumb {
+  width: 30px;
+  height: 30px;
+  border-radius: 50%;
+  background: linear-gradient(135deg, var(--accent), var(--accent-2, var(--accent)));
+  border: 3px solid var(--surface);
+  box-shadow: 0 4px 12px rgba(184,134,229,0.35);
+  cursor: grab;
+}
+.brightness-slider:active::-webkit-slider-thumb { cursor: grabbing; transform: scale(0.96); }
+.brightness-slider:active::-moz-range-thumb     { cursor: grabbing; transform: scale(0.96); }

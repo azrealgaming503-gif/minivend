@@ -13,6 +13,10 @@
 //   donation_skipped      -> status: skipped, hide after delay
 
 import { onMessage } from './ws-client.js';
+// Side-effect import: applies the saved screen-brightness CSS filter
+// to every page that imports alerts.js (which is all of them). Kept
+// here so individual pages don't need to remember a second import.
+import './brightness.js';
 
 const HOLD_AFTER_DONE_MS = 4000;     // how long to keep overlay up after motor done
 const HOLD_IF_STUCK_MS   = 20000;    // absolute cap (cooldown queue safety)
