@@ -90,9 +90,41 @@
             <div id="se-detail" class="meta" style="color: var(--text-2); font-size: 13px; margin-top: 4px;"></div>
           </div>
           <div class="row">
-            <button id="se-connect" class="primary">Connect</button>
+            <button id="se-connect" class="primary">Connect from phone</button>
             <button id="se-disconnect" class="danger" hidden>Disconnect</button>
-            <button id="se-advanced" class="ghost">Paste JWT</button>
+            <button id="se-advanced" class="ghost">Paste JWT here</button>
+          </div>
+        </div>
+
+        <div id="se-phone-pairing" hidden style="margin-top: 16px; padding: 14px;
+                                                 border: 1px solid var(--stroke); border-radius: 10px;
+                                                 background: var(--bg);">
+          <div class="row" style="gap: 16px; align-items: flex-start; flex-wrap: wrap;">
+            <div id="se-phone-qr" style="background: #fff; padding: 8px; border-radius: 8px;
+                                          width: 200px; height: 200px;
+                                          display: flex; align-items: center; justify-content: center;
+                                          color: #000; font-size: 12px;">generating QR...</div>
+            <div class="col" style="gap: 8px; flex: 1; min-width: 220px;">
+              <div style="font-weight: 600;">1. Scan with your phone</div>
+              <div class="meta" style="color: var(--text-2); font-size: 13px;">
+                Your phone must be on the same Wi-Fi as the kiosk.
+                Scanning opens this same Settings page on your phone
+                with the JWT input ready to paste into.
+              </div>
+              <div style="font-weight: 600; margin-top: 4px;">2. On your phone</div>
+              <div class="meta" style="color: var(--text-2); font-size: 13px;">
+                Open <a href="https://streamelements.com/dashboard/account/channels"
+                        target="_blank" style="color: var(--accent);">streamelements.com/dashboard/account/channels</a>
+                in another tab, copy the JWT, then paste it into the
+                kiosk page and tap Save.
+              </div>
+              <div class="meta" style="color: var(--text-2); font-size: 12px; word-break: break-all; margin-top: 6px;">
+                or open this URL manually: <a id="se-phone-url" href="#" target="_blank" style="color: var(--accent);"></a>
+              </div>
+              <div class="row" style="margin-top: 4px;">
+                <button id="se-phone-cancel" class="ghost">Done</button>
+              </div>
+            </div>
           </div>
         </div>
 
@@ -658,6 +690,15 @@
 
     let sePollTimer = null;
     let seCurrentPairing = null;
+    // Cache of the last status so the Connect button can decide
+    // between the OAuth pairing flow (relay configured) and the
+    // QR→JWT-on-phone flow (no relay, the common case).
+    let seHasRelay = false;
+
+    const sePhonePairing = document.getElementById('se-phone-pairing');
+    const sePhoneQrBox   = document.getElementById('se-phone-qr');
+    const sePhoneUrl     = document.getElementById('se-phone-url');
+    const sePhoneCancel  = document.getElementById('se-phone-cancel');
 
     function fmtAgo(ts) {
       if (!ts) return '';
@@ -670,6 +711,7 @@
 
     function renderSeStatus(s) {
       if (!s) return;
+      seHasRelay = !!s.hasRelay;
       const connected = !!s.connected;
       const configured = !!s.configured || !!(s.account && s.account.username);
       seDot.classList.toggle('ok',   connected);
@@ -689,7 +731,8 @@
       if (s.lastError)   bits.push(`error: ${s.lastError}`);
       seDetail.textContent = bits.join(' · ');
       seDisconnectBtn.hidden = !configured;
-      seConnectBtn.textContent = configured ? 'Re-connect' : 'Connect';
+      const verb = configured ? 'Re-connect' : 'Connect';
+      seConnectBtn.textContent = seHasRelay ? verb : `${verb} from phone`;
     }
 
     async function fetchSeStatus() {
@@ -763,7 +806,43 @@
       }
     }
 
-    seConnectBtn.addEventListener('click', startPairing);
+    function closePhonePanel() {
+      sePhonePairing.hidden = true;
+    }
+
+    async function startPhonePairing() {
+      // Close any other open panel, then build a QR that links to
+      // THIS settings page on the LAN — phone scans, lands here,
+      // pastes JWT, taps Save.
+      closePairingPanel();
+      seJwtPanel.hidden = true;
+      sePhonePairing.hidden = false;
+      sePhoneQrBox.innerHTML = 'detecting IP...';
+      try {
+        const w = await (await fetch('/api/wifi')).json();
+        const ip = (w && w.ok && w.ip) || location.hostname;
+        // Use the server port the UI is currently being served from
+        // (Chromium kiosk on the Pi uses :3000 / localhost, but the
+        // QR always needs the LAN port). location.port handles dev
+        // cases where someone runs the server on a non-standard port.
+        const port = location.port || '3000';
+        const url = `http://${ip}:${port}/settings?focus=se-jwt`;
+        sePhoneUrl.textContent = url;
+        sePhoneUrl.href = url;
+        const qrSvgUrl = `/api/integrations/streamelements/qr?url=${encodeURIComponent(url)}`;
+        sePhoneQrBox.innerHTML =
+          `<img src="${qrSvgUrl}" alt="phone pairing QR" style="width: 100%; height: 100%; display: block;"/>`;
+      } catch (e) {
+        sePhoneQrBox.innerHTML =
+          `<span style="color:#900; padding:8px; text-align:center;">${e.message}</span>`;
+      }
+    }
+
+    seConnectBtn.addEventListener('click', () => {
+      if (seHasRelay) startPairing();
+      else            startPhonePairing();
+    });
+    sePhoneCancel.addEventListener('click', closePhonePanel);
     sePairCancel.addEventListener('click', closePairingPanel);
     seAdvancedBtn.addEventListener('click', () => {
       closePairingPanel();
@@ -796,6 +875,23 @@
     });
     onMessage('streamelements_state', (m) => renderSeStatus(m.state));
     fetchSeStatus();
+
+    // Deep link from the "Connect from phone" QR. Lands here, opens
+    // the JWT panel, focuses the input, scrolls into view. Stops the
+    // auto-return-to-idle timer too so phones that linger on the
+    // page don't get bounced.
+    (function maybeAutoFocusSeJwt() {
+      const params = new URLSearchParams(location.search);
+      if (params.get('focus') !== 'se-jwt') return;
+      closePairingPanel();
+      closePhonePanel();
+      seJwtPanel.hidden = false;
+      // Run after layout so scrollIntoView lands accurately.
+      setTimeout(() => {
+        seJwtPanel.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        seJwtInput.focus();
+      }, 50);
+    })();
 
     // ===== Auto-return to idle after inactivity =====
     let autoReturnTimer = null;
