@@ -76,6 +76,77 @@
       </section>
 
       <section class="section">
+        <h2>StreamElements live feed</h2>
+        <p class="meta" style="color: var(--text-2); font-size: 13px; margin: 0 0 12px;">
+          Connect the kiosk to your StreamElements account so tips
+          stream in live without webhooks or port forwarding. The
+          kiosk only makes outbound connections — nothing is exposed
+          to the internet.
+        </p>
+        <div id="se-status" class="row"
+             style="justify-content: space-between; align-items: center; gap: 12px; flex-wrap: wrap;">
+          <div>
+            <div><span class="status-pill"><span id="se-dot" class="dot"></span><span id="se-label">checking...</span></span></div>
+            <div id="se-detail" class="meta" style="color: var(--text-2); font-size: 13px; margin-top: 4px;"></div>
+          </div>
+          <div class="row">
+            <button id="se-connect" class="primary">Connect</button>
+            <button id="se-disconnect" class="danger" hidden>Disconnect</button>
+            <button id="se-advanced" class="ghost">Paste JWT</button>
+          </div>
+        </div>
+
+        <div id="se-pairing" hidden style="margin-top: 16px; padding: 14px;
+                                            border: 1px solid var(--stroke); border-radius: 10px;
+                                            background: var(--bg);">
+          <div class="row" style="gap: 16px; align-items: flex-start; flex-wrap: wrap;">
+            <div id="se-qr" style="background: #fff; padding: 8px; border-radius: 8px; width: 200px; height: 200px;
+                                   display: flex; align-items: center; justify-content: center;
+                                   color: #000; font-size: 12px;">generating QR...</div>
+            <div class="col" style="gap: 8px; flex: 1; min-width: 220px;">
+              <div style="font-weight: 600;">1. Scan with your phone</div>
+              <div class="meta" style="color: var(--text-2); font-size: 13px;">
+                You'll be redirected to streamelements.com to authorize
+                MiniVend. After you tap <strong>Allow</strong>, the kiosk
+                will detect it automatically.
+              </div>
+              <div class="meta" style="color: var(--text-2); font-size: 12px; word-break: break-all;">
+                or visit: <a id="se-pair-url" href="#" target="_blank" style="color: var(--accent);"></a>
+              </div>
+              <div id="se-pair-status" class="meta" style="color: var(--text-2); font-size: 13px; margin-top: 6px;">
+                Waiting for authorization...
+              </div>
+              <div class="row" style="margin-top: 4px;">
+                <button id="se-pair-cancel" class="ghost">Cancel</button>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div id="se-jwt-panel" hidden style="margin-top: 16px; padding: 14px;
+                                              border: 1px solid var(--stroke); border-radius: 10px;
+                                              background: var(--bg);">
+          <div style="font-weight: 600; margin-bottom: 6px;">Advanced: paste JWT</div>
+          <div class="meta" style="color: var(--text-2); font-size: 12px; margin-bottom: 10px;">
+            Use this as a fallback if the OAuth relay isn't deployed.
+            Grab your JWT from
+            <a href="https://streamelements.com/dashboard/account/channels" target="_blank"
+               style="color: var(--accent);">streamelements.com/dashboard/account/channels</a>
+            (click "Show Secret"). The token is stored locally only.
+          </div>
+          <div class="row" style="gap: 8px; align-items: stretch;">
+            <input id="se-jwt-input" type="password" placeholder="paste JWT here"
+                   style="flex: 1; padding: 8px 10px; font-size: 14px;
+                          background: var(--bg-2, #0d0e12); color: var(--text);
+                          border: 1px solid var(--stroke); border-radius: 8px;
+                          font-family: monospace;" />
+            <button id="se-jwt-save" class="primary">Save</button>
+          </div>
+          <div id="se-jwt-status" class="meta" style="color: var(--text-2); font-size: 13px; margin-top: 8px; min-height: 1.2em;"></div>
+        </div>
+      </section>
+
+      <section class="section">
         <h2>Donation tiers</h2>
         <p class="meta" style="color: var(--text-2); font-size: 13px; margin: 0 0 12px;">
           Map donation amounts to chambers. Each row says "donations of
@@ -567,6 +638,164 @@
     onMessage('donation_skipped', refreshHistory);
     onMessage('donations_history_cleared', refreshHistory);
     refreshHistory();
+
+    // ===== StreamElements OAuth integration =====
+    const seDot         = document.getElementById('se-dot');
+    const seLabel       = document.getElementById('se-label');
+    const seDetail      = document.getElementById('se-detail');
+    const seConnectBtn  = document.getElementById('se-connect');
+    const seDisconnectBtn = document.getElementById('se-disconnect');
+    const seAdvancedBtn = document.getElementById('se-advanced');
+    const sePairing     = document.getElementById('se-pairing');
+    const seQrBox       = document.getElementById('se-qr');
+    const sePairUrl     = document.getElementById('se-pair-url');
+    const sePairStatus  = document.getElementById('se-pair-status');
+    const sePairCancel  = document.getElementById('se-pair-cancel');
+    const seJwtPanel    = document.getElementById('se-jwt-panel');
+    const seJwtInput    = document.getElementById('se-jwt-input');
+    const seJwtSave     = document.getElementById('se-jwt-save');
+    const seJwtStatus   = document.getElementById('se-jwt-status');
+
+    let sePollTimer = null;
+    let seCurrentPairing = null;
+
+    function fmtAgo(ts) {
+      if (!ts) return '';
+      const s = Math.floor((Date.now() - ts) / 1000);
+      if (s < 60)        return `${s}s ago`;
+      if (s < 3600)      return `${Math.floor(s / 60)}m ago`;
+      if (s < 86400)     return `${Math.floor(s / 3600)}h ago`;
+      return `${Math.floor(s / 86400)}d ago`;
+    }
+
+    function renderSeStatus(s) {
+      if (!s) return;
+      const connected = !!s.connected;
+      const configured = !!s.configured || !!(s.account && s.account.username);
+      seDot.classList.toggle('ok',   connected);
+      seDot.classList.toggle('warn', configured && !connected);
+      seDot.classList.toggle('off',  !configured);
+      if (connected) {
+        seLabel.textContent = `connected as ${s.account && (s.account.displayName || s.account.username) || '?'}`;
+      } else if (configured) {
+        seLabel.textContent = `linked, reconnecting...`;
+      } else {
+        seLabel.textContent = `not connected`;
+      }
+      const bits = [];
+      if (s.mode)        bits.push(`mode: ${s.mode}`);
+      if (s.account && s.account.provider) bits.push(`provider: ${s.account.provider}`);
+      if (s.lastEventAt) bits.push(`last tip: ${fmtAgo(s.lastEventAt)}`);
+      if (s.lastError)   bits.push(`error: ${s.lastError}`);
+      seDetail.textContent = bits.join(' · ');
+      seDisconnectBtn.hidden = !configured;
+      seConnectBtn.textContent = configured ? 'Re-connect' : 'Connect';
+    }
+
+    async function fetchSeStatus() {
+      try {
+        const j = await (await fetch('/api/integrations/streamelements/status')).json();
+        if (j.ok) renderSeStatus(j.status);
+      } catch (_) { /* offline */ }
+    }
+
+    function stopPairingPoll() {
+      if (sePollTimer) { clearTimeout(sePollTimer); sePollTimer = null; }
+      seCurrentPairing = null;
+    }
+
+    function closePairingPanel() {
+      stopPairingPoll();
+      sePairing.hidden = true;
+      seQrBox.innerHTML = 'generating QR...';
+      sePairStatus.textContent = 'Waiting for authorization...';
+    }
+
+    async function startPairing() {
+      seJwtPanel.hidden = true;
+      sePairing.hidden = false;
+      sePairStatus.textContent = 'Requesting pairing code...';
+      try {
+        const r = await (await fetch('/api/integrations/streamelements/pair/new', { method: 'POST' })).json();
+        if (!r.ok) {
+          sePairStatus.textContent = `Error: ${r.err}. Use "Paste JWT" instead, or deploy the relay (see /oauth-relay/README.md).`;
+          seQrBox.innerHTML = '<span style="color:#900; padding:8px; text-align:center;">relay not configured</span>';
+          return;
+        }
+        seCurrentPairing = r.pairingId;
+        sePairUrl.href = r.authUrl;
+        sePairUrl.textContent = r.authUrl;
+        const qrSvgUrl = `/api/integrations/streamelements/qr?url=${encodeURIComponent(r.authUrl)}`;
+        seQrBox.innerHTML = `<img src="${qrSvgUrl}" alt="pairing QR" style="width: 100%; height: 100%; display: block;"/>`;
+        sePairStatus.textContent = 'Scan with your phone, then tap "Allow" on StreamElements.';
+        pollPairing(r.pairingId);
+      } catch (e) {
+        sePairStatus.textContent = `Failed: ${e.message}`;
+      }
+    }
+
+    async function pollPairing(id) {
+      if (seCurrentPairing !== id) return;
+      try {
+        const r = await (await fetch(`/api/integrations/streamelements/pair/${encodeURIComponent(id)}/poll`)).json();
+        if (!r.ok) {
+          sePairStatus.textContent = `Error: ${r.err}`;
+          return;
+        }
+        if (r.status === 'ok') {
+          sePairStatus.textContent = `Connected as ${r.account && (r.account.displayName || r.account.username) || 'channel'} — kiosk will reconnect on every tip.`;
+          await fetchSeStatus();
+          setTimeout(closePairingPanel, 2500);
+          return;
+        }
+        if (r.status === 'expired') {
+          sePairStatus.textContent = 'Pairing expired. Tap Re-connect to try again.';
+          return;
+        }
+        if (r.status === 'error') {
+          sePairStatus.textContent = `StreamElements rejected the request: ${r.error}`;
+          return;
+        }
+        sePollTimer = setTimeout(() => pollPairing(id), 2000);
+      } catch (e) {
+        sePairStatus.textContent = `Poll error: ${e.message}`;
+        sePollTimer = setTimeout(() => pollPairing(id), 4000);
+      }
+    }
+
+    seConnectBtn.addEventListener('click', startPairing);
+    sePairCancel.addEventListener('click', closePairingPanel);
+    seAdvancedBtn.addEventListener('click', () => {
+      closePairingPanel();
+      seJwtPanel.hidden = !seJwtPanel.hidden;
+      if (!seJwtPanel.hidden) seJwtInput.focus();
+    });
+    seDisconnectBtn.addEventListener('click', async () => {
+      if (!confirm('Disconnect StreamElements? The kiosk will stop receiving live tips until you re-connect.')) return;
+      seJwtStatus.textContent = '';
+      await fetch('/api/integrations/streamelements/disconnect', { method: 'POST' });
+      await fetchSeStatus();
+    });
+    seJwtSave.addEventListener('click', async () => {
+      const jwt = seJwtInput.value.trim();
+      if (!jwt) { seJwtStatus.textContent = 'Paste your JWT first.'; return; }
+      seJwtStatus.textContent = 'Validating...';
+      const r = await (await fetch('/api/integrations/streamelements/jwt', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ jwt }),
+      })).json();
+      if (r.ok) {
+        seJwtStatus.textContent = 'Saved. Connecting...';
+        seJwtInput.value = '';
+        await fetchSeStatus();
+        setTimeout(() => { seJwtPanel.hidden = true; seJwtStatus.textContent = ''; }, 1500);
+      } else {
+        seJwtStatus.textContent = `Error: ${r.err}`;
+      }
+    });
+    onMessage('streamelements_state', (m) => renderSeStatus(m.state));
+    fetchSeStatus();
 
     // ===== Auto-return to idle after inactivity =====
     let autoReturnTimer = null;

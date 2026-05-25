@@ -22,6 +22,7 @@ const { mount: mountWifi } = require('./wifi');
 const { mount: mountUpdater } = require('./updater');
 const { SettingsStore, mount: mountSettings } = require('./settings');
 const { HistoryStore, mount: mountHistory } = require('./history');
+const { StreamElementsClient } = require('./streamelements');
 
 const app = express();
 const server = http.createServer(app);
@@ -84,6 +85,20 @@ const settings = new SettingsStore({
 // ---------- Donation history ----------
 const history = new HistoryStore({
   file: path.join(config.assetsDir, '..', 'donations.json'),
+});
+
+// ---------- StreamElements OAuth + Astro realtime client ----------
+// The client owns its own token file (chmod 600). On boot, if tokens
+// are present, it autoconnects to wss://astro.streamelements.com,
+// subscribes to channel.activities, and emits 'tip' for every donation.
+// We forward those tips into the same onDonation() pipeline the
+// webhooks use, so the rest of the system doesn't care where a tip
+// came from.
+const se = new StreamElementsClient({
+  tokensFile:  config.streamelements.tokensFile,
+  relayUrl:    config.streamelements.relayUrl,
+  redirectUri: config.streamelements.redirectUri,
+  clientId:    config.streamelements.clientId,
 });
 
 // ---------- Static UI ----------
@@ -248,33 +263,113 @@ motor.on('dispense_result', (info) => {
   drainDispenseQueue();
 });
 
-mountDonations(app, {
-  config,
-  onDonation: (evt) => {
-    const resolvedMotor = settings.resolveMotor(evt.amount);
-    console.log(`[donation] ${evt.source} ${evt.name} ${evt.amount} ${evt.currency} → motor ${resolvedMotor}`);
-    if (!resolvedMotor) {
-      const entry = history.add({ ...evt, motor: null, status: 'skipped_no_tier',
-                                  detail: `no tier matched amount ${evt.amount}` });
-      broadcast({ type: 'donation', ...evt, id: entry.id, motor: null });
-      broadcast({ type: 'donation_skipped', id: entry.id, reason: 'no_tier',
-                  name: evt.name, amount: evt.amount });
-      return;
+function dispatchDonation(evt) {
+  const resolvedMotor = settings.resolveMotor(evt.amount);
+  console.log(`[donation] ${evt.source} ${evt.name} ${evt.amount} ${evt.currency} → motor ${resolvedMotor}`);
+  if (!resolvedMotor) {
+    const entry = history.add({ ...evt, motor: null, status: 'skipped_no_tier',
+                                detail: `no tier matched amount ${evt.amount}` });
+    broadcast({ type: 'donation', ...evt, id: entry.id, motor: null });
+    broadcast({ type: 'donation_skipped', id: entry.id, reason: 'no_tier',
+                name: evt.name, amount: evt.amount });
+    return;
+  }
+  const labels = settings.getAll().chamberLabels;
+  const entry = history.add({ ...evt, motor: resolvedMotor, status: 'queued' });
+  broadcast({
+    type: 'donation',
+    id: entry.id,
+    motor: resolvedMotor,
+    chamberLabel: labels[resolvedMotor] || `Chamber ${resolvedMotor}`,
+    source: evt.source, name: evt.name, amount: evt.amount,
+    currency: evt.currency, message: evt.message,
+  });
+  dispenseQueue.push({ historyId: entry.id, motor: resolvedMotor, evt });
+  broadcastDispenseState();
+  drainDispenseQueue();
+}
+
+mountDonations(app, { config, onDonation: dispatchDonation });
+
+// ---------- StreamElements live feed ----------
+// Forward Astro 'tip' events into the donation pipeline. We also
+// mirror the client's connection state into the settings store so the
+// UI shows "Connected as <user>" after a reload without any extra
+// round-trips.
+function syncSeState() {
+  const s = se.status();
+  settings.patch({
+    streamelements: {
+      connected:   s.connected,
+      mode:        s.mode,
+      account:     s.account,
+      connectedAt: s.connected ? (settings.getAll().streamelements.connectedAt || Date.now()) : null,
+      lastError:   s.lastError,
+      lastEventAt: s.lastEventAt,
+    },
+  });
+  broadcast({ type: 'streamelements_state', state: s });
+}
+se.on('tip', (tip) => {
+  dispatchDonation(tip);
+  syncSeState();
+});
+se.on('state', syncSeState);
+se.start();
+syncSeState();
+
+// HTTP control surface for the SE integration (called by settings.html).
+app.get('/api/integrations/streamelements/status', (_req, res) => {
+  res.json({ ok: true, status: se.status() });
+});
+
+app.post('/api/integrations/streamelements/pair/new', async (_req, res) => {
+  try {
+    const pairing = await se.createPairing();
+    res.json({ ok: true, ...pairing });
+  } catch (e) {
+    res.status(400).json({ ok: false, err: e.message });
+  }
+});
+
+app.get('/api/integrations/streamelements/pair/:id/poll', async (req, res) => {
+  try {
+    const r = await se.pollPairing(req.params.id);
+    res.json({ ok: true, ...r });
+  } catch (e) {
+    res.status(400).json({ ok: false, err: e.message });
+  }
+});
+
+app.post('/api/integrations/streamelements/jwt',
+  express.json({ limit: '8kb' }),
+  async (req, res) => {
+    try {
+      await se.setJwt(req.body && req.body.jwt);
+      res.json({ ok: true, status: se.status() });
+    } catch (e) {
+      res.status(400).json({ ok: false, err: e.message });
     }
-    const labels = settings.getAll().chamberLabels;
-    const entry = history.add({ ...evt, motor: resolvedMotor, status: 'queued' });
-    broadcast({
-      type: 'donation',
-      id: entry.id,
-      motor: resolvedMotor,
-      chamberLabel: labels[resolvedMotor] || `Chamber ${resolvedMotor}`,
-      source: evt.source, name: evt.name, amount: evt.amount,
-      currency: evt.currency, message: evt.message,
-    });
-    dispenseQueue.push({ historyId: entry.id, motor: resolvedMotor, evt });
-    broadcastDispenseState();
-    drainDispenseQueue();
-  },
+  });
+
+app.post('/api/integrations/streamelements/disconnect', async (_req, res) => {
+  await se.disconnect();
+  res.json({ ok: true, status: se.status() });
+});
+
+// Convenience: a QR-friendly URL synthesizer the UI can call when
+// debugging without going through pair/new (e.g. show the raw OAuth
+// URL with the pairing id embedded as state).
+app.get('/api/integrations/streamelements/qr', async (req, res) => {
+  const url = req.query.url ? String(req.query.url) : '';
+  if (!url) return res.status(400).json({ ok: false, err: 'missing url' });
+  try {
+    const QRCode = require('qrcode');
+    const svg = await QRCode.toString(url, { type: 'svg', margin: 1, width: 320 });
+    res.set('content-type', 'image/svg+xml').send(svg);
+  } catch (e) {
+    res.status(500).json({ ok: false, err: e.message });
+  }
 });
 
 // ---------- Asset endpoints ----------

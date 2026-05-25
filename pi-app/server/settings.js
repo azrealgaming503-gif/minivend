@@ -41,6 +41,20 @@ const DEFAULTS = Object.freeze({
   // active, incoming donations are still acknowledged on-screen and
   // logged, but their dispense is queued FIFO. Set 0 to disable.
   dispenseCooldownSec: 0,
+
+  // Public connection state for the StreamElements integration. Secrets
+  // (tokens, client_secret) live elsewhere — this is just what the UI
+  // needs to render the "Connected as X" badge after a reboot. The SE
+  // module updates this via `patch({ streamelements: {...} })` itself;
+  // the UI only reads it.
+  streamelements: {
+    connected: false,
+    mode: null,            // 'oauth' | 'jwt' | null
+    account: null,         // { id, username, displayName, provider, avatar }
+    connectedAt: null,
+    lastError: null,
+    lastEventAt: null,
+  },
 });
 
 function ensureDir(dir) {
@@ -108,6 +122,23 @@ class SettingsStore {
     out.chamberLabels = {
       1: String(labels[1] || labels['1'] || DEFAULTS.chamberLabels[1]).slice(0, 32),
       2: String(labels[2] || labels['2'] || DEFAULTS.chamberLabels[2]).slice(0, 32),
+    };
+
+    const se = (out.streamelements && typeof out.streamelements === 'object')
+      ? out.streamelements : {};
+    out.streamelements = {
+      connected: !!se.connected,
+      mode: se.mode === 'oauth' || se.mode === 'jwt' ? se.mode : null,
+      account: (se.account && typeof se.account === 'object') ? {
+        id:          se.account.id          || null,
+        username:    se.account.username    || null,
+        displayName: se.account.displayName || se.account.username || null,
+        provider:    se.account.provider    || null,
+        avatar:      se.account.avatar      || null,
+      } : null,
+      connectedAt: Number.isFinite(se.connectedAt) ? se.connectedAt : null,
+      lastError:   se.lastError ? String(se.lastError).slice(0, 240) : null,
+      lastEventAt: Number.isFinite(se.lastEventAt) ? se.lastEventAt : null,
     };
 
     return out;

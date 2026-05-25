@@ -51,6 +51,18 @@ const config = {
     speed: asInt('DEFAULT_DISPENSE_SPEED', 1200),
     maxMs: asInt('DEFAULT_DISPENSE_MAX_MS', 3000),
   },
+  // StreamElements OAuth integration. The kiosk *never* sees the
+  // client_secret — the pairing relay (a tiny Cloudflare Worker, source
+  // in /oauth-relay) holds it. SE_RELAY_URL points to that deployment;
+  // SE_CLIENT_ID is the public OAuth client id and is shown in the
+  // pairing QR code for transparency. If SE_RELAY_URL is blank, the
+  // kiosk falls back to "paste JWT" mode in the settings UI.
+  streamelements: {
+    relayUrl:    asStr('SE_RELAY_URL', ''),
+    clientId:    asStr('SE_CLIENT_ID', ''),
+    redirectUri: asStr('SE_REDIRECT_URI', ''),
+    tokensFile:  path.resolve(__dirname, '..', asStr('SE_TOKENS_FILE', '../se-tokens.json')),
+  },
 };
 
 module.exports = config;

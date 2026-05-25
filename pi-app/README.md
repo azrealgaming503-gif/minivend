@@ -8,18 +8,26 @@ pipeline, and asset library. Talks to an **ESP32 motor controller**
 ## Architecture
 
 ```
-StreamElements / Ko-fi webhooks
-        |
-        v
-  pi-app (Node)  ─ WebSocket ─►  Chromium kiosk UI
-        |                          (idle anim, donation alerts, games)
-        |
-        USB-serial
-        |
-        v
-  ESP32 motor controller  ─►  2× stepper drivers ─► motors
-                          ◄─  2× drop sensors
+StreamElements OAuth (Astro WS) ─┐
+StreamElements / Ko-fi webhooks ─┤
+                                 v
+                          pi-app (Node)  ─ WebSocket ─►  Chromium kiosk UI
+                                 |                       (idle anim, alerts, games)
+                                 USB-serial
+                                 |
+                                 v
+                          ESP32 motor controller  ─►  2× stepper drivers ─► motors
+                                                  ◄─  2× drop sensors
 ```
+
+The kiosk can pull live tips from StreamElements two ways:
+
+- **OAuth + Astro WebSocket (recommended)** — outbound-only, no
+  public surface. Set up via the QR pairing flow on the Settings
+  page; requires deploying the [tiny relay](../oauth-relay/) once.
+- **Classic webhooks** — set the SE webhook secret in `.env`,
+  point SE/Ko-fi at `/hooks/streamelements` / `/hooks/kofi`. Works
+  if you have a Tailscale Funnel or similar already.
 
 The Pi never generates step pulses. It sends high-level commands like
 `DISPENSE 1 +1 1200 3000` to the ESP32, which handles the timing-critical

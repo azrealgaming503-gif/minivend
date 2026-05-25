@@ -1,0 +1,101 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>MiniVend — StreamElements connected</title>
+  <style>
+    :root { color-scheme: dark; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
+      background: #0a0b0e; color: #eee; margin: 0; padding: 24px;
+      display: flex; align-items: center; justify-content: center; min-height: 100vh;
+    }
+    .box {
+      max-width: 460px; width: 100%;
+      background: #15171c; border: 1px solid #2a2e36; border-radius: 14px;
+      padding: 28px; text-align: center;
+    }
+    h1 { margin: 0 0 12px; font-size: 22px; }
+    p { color: #aab; line-height: 1.5; margin: 8px 0; }
+    .spinner {
+      width: 36px; height: 36px; border-radius: 50%;
+      border: 3px solid #2a2e36; border-top-color: #ff7a3a;
+      margin: 16px auto; animation: spin 0.9s linear infinite;
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
+    .ok    { color: #5fd07a; }
+    .err   { color: #ff7a7a; }
+    code   { background: #0a0b0e; padding: 2px 6px; border-radius: 4px; font-size: 12px; }
+  </style>
+</head>
+<body>
+  <div class="box">
+    <h1 id="title">Connecting your StreamElements account...</h1>
+    <div class="spinner" id="spinner"></div>
+    <p id="status">Talking to the MiniVend relay...</p>
+    <p id="hint" style="font-size: 13px; opacity: 0.7;">
+      Once you see <strong>You are connected</strong>, return to your
+      MiniVend kiosk — it will pick up the new tokens automatically.
+    </p>
+  </div>
+
+  <!--
+    Configure RELAY_URL to point at your deployed Cloudflare Worker.
+    The page reads ?code=...&state=... from StreamElements, posts them
+    to the relay's /exchange endpoint, and shows the result.
+  -->
+  <script>
+    // ===== EDIT ME: relay URL =====
+    const RELAY_URL = 'https://YOUR-WORKER.workers.dev';
+    // ==============================
+
+    const url    = new URL(location.href);
+    const code   = url.searchParams.get('code');
+    const state  = url.searchParams.get('state');
+    const error  = url.searchParams.get('error');
+    const title  = document.getElementById('title');
+    const status = document.getElementById('status');
+    const hint   = document.getElementById('hint');
+    const spinner = document.getElementById('spinner');
+
+    function done(headline, body, ok) {
+      title.textContent = headline;
+      title.className = ok ? 'ok' : 'err';
+      status.textContent = body;
+      spinner.style.display = 'none';
+    }
+
+    async function run() {
+      if (!RELAY_URL || RELAY_URL.includes('YOUR-WORKER')) {
+        done('Relay not configured', 'Edit RELAY_URL in callback.html before deploying.', false);
+        return;
+      }
+      if (error) {
+        done('Authorization declined', `StreamElements returned: ${error}`, false);
+        return;
+      }
+      if (!code || !state) {
+        done('Missing OAuth response', 'No code or state in the URL. Try pairing again from the kiosk.', false);
+        return;
+      }
+      try {
+        const r = await fetch(`${RELAY_URL}/exchange`, {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ code, state }),
+        });
+        const j = await r.json().catch(() => ({}));
+        if (r.ok && j.ok) {
+          done('You are connected', 'Return to your MiniVend kiosk — it should pick up the tokens within a few seconds.', true);
+        } else {
+          done('Could not connect', `Relay responded: ${j.error || `http ${r.status}`}`, false);
+        }
+      } catch (e) {
+        done('Could not reach the relay', e.message, false);
+      }
+    }
+    run();
+  </script>
+</body>
+</html>
