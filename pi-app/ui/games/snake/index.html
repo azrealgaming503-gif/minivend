@@ -9,19 +9,32 @@
     .snake-page { display: flex; flex-direction: column; height: 100vh; }
     .snake-header {
       display: flex; align-items: center; justify-content: space-between;
-      padding: 14px 18px; border-bottom: 1px solid var(--stroke);
+      padding: 12px 14px; border-bottom: 1px solid var(--stroke);
+      flex: 0 0 auto;
     }
-    .snake-stats { display: flex; gap: 22px; align-items: baseline; font-size: 20px; }
+    .snake-stats { display: flex; gap: 16px; align-items: baseline; font-size: 18px; }
     .snake-stats b { font-weight: 600; color: var(--accent); }
-    .snake-stage { flex: 1; display: flex; align-items: center; justify-content: center; }
-    canvas { background: #0a0a0d; border-radius: 14px; border: 1px solid var(--stroke); touch-action: none; }
+    .snake-stage {
+      flex: 1 1 auto;
+      display: flex; align-items: center; justify-content: center;
+      padding: 12px;
+      min-height: 0;
+    }
+    canvas {
+      background: #0a0a0d;
+      border-radius: 14px;
+      border: 1px solid var(--stroke);
+      touch-action: none;
+      max-width: 100%;
+      max-height: 100%;
+    }
     .overlay {
       position: absolute; inset: 0;
       display: flex; align-items: center; justify-content: center;
       background: rgba(0,0,0,0.6);
       flex-direction: column; gap: 14px;
     }
-    .overlay h2 { font-size: 36px; margin: 0; }
+    .overlay h2 { font-size: 32px; margin: 0; text-align: center; padding: 0 16px; }
   </style>
 </head>
 <body>
@@ -34,8 +47,8 @@
       </div>
       <button id="restart">Restart</button>
     </header>
-    <main class="snake-stage" style="position: relative;">
-      <canvas id="game" width="960" height="520"></canvas>
+    <main class="snake-stage" id="stage" style="position: relative;">
+      <canvas id="game"></canvas>
       <div id="overlay" class="overlay" hidden>
         <h2 id="overlay-title">Game over</h2>
         <button class="primary" id="overlay-restart">Play again</button>
@@ -46,9 +59,24 @@
   <script type="module">
     import '/js/alerts.js';
 
-    const COLS = 24, ROWS = 13, CELL = 40;
     const canvas = document.getElementById('game');
     const ctx = canvas.getContext('2d');
+    const stage = document.getElementById('stage');
+
+    // Grid + cell sizing is computed from the actual stage area so the
+    // board fits any screen ratio (landscape 1024x600, portrait 600x1024,
+    // or anything else). Larger cells on bigger screens; we just clamp.
+    let COLS = 24, ROWS = 13, CELL = 40;
+    function fitBoard() {
+      const w = Math.max(stage.clientWidth  - 2, 200);
+      const h = Math.max(stage.clientHeight - 2, 200);
+      // Aim for a cell big enough to tap, small enough to leave room.
+      CELL = Math.max(20, Math.min(44, Math.floor(Math.min(w, h) / 14)));
+      COLS = Math.max(8, Math.floor(w / CELL));
+      ROWS = Math.max(8, Math.floor(h / CELL));
+      canvas.width  = COLS * CELL;
+      canvas.height = ROWS * CELL;
+    }
 
     const scoreEl = document.getElementById('score');
     const bestEl  = document.getElementById('best');
@@ -64,8 +92,15 @@
     let snake, dir, nextDir, food, score, alive, lastTickMs, tickMs;
 
     function reset() {
+      fitBoard();
       const cx = Math.floor(COLS / 2), cy = Math.floor(ROWS / 2);
-      snake = [[cx - 2, cy], [cx - 1, cy], [cx, cy]];
+      // Three-segment starter snake heading right. Guard against very
+      // narrow boards by clamping the tail.
+      snake = [
+        [Math.max(0, cx - 2), cy],
+        [Math.max(1, cx - 1), cy],
+        [cx, cy],
+      ];
       dir = [1, 0];
       nextDir = [1, 0];
       score = 0;
@@ -76,6 +111,14 @@
       scoreEl.textContent = score;
       overlay.hidden = true;
     }
+
+    // Re-fit on orientation change. We only resize cleanly between games
+    // to avoid mid-game scaling weirdness — if the kiosk is rotated while
+    // playing, the current run continues with the old board and the new
+    // dimensions kick in on the next reset().
+    window.addEventListener('resize', () => {
+      if (!alive) fitBoard();
+    });
 
     function spawnFood() {
       const occ = new Set(snake.map(([x, y]) => x + ',' + y));

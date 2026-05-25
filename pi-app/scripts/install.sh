@@ -282,13 +282,47 @@ open('/usr/share/icons/blank/cursors/left_ptr', 'wb').write(bytes(buf))
 PYEOF
 chmod 0644 /usr/share/icons/blank/cursors/left_ptr
 # Make every other common cursor name resolve to the blank one too —
-# wlroots reads names like "default", "pointer", "watch", "text", etc.
+# wlroots reads names like "default", "pointer", "watch", "text", grab,
+# etc. We cover the full freedesktop cursor-spec name set so any
+# fallback request also resolves to blank.
 for alias in default pointer arrow text watch hand1 hand2 crosshair \
-             xterm wait progress help size_all sb_h_double_arrow \
-             sb_v_double_arrow top_left_corner top_right_corner \
-             bottom_left_corner bottom_right_corner left_side right_side; do
+             xterm wait progress help question_arrow \
+             size_all size_ver size_hor size_fdiag size_bdiag \
+             sb_h_double_arrow sb_v_double_arrow \
+             top_left_corner top_right_corner \
+             bottom_left_corner bottom_right_corner \
+             left_side right_side top_side bottom_side \
+             grab grabbing closedhand openhand pointing_hand \
+             move copy alias dnd-move dnd-copy dnd-no-drop \
+             no-drop not-allowed forbidden \
+             ibeam cell row-resize col-resize \
+             ew-resize ns-resize nesw-resize nwse-resize all-scroll \
+             zoom-in zoom-out fleur plus circle dotbox draft \
+             X_cursor center_ptr right_ptr ul_angle ur_angle \
+             ll_angle lr_angle; do
   ln -sf left_ptr "/usr/share/icons/blank/cursors/${alias}"
 done
+
+# Override the system DEFAULT cursor theme so anything that falls back
+# to "default" (rather than our explicit XCURSOR_THEME=blank) also gets
+# the blank cursors. wlroots' default cursor manager will pick up our
+# inherits chain and resolve every cursor name through the blank theme.
+install -d -m 0755 /usr/share/icons/default
+# Preserve the original default theme metadata so we can restore it if
+# someone later installs a real desktop environment on this Pi.
+if [ -f /usr/share/icons/default/index.theme ] && \
+   ! grep -q "^Inherits=blank" /usr/share/icons/default/index.theme && \
+   [ ! -f /usr/share/icons/default/index.theme.minivend-backup ]; then
+  cp -a /usr/share/icons/default/index.theme \
+        /usr/share/icons/default/index.theme.minivend-backup
+fi
+cat >/usr/share/icons/default/index.theme <<'EOF'
+[Icon Theme]
+Name=Default
+Comment=Inherits the MiniVend blank cursor theme so touchscreen kiosks
+ don't flash a system cursor when the pointer is woken by a touch event.
+Inherits=blank
+EOF
 
 # ---------- 7. sudoers drop-in ----------
 echo "==> Installing sudoers drop-in for OTA + Wi-Fi management"
