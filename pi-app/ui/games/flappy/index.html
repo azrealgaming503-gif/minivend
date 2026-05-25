@@ -1,0 +1,252 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, user-scalable=no" />
+  <title>Flappy Cat · MiniVend</title>
+  <link rel="stylesheet" href="/css/styles.css" />
+  <style>
+    .f-page    { display: flex; flex-direction: column; height: 100vh; }
+    .f-header  {
+      display: flex; align-items: center; justify-content: space-between;
+      padding: 10px 14px; border-bottom: 1px solid var(--stroke);
+      flex: 0 0 auto;
+    }
+    .f-stats  { display: flex; gap: 16px; font-size: 18px; }
+    .f-stats b { color: var(--accent); font-weight: 600; }
+    .f-stage  {
+      flex: 1 1 auto; min-height: 0;
+      position: relative;
+      background: linear-gradient(to bottom,
+        #1e2a4a 0%, #2a3a6e 40%, #4a5fa0 100%);
+    }
+    canvas {
+      position: absolute; inset: 0; width: 100%; height: 100%;
+      touch-action: manipulation;
+      display: block;
+    }
+    .overlay {
+      position: absolute; inset: 0;
+      display: flex; align-items: center; justify-content: center;
+      background: rgba(0,0,0,0.5);
+      flex-direction: column; gap: 14px;
+    }
+    .overlay h2 { font-size: 30px; margin: 0; text-align: center; }
+    .overlay .sub { color: var(--text-2); font-size: 15px; }
+  </style>
+</head>
+<body>
+  <div class="f-page">
+    <header class="f-header">
+      <a href="/games"><button class="ghost">← Back</button></a>
+      <div class="f-stats">
+        <span>Score <b id="score">0</b></span>
+        <span>Best <b id="best">0</b></span>
+      </div>
+      <button id="restart">Restart</button>
+    </header>
+    <main class="f-stage" id="stage">
+      <canvas id="game"></canvas>
+      <div id="overlay" class="overlay">
+        <h2 id="overlay-title">Tap to start</h2>
+        <div class="sub" id="overlay-sub">Tap anywhere to fly</div>
+      </div>
+    </main>
+  </div>
+
+  <script type="module">
+    import '/js/alerts.js';
+
+    const stage   = document.getElementById('stage');
+    const canvas  = document.getElementById('game');
+    const ctx     = canvas.getContext('2d');
+    const scoreEl = document.getElementById('score');
+    const bestEl  = document.getElementById('best');
+    const overlay = document.getElementById('overlay');
+    const overlayTitle = document.getElementById('overlay-title');
+    const overlaySub   = document.getElementById('overlay-sub');
+
+    const BEST_KEY = 'minivend.flappy.best';
+    let best = parseInt(localStorage.getItem(BEST_KEY) || '0', 10) || 0;
+    bestEl.textContent = best;
+
+    // Cat sprite from active idle pack (first cat frame).
+    let catImg = null;
+    (async function loadCat() {
+      try {
+        const r = await fetch('/api/assets/idle/active');
+        const j = await r.json();
+        if (!j.ok || j.kind !== 'pack' || !j.framesUrl) return;
+        const seq = (j.manifest && j.manifest.sequence) || [];
+        const first = seq[0] && (seq[0].loop || seq[0].transition);
+        if (!first) return;
+        const img = new Image();
+        img.onload  = () => { catImg = img; };
+        img.src     = `${j.framesUrl}${first}.jpg`;
+      } catch (_) {}
+    })();
+
+    // ----- World tuning -----
+    const GRAVITY   = 1500;       // px/s²
+    const FLAP_V    = -480;       // px/s
+    const PIPE_GAP  = 200;        // pixel hole height (recomputed at fit())
+    const PIPE_W    = 90;
+    const PIPE_SPEED = 200;       // px/s, scales up with score
+    const PIPE_INTERVAL = 1500;   // ms between spawns
+
+    let W = 0, H = 0;
+    let cat, pipes, vy, alive, started, score, lastSpawnMs, lastTs, gapH;
+
+    function fit() {
+      const r = stage.getBoundingClientRect();
+      W = Math.floor(r.width);
+      H = Math.floor(r.height);
+      canvas.width = W;
+      canvas.height = H;
+      gapH = Math.max(150, Math.min(260, Math.floor(H * 0.30)));
+    }
+    new ResizeObserver(fit).observe(stage);
+
+    function reset() {
+      cat   = { x: Math.floor(W * 0.28), y: Math.floor(H * 0.4), r: Math.min(28, Math.floor(W * 0.06)) };
+      pipes = [];
+      vy = 0; alive = true; started = false; score = 0; lastSpawnMs = 0; lastTs = 0;
+      scoreEl.textContent = 0;
+      overlayTitle.textContent = 'Tap to start';
+      overlaySub.textContent   = 'Tap anywhere to fly';
+      overlay.hidden = false;
+    }
+
+    function flap() {
+      if (!alive) return restart();
+      if (!started) { started = true; overlay.hidden = true; }
+      vy = FLAP_V;
+    }
+    function restart() { reset(); }
+
+    canvas.addEventListener('pointerdown', flap);
+    overlay.addEventListener('pointerdown', flap);
+    window.addEventListener('keydown', (e) => {
+      if (e.key === ' ' || e.key === 'ArrowUp') flap();
+    });
+    document.getElementById('restart').addEventListener('click', restart);
+
+    function spawnPipe() {
+      const margin = 40;
+      const topMax = H - gapH - margin;
+      const top = margin + Math.floor(Math.random() * (topMax - margin));
+      pipes.push({ x: W, top, scored: false });
+    }
+
+    function step(dt) {
+      // Spawn pipes
+      lastSpawnMs += dt * 1000;
+      if (started && lastSpawnMs >= PIPE_INTERVAL) {
+        lastSpawnMs = 0;
+        spawnPipe();
+      }
+      // Move pipes
+      const speed = PIPE_SPEED + Math.min(180, score * 6);
+      for (const p of pipes) p.x -= speed * dt;
+      while (pipes.length && pipes[0].x + PIPE_W < 0) pipes.shift();
+
+      // Physics
+      if (started) {
+        vy += GRAVITY * dt;
+        cat.y += vy * dt;
+      }
+      // Ground / ceiling
+      if (cat.y - cat.r < 0)     { cat.y = cat.r;     vy = 0; }
+      if (cat.y + cat.r > H)     { die(); }
+
+      // Pipe collisions + scoring
+      for (const p of pipes) {
+        const inX = cat.x + cat.r > p.x && cat.x - cat.r < p.x + PIPE_W;
+        if (inX) {
+          const inGap = cat.y - cat.r > p.top && cat.y + cat.r < p.top + gapH;
+          if (!inGap) { die(); break; }
+        }
+        if (!p.scored && p.x + PIPE_W < cat.x - cat.r) {
+          p.scored = true; score += 1; scoreEl.textContent = score;
+        }
+      }
+    }
+
+    function die() {
+      if (!alive) return;
+      alive = false; started = false;
+      if (score > best) {
+        best = score;
+        localStorage.setItem(BEST_KEY, String(best));
+        bestEl.textContent = best;
+      }
+      overlayTitle.textContent = 'Caught!';
+      overlaySub.textContent   = `Score ${score} · Tap to retry`;
+      overlay.hidden = false;
+    }
+
+    function draw() {
+      ctx.clearRect(0, 0, W, H);
+
+      // pipes
+      ctx.fillStyle = '#3a8a3a';
+      ctx.strokeStyle = '#1f4f1f';
+      ctx.lineWidth = 2;
+      for (const p of pipes) {
+        ctx.fillRect(p.x, 0, PIPE_W, p.top);
+        ctx.strokeRect(p.x + 0.5, 0.5, PIPE_W, p.top);
+        ctx.fillRect(p.x, p.top + gapH, PIPE_W, H - (p.top + gapH));
+        ctx.strokeRect(p.x + 0.5, p.top + gapH + 0.5, PIPE_W, H - (p.top + gapH));
+        // lip
+        ctx.fillStyle = '#4fa64f';
+        ctx.fillRect(p.x - 4, p.top - 14, PIPE_W + 8, 14);
+        ctx.fillRect(p.x - 4, p.top + gapH, PIPE_W + 8, 14);
+        ctx.fillStyle = '#3a8a3a';
+      }
+
+      // ground line
+      ctx.fillStyle = '#2a3a6e';
+      ctx.fillRect(0, H - 4, W, 4);
+
+      // cat
+      const tilt = Math.max(-0.5, Math.min(1.0, vy / 400));
+      ctx.save();
+      ctx.translate(cat.x, cat.y);
+      ctx.rotate(tilt);
+      if (catImg) {
+        ctx.beginPath();
+        ctx.arc(0, 0, cat.r, 0, Math.PI * 2);
+        ctx.closePath();
+        ctx.clip();
+        ctx.drawImage(catImg, -cat.r, -cat.r, cat.r * 2, cat.r * 2);
+        ctx.restore();
+        // ring
+        ctx.beginPath();
+        ctx.arc(cat.x, cat.y, cat.r, 0, Math.PI * 2);
+        ctx.strokeStyle = '#fff';
+        ctx.lineWidth = 2;
+        ctx.stroke();
+      } else {
+        ctx.font = `${cat.r * 2}px serif`;
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        ctx.fillText('🐱', 0, 0);
+        ctx.restore();
+      }
+    }
+
+    function tick(ts) {
+      if (!lastTs) lastTs = ts;
+      const dt = Math.min(0.05, (ts - lastTs) / 1000);
+      lastTs = ts;
+      if (alive) step(dt);
+      draw();
+      requestAnimationFrame(tick);
+    }
+
+    // Boot
+    function boot() { fit(); reset(); requestAnimationFrame(tick); }
+    boot();
+  </script>
+</body>
+</html>

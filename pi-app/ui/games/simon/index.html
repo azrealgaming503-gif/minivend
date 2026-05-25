@@ -1,0 +1,206 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, user-scalable=no" />
+  <title>Simon Says · MiniVend</title>
+  <link rel="stylesheet" href="/css/styles.css" />
+  <style>
+    .s-page    { display: flex; flex-direction: column; height: 100vh; }
+    .s-header  {
+      display: flex; align-items: center; justify-content: space-between;
+      padding: 12px 14px; border-bottom: 1px solid var(--stroke);
+      flex: 0 0 auto;
+    }
+    .s-stats   { display: flex; gap: 16px; font-size: 18px; }
+    .s-stats b { color: var(--accent); font-weight: 600; }
+    .s-stage   {
+      flex: 1 1 auto; min-height: 0;
+      display: flex; align-items: center; justify-content: center;
+      padding: 18px; position: relative;
+    }
+    .pad-grid {
+      width: min(82vmin, 480px); aspect-ratio: 1 / 1;
+      display: grid; grid-template-columns: 1fr 1fr; grid-template-rows: 1fr 1fr;
+      gap: 12px;
+    }
+    .pad {
+      border-radius: 22px;
+      cursor: pointer;
+      transition: filter 80ms ease, box-shadow 80ms ease, transform 80ms ease;
+      touch-action: manipulation;
+      filter: brightness(0.45);
+      border: 2px solid rgba(0,0,0,0.35);
+    }
+    .pad.lit { filter: brightness(1.25); box-shadow: 0 0 36px currentColor; transform: scale(0.985); }
+    .pad-green  { background:#3ddc6a; color:#3ddc6a; }
+    .pad-red    { background:#ff5a5a; color:#ff5a5a; }
+    .pad-yellow { background:#ffe552; color:#ffe552; }
+    .pad-blue   { background:#42a4ff; color:#42a4ff; }
+
+    .center-label {
+      position: absolute; left: 50%; top: 50%;
+      transform: translate(-50%, -50%);
+      background: var(--bg);
+      border: 1px solid var(--stroke);
+      border-radius: 999px;
+      padding: 14px 22px;
+      font-weight: 700; font-size: 18px;
+      pointer-events: none;
+      min-width: 110px; text-align: center;
+    }
+
+    .overlay {
+      position: absolute; inset: 0;
+      display: flex; align-items: center; justify-content: center;
+      background: rgba(0,0,0,0.7);
+      flex-direction: column; gap: 14px;
+    }
+    .overlay h2 { font-size: 30px; margin: 0; text-align: center; }
+    .overlay .sub { color: var(--text-2); font-size: 15px; }
+  </style>
+</head>
+<body>
+  <div class="s-page">
+    <header class="s-header">
+      <a href="/games"><button class="ghost">← Back</button></a>
+      <div class="s-stats">
+        <span>Round <b id="round">0</b></span>
+        <span>Best <b id="best">0</b></span>
+      </div>
+      <button id="restart">Restart</button>
+    </header>
+    <main class="s-stage" id="stage">
+      <div class="pad-grid">
+        <div class="pad pad-green"  data-pad="0"></div>
+        <div class="pad pad-red"    data-pad="1"></div>
+        <div class="pad pad-yellow" data-pad="2"></div>
+        <div class="pad pad-blue"   data-pad="3"></div>
+      </div>
+      <div id="center" class="center-label">Tap any pad to start</div>
+      <div id="overlay" class="overlay" hidden>
+        <h2 id="overlay-title">Game over</h2>
+        <div class="sub" id="overlay-sub"></div>
+        <button class="primary" id="overlay-restart">Play again</button>
+      </div>
+    </main>
+  </div>
+
+  <script type="module">
+    import '/js/alerts.js';
+
+    const BEST_KEY = 'minivend.simon.best';
+    const roundEl  = document.getElementById('round');
+    const bestEl   = document.getElementById('best');
+    const center   = document.getElementById('center');
+    const overlay  = document.getElementById('overlay');
+    const overlayTitle = document.getElementById('overlay-title');
+    const overlaySub   = document.getElementById('overlay-sub');
+    const pads = Array.from(document.querySelectorAll('.pad'));
+    // Web Audio for the iconic Simon tones (sine-ish blips).
+    const TONES = [329.63, 261.63, 392.00, 220.00]; // E4 C4 G4 A3
+    let ac = null;
+    function tone(i, ms) {
+      try {
+        if (!ac) ac = new (window.AudioContext || window.webkitAudioContext)();
+        const o = ac.createOscillator();
+        const g = ac.createGain();
+        o.frequency.value = TONES[i] || 440;
+        o.type = 'sine';
+        g.gain.value = 0.0001;
+        o.connect(g); g.connect(ac.destination);
+        const t = ac.currentTime;
+        g.gain.exponentialRampToValueAtTime(0.18, t + 0.02);
+        g.gain.exponentialRampToValueAtTime(0.0001, t + ms / 1000);
+        o.start(t); o.stop(t + ms / 1000 + 0.05);
+      } catch (_) {}
+    }
+
+    let best = parseInt(localStorage.getItem(BEST_KEY) || '0', 10) || 0;
+    bestEl.textContent = best;
+
+    let sequence = [];
+    let playerStep = 0;
+    let inputAllowed = false;
+    let playing = false;
+
+    function setCenter(text) { center.textContent = text; }
+
+    function litFor(i, ms) {
+      return new Promise((resolve) => {
+        pads[i].classList.add('lit');
+        tone(i, ms);
+        setTimeout(() => {
+          pads[i].classList.remove('lit');
+          setTimeout(resolve, 120);
+        }, ms);
+      });
+    }
+
+    async function playSequence() {
+      inputAllowed = false;
+      setCenter('Watch');
+      const speedMs = Math.max(200, 620 - (sequence.length * 20));
+      for (const i of sequence) {
+        await litFor(i, speedMs);
+      }
+      setCenter('Your turn');
+      playerStep = 0;
+      inputAllowed = true;
+    }
+
+    async function nextRound() {
+      sequence.push(Math.floor(Math.random() * 4));
+      roundEl.textContent = sequence.length;
+      await new Promise((r) => setTimeout(r, 500));
+      await playSequence();
+    }
+
+    function gameOver() {
+      inputAllowed = false; playing = false;
+      const round = sequence.length - 1;
+      if (round > best) {
+        best = round;
+        localStorage.setItem(BEST_KEY, String(best));
+        bestEl.textContent = best;
+      }
+      overlayTitle.textContent = 'Wrong!';
+      overlaySub.textContent   = `You made it to round ${round}.` +
+        (round === best && round > 0 ? ' New best!' : '');
+      overlay.hidden = false;
+      setCenter('Game over');
+    }
+
+    function onPad(i) {
+      if (!playing) {
+        // First tap kicks off a game so people aren't reading instructions.
+        startGame();
+        return;
+      }
+      if (!inputAllowed) return;
+      // Visual + audio feedback for the press.
+      litFor(i, 220);
+      const expected = sequence[playerStep];
+      if (i !== expected) { gameOver(); return; }
+      playerStep++;
+      if (playerStep >= sequence.length) {
+        inputAllowed = false;
+        setTimeout(() => nextRound(), 500);
+      }
+    }
+    pads.forEach((p, i) => p.addEventListener('pointerdown', () => onPad(i)));
+
+    function startGame() {
+      sequence = [];
+      roundEl.textContent = 0;
+      overlay.hidden = true;
+      playing = true;
+      nextRound();
+    }
+
+    function restart() { startGame(); }
+    document.getElementById('restart').addEventListener('click', restart);
+    document.getElementById('overlay-restart').addEventListener('click', restart);
+  </script>
+</body>
+</html>
