@@ -65,8 +65,44 @@ git reset --hard "${NEXT}"
 echo "Installing dependencies..."
 sudo -u minivend -H bash -c "cd ${REPO_DIR} && npm install --omit=dev --no-audit --no-fund --loglevel=error"
 
+# Re-install systemd unit files. They live in /etc/systemd/system/ as
+# *copies* (not symlinks — systemd needs them on a stable path during
+# early boot before our checkout's filesystem is fully mounted), so a
+# bare `git pull` does not update what systemd is running. Without
+# this step, edits to *.service files are silently ignored by OTA
+# until the next manual install.sh run.
+#
+# Only copy + daemon-reload + restart when the file actually changed,
+# so we don't needlessly bounce the kiosk on every update.
+KIOSK_NEEDS_RESTART=0
+for unit in minivend-server.service minivend-kiosk.service \
+            minivend-updater.service minivend-updater.timer; do
+  src="${REPO_DIR}/systemd/${unit}"
+  dst="/etc/systemd/system/${unit}"
+  if [ ! -f "${src}" ]; then continue; fi
+  if [ ! -f "${dst}" ] || ! cmp -s "${src}" "${dst}"; then
+    echo "Updating ${dst}"
+    install -m 0644 "${src}" "${dst}"
+    case "${unit}" in
+      minivend-kiosk.service) KIOSK_NEEDS_RESTART=1 ;;
+    esac
+  fi
+done
+
+# Sudoers can also change between releases; safe to refresh.
+if [ -f "${REPO_DIR}/scripts/sudoers-minivend" ]; then
+  install -m 0440 "${REPO_DIR}/scripts/sudoers-minivend" /etc/sudoers.d/minivend
+fi
+
+systemctl daemon-reload
+
 echo "Restarting minivend-server.service..."
 systemctl restart minivend-server.service
+
+if [ "${KIOSK_NEEDS_RESTART}" = "1" ]; then
+  echo "Kiosk unit changed; restarting minivend-kiosk.service..."
+  systemctl restart minivend-kiosk.service
+fi
 
 # Health check.
 echo "Waiting for health check at ${HEALTH_URL} ..."
