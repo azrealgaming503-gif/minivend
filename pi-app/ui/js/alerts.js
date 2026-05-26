@@ -26,7 +26,10 @@ import { onMessage } from './ws-client.js';
 // here so individual pages don't need to remember a second import.
 import './brightness.js';
 
-const STICKER_URL        = '/alert-sticker.gif';
+// Path is relative to the UI static root (/), so this just works on
+// both the Pi and a desktop dev server. Swap by dropping a different
+// image at pi-app/ui/img/blu-happy.png (or update this URL).
+const STICKER_URL        = '/img/blu-happy.png';
 const HOLD_AFTER_DONE_MS = 4500;     // how long to keep overlay up after motor done
 const HOLD_IF_NO_MOTOR   = 5000;     // alerts with no dispense (all-amounts mode)
 const HOLD_IF_STUCK_MS   = 20000;    // absolute cap (cooldown queue safety)
@@ -102,10 +105,12 @@ function setFields(evt) {
   ensureOverlay();
   overlay.querySelector('[data-amount]').textContent = fmtAmount(evt.amount, evt.currency);
   overlay.querySelector('[data-name]').textContent   = evt.name || 'Anonymous';
-  // Re-set the src on every show so an animated GIF restarts from
-  // the first frame (otherwise back-to-back tips look frozen).
+  // The CSS bounce animation provides the motion — the sticker
+  // itself is a static PNG so we don't bother re-setting `src` on
+  // every show. If you swap STICKER_URL to an animated GIF, append
+  // `?t=` + Date.now() here so back-to-back tips restart the loop.
   const sticker = overlay.querySelector('[data-sticker]');
-  sticker.src = STICKER_URL + '?t=' + Date.now();
+  if (!sticker.src.endsWith(STICKER_URL)) sticker.src = STICKER_URL;
 }
 
 function showOverlay() {

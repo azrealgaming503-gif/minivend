@@ -10,12 +10,29 @@
   <!-- Boot splash overlay. Painted on the very first frame so it
        visually continues from the plymouth splash and covers the
        gap while the cat video loads / first-frame-paints. Fades
-       out the moment the cat is actually playing. -->
+       out the moment the cat is actually playing.
+
+       Skipped on intra-session navigations (settings → idle, menu →
+       idle, etc.) via a sessionStorage flag set the first time we
+       finish booting. Only the very first page load in a session
+       (i.e. an actual cold boot or full Chromium restart) sees it. -->
   <div id="boot-splash" class="boot-splash">
     <div class="boot-splash-wordmark">
       <span>Blu</span><span class="boot-splash-dot"></span>
     </div>
   </div>
+  <script>
+    // Inline + before anything else so the splash never even paints
+    // on a navigation that already showed it once this session.
+    (function () {
+      try {
+        if (sessionStorage.getItem('minivend.bootSplashShown') === '1') {
+          var el = document.getElementById('boot-splash');
+          if (el) el.parentNode.removeChild(el);
+        }
+      } catch (_) { /* sessionStorage might be blocked */ }
+    })();
+  </script>
 
   <!-- Idle screen: only the looping cat animation. Donation alerts still
        overlay on top (alerts.js). Swipe UP anywhere on the screen to open
@@ -70,6 +87,16 @@
     function dismissBootSplash() {
       if (kioskReadyFired) return;
       kioskReadyFired = true;
+      // Mark this session so subsequent navigations back to the idle
+      // page don't replay the splash. Cleared on actual reboot
+      // (sessionStorage is per-tab and Chromium starts fresh).
+      try { sessionStorage.setItem('minivend.bootSplashShown', '1'); } catch (_) {}
+      // If the splash was already removed pre-load (intra-session
+      // nav), nothing to fade — skip the rAF dance.
+      if (!bootSplash || !bootSplash.parentNode) {
+        fetch('/api/kiosk-ready', { method: 'POST' }).catch(() => {});
+        return;
+      }
       // Two rAFs: lets the new frame be presented BEFORE we tell
       // plymouth to quit, so the chromium framebuffer is guaranteed
       // to have content the moment plymouth releases.

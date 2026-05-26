@@ -381,6 +381,14 @@ systemctl enable minivend-server.service
 systemctl enable minivend-kiosk.service
 systemctl enable minivend-updater.timer
 
+# ---------- 8a. Fonts ----------
+# Caches Indie Flower (Google Font) locally so the kiosk works
+# without internet. Failures are non-fatal — the @font-face rule
+# falls back to the Google CDN at runtime.
+echo "==> Caching kiosk fonts"
+bash "${PI_APP_DIR}/scripts/install-fonts.sh" || \
+  echo "WARN: font cache step failed; continuing"
+
 # ---------- 8b. Boot splash ----------
 # Hides the rainbow / kernel log / login prompt between firmware and
 # the cage compositor with a branded "Blu" plymouth theme. Self-

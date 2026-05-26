@@ -6,6 +6,22 @@
    icy-cyan and soft-violet flame accents. Swap the values below to
    match Blu's actual Twitch overlay colors when she's ready. */
 
+/* ---- Font: Indie Flower ----
+   Casual handwritten Google Font. Self-hosted at /fonts/indie-flower.woff2
+   so the kiosk doesn't depend on internet access to render text. (The
+   installer also writes a CSS fallback at the bottom of this file that
+   pulls from Google Fonts if the local copy is missing.) */
+@font-face {
+  font-family: "Indie Flower";
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url("/fonts/indie-flower.woff2") format("woff2"),
+       /* Fallback: Google Fonts CDN. Used when the local font hasn't
+          been downloaded yet (first-run, before install-fonts runs). */
+       url("https://fonts.gstatic.com/s/indieflower/v21/m8JVjfNVeKWVnh3QMuKkFcZlbkGG1dKEDw.woff2") format("woff2");
+}
+
 :root {
   --bg:        #07101f;  /* deep midnight */
   --bg-2:      #0c1a33;
@@ -42,7 +58,11 @@ html, body {
   height: 100%;
   background: var(--bg);
   color: var(--text);
-  font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  /* Indie Flower for the casual handwritten look across the kiosk.
+     System sans fallback so we never render in browser-default Times
+     even if the font fails to load. */
+  font-family: "Indie Flower", "Comic Sans MS", system-ui, -apple-system,
+               "Segoe UI", Roboto, sans-serif;
   overflow: hidden;
   user-select: none;
   -webkit-user-select: none;
@@ -811,11 +831,15 @@ body:not(.theme-pastel) .upload-zone-big {
   display: flex;
   align-items: baseline;
   gap: 6px;
-  font-family: 'DejaVu Sans', 'Segoe UI', system-ui, sans-serif;
-  font-weight: 800;
-  font-size: 160px;
-  letter-spacing: -0.03em;
+  /* Indie Flower for the brand mark to match the rest of the UI.
+     The font only ships at weight 400, so we add a tiny text-stroke
+     to give it presence at the splash's 160px scale. */
+  font-family: "Indie Flower", "Comic Sans MS", cursive;
+  font-weight: 400;
+  font-size: 180px;
+  letter-spacing: 0;
   color: #3d2e54;
+  -webkit-text-stroke: 1px #3d2e54;
   animation: boot-splash-pulse 2.8s ease-in-out infinite;
 }
 .boot-splash-dot {
