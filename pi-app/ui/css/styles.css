@@ -70,6 +70,14 @@ html, body {
   overscroll-behavior: none;
 }
 
+/* Form controls don't inherit the body font in any browser — Chromium
+   uses Arial for <input> and <textarea>, system-ui for <select>.
+   Force inheritance so the kiosk is uniformly Indie Flower. */
+input, textarea, select, optgroup, option {
+  font: inherit;
+  color: inherit;
+}
+
 button {
   font: inherit;
   color: inherit;
@@ -827,6 +835,10 @@ body:not(.theme-pastel) .upload-zone-big {
   pointer-events: none;
 }
 .boot-splash.hidden { opacity: 0; }
+/* Suppressed entirely on subsequent intra-session navigations.
+   The flag class is applied in <head> before the body is parsed,
+   so the splash never gets a chance to paint. */
+.splash-suppressed .boot-splash { display: none !important; }
 .boot-splash-wordmark {
   display: flex;
   align-items: baseline;
