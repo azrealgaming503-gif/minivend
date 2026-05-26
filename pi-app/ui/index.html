@@ -5,17 +5,11 @@
   <meta name="viewport" content="width=device-width, initial-scale=1, user-scalable=no" />
   <title>Blukitsune9 · MiniVend</title>
   <link rel="stylesheet" href="/css/styles.css" />
-  <script>
-    // Set BEFORE the body is parsed so the splash CSS rule that
-    // hangs off this class hides it from the very first paint.
-    // Only true on a fresh boot (sessionStorage is per-tab, so it
-    // re-arms on a Chromium restart i.e. a real reboot).
-    try {
-      if (sessionStorage.getItem('minivend.bootSplashShown') === '1') {
-        document.documentElement.classList.add('splash-suppressed');
-      }
-    } catch (_) { /* sessionStorage might be blocked */ }
-  </script>
+  <!-- Splash suppression is handled server-side now: server/index.js
+       injects class="splash-suppressed" onto <html> for every request
+       to / after the first. The very first request since the server
+       (re)started keeps the splash so the cold-boot handoff stays
+       seamless. See `serveIdleIndex` in pi-app/server/index.js. -->
 </head>
 <body class="idle-body">
   <!-- Boot splash overlay. Painted on the very first frame so it
@@ -86,10 +80,6 @@
     function dismissBootSplash() {
       if (kioskReadyFired) return;
       kioskReadyFired = true;
-      // Mark this session so subsequent navigations back to the idle
-      // page don't replay the splash. Cleared on actual reboot
-      // (sessionStorage is per-tab and Chromium starts fresh).
-      try { sessionStorage.setItem('minivend.bootSplashShown', '1'); } catch (_) {}
       // If the splash was already removed pre-load (intra-session
       // nav), nothing to fade — skip the rAF dance.
       if (!bootSplash || !bootSplash.parentNode) {

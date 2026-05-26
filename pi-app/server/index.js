@@ -105,6 +105,36 @@ const se = new StreamElementsClient({
 
 // ---------- Static UI ----------
 const uiDir = path.resolve(__dirname, '..', 'ui');
+
+// Boot splash: the first time anyone requests the idle page since the
+// server (re)started, we leave the in-page boot-splash element alone
+// so it covers the chromium → cat-video gap. Every subsequent request
+// gets an injected `splash-suppressed` class on <html> so the splash
+// is hidden from the very first paint. That's how menu → idle nav,
+// settings → idle nav, etc. avoid replaying the splash without
+// relying on client-side sessionStorage (which has been flaky in
+// Chromium's --app kiosk mode).
+//
+// The flag is in-memory so it naturally resets on a real reboot,
+// which is exactly when we WANT the splash to play again.
+let bootSplashDelivered = false;
+const indexHtmlPath = path.join(uiDir, 'index.html');
+function serveIdleIndex(_req, res, next) {
+  fs.readFile(indexHtmlPath, 'utf8', (err, html) => {
+    if (err) return next(err);
+    if (bootSplashDelivered) {
+      // Inject the suppression class onto <html>. We do a literal
+      // string replace because the markup is under our control.
+      html = html.replace('<html lang="en">', '<html lang="en" class="splash-suppressed">');
+    }
+    bootSplashDelivered = true;
+    res.set('Cache-Control', 'no-store');
+    res.type('html').send(html);
+  });
+}
+app.get('/',           serveIdleIndex);
+app.get('/index.html', serveIdleIndex);
+
 app.use('/', express.static(uiDir, { extensions: ['html'] }));
 app.use('/games', express.static(config.gamesDir));
 

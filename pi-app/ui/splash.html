@@ -1,0 +1,100 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, user-scalable=no" />
+  <title>Blu</title>
+  <!--
+    Boot bridge page. Chromium loads this FIRST (instead of /) on
+    kiosk startup so that the moment the chromium window paints we
+    already have the lavender "Blu" wordmark on screen — visually
+    indistinguishable from the plymouth splash that was just there.
+
+    Without this page, chromium opens directly to / (the idle page),
+    which is JS-heavy and takes 10–15 seconds to first-paint on a Pi 5
+    cold boot. During that time cage has already overwritten the
+    plymouth framebuffer with its own black clear-color, giving the
+    user 10–15 seconds of black screen between the boot splash and
+    the cat animation.
+
+    This file has zero external dependencies — no JS modules, no
+    network fetches before paint, no font downloads required to
+    render. Paints in well under a second after chromium starts.
+
+    After paint:
+      1) POST /api/kiosk-ready so the server tears down plymouth
+         (plymouth-quit is masked at the systemd level — only this
+         endpoint can shut it down).
+      2) Wait for two animation frames (guarantees the lavender pixels
+         are on the GPU and presented), then navigate to / where the
+         in-page boot-splash element takes over until the cat video
+         actually plays its first frame.
+  -->
+  <style>
+    html, body {
+      margin: 0;
+      padding: 0;
+      height: 100%;
+      width: 100%;
+      overflow: hidden;
+      background: linear-gradient(180deg, #f7eefc 0%, #e8d6f0 100%);
+      color: #3d2e54;
+      /* Inline font stack so we don't have to wait for a network
+         font download. Indie Flower if it's already cached, else
+         the system handwriting fallbacks. The Blu wordmark looks
+         intentional with either. */
+      font-family: "Indie Flower", "Comic Sans MS", cursive;
+      -webkit-user-select: none;
+      user-select: none;
+    }
+    .splash {
+      position: fixed;
+      inset: 0;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+    .wm {
+      display: flex;
+      align-items: baseline;
+      gap: 6px;
+      font-size: 180px;
+      font-weight: 400;
+      -webkit-text-stroke: 1px #3d2e54;
+      animation: pulse 2.8s ease-in-out infinite;
+    }
+    .dot {
+      display: inline-block;
+      width: 18px;
+      height: 18px;
+      border-radius: 50%;
+      background: #ff8fb6;
+      transform: translateY(-6px);
+    }
+    @keyframes pulse {
+      0%, 100% { opacity: 1; }
+      50%      { opacity: 0.78; }
+    }
+  </style>
+</head>
+<body>
+  <div class="splash">
+    <div class="wm"><span>Blu</span><span class="dot"></span></div>
+  </div>
+  <script>
+    // Tell the server to tear down the plymouth boot splash now that
+    // chromium has actually painted. Fire-and-forget — if it fails
+    // the 45s safety timer in install-splash.sh will still quit
+    // plymouth.
+    fetch('/api/kiosk-ready', { method: 'POST' }).catch(() => {});
+
+    // Two animation frames ensure the lavender background is composited
+    // and on screen before we tear this page down. A short hold after
+    // that lets the user perceive the splash as a steady image instead
+    // of a flash.
+    requestAnimationFrame(() => requestAnimationFrame(() => {
+      setTimeout(() => location.replace('/'), 700);
+    }));
+  </script>
+</body>
+</html>

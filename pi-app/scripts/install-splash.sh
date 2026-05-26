@@ -41,11 +41,19 @@ CMDLINE_TXT="${FW_DIR}/cmdline.txt"
 CONFIG_TXT="${FW_DIR}/config.txt"
 
 # ---------- 1. Packages ----------
-# Plymouth itself, the script-plugin module, and ImageMagick (used
+# Plymouth itself, the script-plugin module, ImageMagick (used
 # to generate the wordmark PNG so we don't have to ship binary art
-# in the git repo).
-echo "==> Installing plymouth + imagemagick"
+# in the git repo), and initramfs-tools so plymouth can start from
+# the initrd — that's the critical bit that lets the splash cover
+# the *whole* boot instead of only the last few seconds.
+#
+# Without an initramfs, plymouth-start.service can't run until the
+# rootfs is mounted AND systemd reaches basic.target, which on a
+# Pi 5 is about 6–10 seconds in. With an initramfs, plymouth is the
+# first userspace program drawn after kernel init, ~1 second in.
+echo "==> Installing plymouth + initramfs-tools + imagemagick"
 apt install -y plymouth plymouth-themes plymouth-label \
+               initramfs-tools \
                imagemagick fonts-dejavu-core
 
 # ---------- 2. Theme files ----------
@@ -74,12 +82,21 @@ rotate_value="$( \
     /etc/systemd/system/minivend-kiosk.service.d/override.conf 2>/dev/null \
     | tail -n1)"
 rotate_value="${rotate_value:-normal}"
+# IMPORTANT: ImageMagick's `-rotate N` rotates the image CLOCKWISE by N
+# degrees, but wlr-randr's `--transform N` rotates the OUTPUT
+# COUNTER-CLOCKWISE by N degrees (wlroots convention). To make
+# plymouth's pre-rotated logo end up in the same orientation as the
+# rotated cage output, we have to rotate the IMAGE by 360 - N
+# (i.e. apply the *inverse* rotation).
+#
+# Earlier versions rotated by the same number, which made the splash
+# appear 180° off when KIOSK_ROTATE was 90 or 270.
 case "${rotate_value}" in
-  90)        rot_arg="-rotate 90" ;;
-  180)       rot_arg="-rotate 180" ;;
-  270)       rot_arg="-rotate 270" ;;
+  90)          rot_arg="-rotate 270" ;;
+  180)         rot_arg="-rotate 180" ;;
+  270)         rot_arg="-rotate 90"  ;;
   flipped-180) rot_arg="-rotate 180 -flop" ;;
-  normal|*)  rot_arg="" ;;
+  normal|*)    rot_arg="" ;;
 esac
 echo "    using KIOSK_ROTATE=${rotate_value} -> ImageMagick args: '${rot_arg}'"
 
@@ -95,13 +112,33 @@ convert -size 600x220 xc:none \
   "${THEME_DST}/logo.png"
 chmod 0644 "${THEME_DST}/logo.png"
 
-# ---------- 4. Make it the default theme ----------
-# -R rebuilds the initramfs so the splash is available during very
-# early boot (where the theme would otherwise be invisible because
-# /usr isn't mounted yet). On Pi OS Lite there isn't always an
-# initramfs to rebuild — the command is harmless in that case.
+# ---------- 4. Make it the default theme + build initramfs ----------
+# `plymouth-set-default-theme -R` rebuilds the initramfs with the
+# new theme bundled in. We then explicitly run update-initramfs -c
+# (create) to ensure an initrd actually exists — on a stock Pi OS
+# Lite install there isn't one until you ask for it. With both:
+#   - The Blu theme is inside the initrd
+#   - Plymouth can start from the initrd (very early in boot)
 echo "==> Setting Blu as the default plymouth theme"
 plymouth-set-default-theme -R blu || plymouth-set-default-theme blu
+
+echo "==> Building initramfs (so plymouth starts at the top of boot)"
+# `-c` creates the initrd if missing, `-u` updates an existing one.
+# The first run on a fresh Pi OS Lite needs -c; later runs need -u.
+update-initramfs -c -k all 2>/dev/null || update-initramfs -u -k all
+
+# update-initramfs writes to /boot/initrd.img-<ver>. The Pi
+# firmware reads from /boot/firmware/ on Bookworm+. The
+# raspi-firmware package's kernel post-install hooks usually sync
+# them, but `update-initramfs` alone doesn't trigger those hooks.
+# Mirror manually so `auto_initramfs=1` in config.txt actually
+# finds an initrd next to the kernel.
+if [ "${FW_DIR}" = "/boot/firmware" ]; then
+  for initrd in /boot/initrd.img-*; do
+    [ -f "${initrd}" ] || continue
+    cp -f "${initrd}" "${FW_DIR}/$(basename "${initrd}")"
+  done
+fi
 
 # ---------- 5. Suppress everything before plymouth ----------
 echo "==> Patching ${CMDLINE_TXT}"
@@ -137,6 +174,12 @@ if [ -f "${CONFIG_TXT}" ]; then
 # Suppress the firmware rainbow square between power-on and kernel
 # handoff. Plymouth ("Blu" theme) takes over from there.
 disable_splash=1
+# Auto-load the initramfs the kernel was packaged with. This is what
+# lets plymouth start from the initrd (very early in boot), so the
+# splash covers the entire kernel/userspace bring-up instead of only
+# the last few seconds. Without this, plymouth has to wait for
+# basic.target which is 6–10s into boot on a Pi 5.
+auto_initramfs=1
 # <<< minivend-splash <<<
 EOF
 else
@@ -144,25 +187,27 @@ else
 fi
 
 # ---------- 6. Keep the splash visible until the kiosk paints ----------
-# Plymouth normally quits as soon as the display-manager starts.
-# We don't run a DM — cage owns the VT directly — and cage typically
-# launches several seconds before Chromium has actually painted the
-# idle page. If we let plymouth quit on its default schedule we get
-# a multi-second black screen between the splash and the kiosk.
+# Plymouth ships two services that tear down the splash on systemd's
+# default schedule:
+#   - plymouth-quit.service       runs `plymouth quit` after
+#                                 systemd-user-sessions
+#   - plymouth-quit-wait.service  blocks boot transitions until
+#                                 plymouth exits
 #
-# Instead, we keep plymouth running for the whole boot+chromium
-# load and let the idle page itself tear it down via the server's
-# /api/kiosk-ready endpoint. That endpoint runs:
-#     sudo plymouth quit --retain-splash
-# the moment the first cat-video frame is actually composited, so
-# the splash and the kiosk overlap by a single frame and the user
-# never sees a gap.
+# Both fire WAY before cage + chromium have finished loading the
+# kiosk page. On a Pi 5 cold boot the gap is ~3–8 seconds of black
+# screen between plymouth quitting and the kiosk painting.
 #
-# As a safety net, we still order plymouth-start before the kiosk,
-# so the splash is reliably on-screen when cage takes over the VT.
+# We mask both so they cannot run, and we drive the quit ourselves
+# from the kiosk page: the moment the idle animation's first frame
+# is composited, the page POSTs /api/kiosk-ready, the server runs
+# `plymouth quit --retain-splash`, and the splash image holds in
+# the framebuffer until chromium overwrites it. Result: a single-
+# frame handoff with no visible gap.
+echo "==> Enabling plymouth-start, masking the auto-quit services"
 systemctl enable plymouth-start.service       >/dev/null 2>&1 || true
-systemctl enable plymouth-quit.service        >/dev/null 2>&1 || true
-systemctl enable plymouth-quit-wait.service   >/dev/null 2>&1 || true
+systemctl mask   plymouth-quit.service        >/dev/null 2>&1 || true
+systemctl mask   plymouth-quit-wait.service   >/dev/null 2>&1 || true
 
 KIOSK_DROPIN_DIR=/etc/systemd/system/minivend-kiosk.service.d
 install -d -m 0755 "${KIOSK_DROPIN_DIR}"
@@ -234,6 +279,7 @@ To remove the splash and restore the original boot output:
    sudo cp ${CMDLINE_TXT}.minivend-backup ${CMDLINE_TXT}
    sudo cp ${CONFIG_TXT}.minivend-backup ${CONFIG_TXT}
    sudo rm -f ${KIOSK_DROPIN_DIR}/plymouth.conf
+   sudo systemctl unmask plymouth-quit.service plymouth-quit-wait.service
 
 Backups of edited boot files (first run only):
    ${CMDLINE_TXT}.minivend-backup
