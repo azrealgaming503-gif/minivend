@@ -4,6 +4,7 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1, user-scalable=no" />
   <title>Blu</title>
+  <link rel="preload" href="/fonts/indie-flower.woff2" as="font" type="font/woff2" crossorigin />
   <!--
     Boot bridge page. Chromium loads this FIRST (instead of /) on
     kiosk startup so that the moment the chromium window paints we
@@ -43,7 +44,7 @@
          font download. Indie Flower if it's already cached, else
          the system handwriting fallbacks. The Blu wordmark looks
          intentional with either. */
-      font-family: "Indie Flower", "Comic Sans MS", cursive;
+      font-family: "Indie Flower", cursive;
       -webkit-user-select: none;
       user-select: none;
     }

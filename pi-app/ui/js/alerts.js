@@ -26,6 +26,25 @@ import { onMessage } from './ws-client.js';
 // here so individual pages don't need to remember a second import.
 import './brightness.js';
 
+// Preload Indie Flower on every settings/menu/game page (all import
+// alerts.js). Without this, Chromium may paint one frame in the UA
+// default before @font-face finishes loading on a cold boot.
+(function preloadIndieFlower() {
+  const href = '/fonts/indie-flower.woff2';
+  if (!document.querySelector(`link[rel="preload"][href="${href}"]`)) {
+    const link = document.createElement('link');
+    link.rel = 'preload';
+    link.href = href;
+    link.as = 'font';
+    link.type = 'font/woff2';
+    link.crossOrigin = 'anonymous';
+    document.head.appendChild(link);
+  }
+  if (document.fonts) {
+    document.fonts.load('400 16px "Indie Flower"').catch(() => {});
+  }
+})();
+
 // Path is relative to the UI static root (/), so this just works on
 // both the Pi and a desktop dev server. Swap by dropping a different
 // image at pi-app/ui/img/blu-happy.png (or update this URL).

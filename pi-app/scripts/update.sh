@@ -60,6 +60,16 @@ echo "${PREV}" > "${LAST_GOOD}"
 
 git reset --hard "${NEXT}"
 
+# Indie Flower ships in git at ui/fonts/, but older installs may be
+# missing the file (install-fonts never ran). Ensure it exists so the
+# kiosk doesn't fall back to system-ui for every label and button.
+FONT_FILE="${REPO_DIR}/ui/fonts/indie-flower.woff2"
+if [ ! -s "${FONT_FILE}" ]; then
+  echo "Font file missing; running install-fonts.sh..."
+  bash "${REPO_DIR}/scripts/install-fonts.sh" || \
+    echo "WARN: install-fonts failed; CDN fallback in styles.css"
+fi
+
 # Run npm install in the background-safe way (npm forks ssh-agent etc.,
 # which doesn't matter here, but isolate the env).
 echo "Installing dependencies..."
