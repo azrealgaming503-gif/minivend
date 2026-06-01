@@ -19,6 +19,7 @@ const { WebSocketServer } = require('ws');
 const config = require('./config');
 const { MotorBridge } = require('./motor');
 const { AssetStore, mount: mountAssets, mountGames } = require('./assets');
+const { mount: mountUsb } = require('./usb');
 const { mount: mountDonations } = require('./donations');
 const { mount: mountWifi } = require('./wifi');
 const { mount: mountUpdater } = require('./updater');
@@ -105,6 +106,14 @@ const se = new StreamElementsClient({
 
 // ---------- Static UI ----------
 const uiDir = path.resolve(__dirname, '..', 'ui');
+const uiImgDir = path.join(uiDir, 'img');
+
+function resolveStickerUrl() {
+  for (const name of ['blu-happy.gif', 'blu-happy.png', 'blu-happy.webp', 'blu-happy.jpg']) {
+    if (fs.existsSync(path.join(uiImgDir, name))) return `/img/${name}`;
+  }
+  return '/img/blu-happy.png';
+}
 
 // Boot splash: the first time anyone requests the idle page since the
 // server (re)started, we leave the in-page boot-splash element alone
@@ -150,6 +159,7 @@ app.get('/api/state', (_req, res) => {
     activeAlertUrl: activeAlert ? `/assets/alerts/${encodeURIComponent(activeAlert)}` : null,
     dispense: config.dispense,
     settings: settings.getAll(),
+    stickerUrl: resolveStickerUrl(),
   });
 });
 
@@ -483,6 +493,7 @@ app.get('/api/integrations/streamelements/qr', async (req, res) => {
 
 // ---------- Asset endpoints ----------
 mountAssets(app, { store, broadcast });
+mountUsb(app, { store, broadcast, uiImgDir });
 mountGames(app, { gamesDir: config.gamesDir });
 
 // ---------- Wi-Fi + Updater + Settings + History endpoints ----------

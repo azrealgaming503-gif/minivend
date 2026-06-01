@@ -32,6 +32,16 @@
       </section>
 
       <section class="section">
+        <h2>Import from USB</h2>
+        <p class="meta" style="color: var(--text-2); font-size: 13px; margin: 0 0 12px;">
+          Plug in a USB drive with your animation (mp4, gif, png, etc.) or a
+          folder that contains <code>manifest.json</code> for a cat-cycle pack.
+        </p>
+        <button type="button" id="usb-idle-btn" class="primary">Browse USB drive</button>
+        <p id="usb-idle-status" class="meta" style="color: var(--text-2); font-size: 13px; margin-top: 8px; min-height: 1.2em;"></p>
+      </section>
+
+      <section class="section">
         <h2>Upload new</h2>
         <p class="meta" style="color: var(--text-2); font-size: 13px; margin: 0 0 12px;">
           Drag and drop a file from your computer onto the area below,
@@ -69,6 +79,7 @@
   <script type="module">
     import { onMessage } from '/js/ws-client.js';
     import '/js/alerts.js';
+    import { openUsbBrowser } from '/js/usb-browser.js';
 
     // Names treated as "preinstalled" / "default" — we won't allow
     // deletion through the UI and we display them in a separate
@@ -119,8 +130,9 @@
       }
       if (!j.ok) return;
 
-      const pre    = j.files.filter((f) => PREINSTALLED.has(f.name));
-      const custom = j.files.filter((f) => !PREINSTALLED.has(f.name));
+      const all    = j.entries || j.files || [];
+      const pre    = all.filter((f) => PREINSTALLED.has(f.name));
+      const custom = all.filter((f) => !PREINSTALLED.has(f.name));
 
       renderList(preList, pre, j.active, true);
       preEmpty.hidden = pre.length > 0;
@@ -133,7 +145,7 @@
 
       // Populate active-animation dropdown.
       activeSelect.innerHTML = '';
-      if (j.files.length === 0) {
+      if (all.length === 0) {
         activeSelect.innerHTML = '<option value="">(no animations yet — upload one)</option>';
         activeSelect.disabled = true;
       } else {
@@ -232,6 +244,18 @@
       if (uploadInput.files && uploadInput.files[0]) upload(uploadInput.files[0]);
     });
     onMessage('idle_changed', refresh);
+
+    document.getElementById('usb-idle-btn').addEventListener('click', () => {
+      const st = document.getElementById('usb-idle-status');
+      openUsbBrowser({
+        target: 'idle',
+        title: 'Import idle animation from USB',
+        onImported: (j) => {
+          st.textContent = `Imported ${j.imported.name} and set as active.`;
+          refresh();
+        },
+      });
+    });
 
     // Auto-return to idle.
     let kioskIdleTimeoutMs = 30_000;

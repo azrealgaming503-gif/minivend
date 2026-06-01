@@ -37,6 +37,16 @@
       </section>
 
       <section class="section">
+        <h2>Donation sticker</h2>
+        <p class="meta" style="color: var(--text-2); font-size: 13px; margin: 0 0 12px;">
+          Image or GIF shown on the donation alert overlay (center of screen).
+          Supports png, jpg, gif, webp from USB.
+        </p>
+        <button type="button" id="usb-sticker-btn" class="primary">Import sticker from USB</button>
+        <p id="usb-sticker-status" class="meta" style="color: var(--text-2); font-size: 13px; margin-top: 8px; min-height: 1.2em;"></p>
+      </section>
+
+      <section class="section">
         <h2>Donation alerts</h2>
         <label class="toggle-row" for="alerts-all-input">
           <div class="toggle-text">
@@ -84,7 +94,19 @@
     import { onMessage } from '/js/ws-client.js';
     import '/js/alerts.js';
     import { attachNumpad } from '/js/numpad.js';
+    import { openUsbBrowser } from '/js/usb-browser.js';
     attachNumpad();
+
+    document.getElementById('usb-sticker-btn').addEventListener('click', () => {
+      const st = document.getElementById('usb-sticker-status');
+      openUsbBrowser({
+        target: 'sticker',
+        title: 'Import donation sticker from USB',
+        onImported: (j) => {
+          st.textContent = `Sticker updated: ${j.imported.name}`;
+        },
+      });
+    });
 
     const idleTimeoutInput  = document.getElementById('idle-timeout-input');
     const idleTimeoutSave   = document.getElementById('idle-timeout-save');

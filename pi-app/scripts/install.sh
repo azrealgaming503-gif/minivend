@@ -166,7 +166,8 @@ echo "==> Creating ${SERVICE_USER} user (if missing)"
 if ! id "$SERVICE_USER" >/dev/null 2>&1; then
   useradd -r -m -d /home/${SERVICE_USER} -s /bin/bash "$SERVICE_USER"
 fi
-usermod -aG dialout,video,input,render "$SERVICE_USER"
+# plugdev: read automounted USB sticks under /media/<user>/…
+usermod -aG dialout,video,input,render,plugdev "$SERVICE_USER"
 
 # ---------- 5. Clone / update repo ----------
 mkdir -p "${INSTALL_ROOT}"

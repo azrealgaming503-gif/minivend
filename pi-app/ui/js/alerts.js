@@ -45,10 +45,9 @@ import './brightness.js';
   }
 })();
 
-// Path is relative to the UI static root (/), so this just works on
-// both the Pi and a desktop dev server. Swap by dropping a different
-// image at pi-app/ui/img/blu-happy.png (or update this URL).
-const STICKER_URL        = '/img/blu-happy.png';
+// Served from /api/state `stickerUrl` (default blu-happy.png). USB
+// import on Settings can replace blu-happy.png / blu-happy.gif.
+let stickerUrl = '/img/blu-happy.png';
 const HOLD_AFTER_DONE_MS = 4500;     // how long to keep overlay up after motor done
 const HOLD_IF_NO_MOTOR   = 5000;     // alerts with no dispense (all-amounts mode)
 const HOLD_IF_STUCK_MS   = 20000;    // absolute cap (cooldown queue safety)
@@ -69,6 +68,13 @@ function fmtAmount(amount, currency) {
 // more — every alert uses the same sticker.
 const env = { chamberLabels: { 1: 'Left', 2: 'Right' } };
 
+function applyStickerUrl(url) {
+  if (!url) return;
+  stickerUrl = url;
+  const img = overlay && overlay.querySelector('[data-sticker]');
+  if (img) img.src = stickerUrl;
+}
+
 function refreshEnv() {
   return fetch('/api/state')
     .then((r) => r.json())
@@ -77,6 +83,7 @@ function refreshEnv() {
       if (j.settings && j.settings.chamberLabels) {
         env.chamberLabels = j.settings.chamberLabels;
       }
+      if (j.stickerUrl) applyStickerUrl(j.stickerUrl);
     })
     .catch(() => {});
 }
@@ -102,7 +109,7 @@ function buildOverlay() {
   `;
   // Preload the sticker so the first real alert doesn't show a
   // broken image while the GIF is still being fetched/cached.
-  el.querySelector('[data-sticker]').src = STICKER_URL;
+  el.querySelector('[data-sticker]').src = stickerUrl;
   document.body.appendChild(el);
   return el;
 }
@@ -214,5 +221,8 @@ onMessage('donation_skipped', (m) => {
 });
 
 onMessage('settings_changed', refreshEnv);
+onMessage('sticker_changed', (m) => {
+  if (m.url) applyStickerUrl(m.url);
+});
 
 refreshEnv();
