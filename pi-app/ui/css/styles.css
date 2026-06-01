@@ -7,19 +7,22 @@
    match Blu's actual Twitch overlay colors when she's ready. */
 
 /* ---- Font: Indie Flower ----
-   Casual handwritten Google Font. Self-hosted at /fonts/indie-flower.woff2
-   so the kiosk doesn't depend on internet access to render text. (The
-   installer also writes a CSS fallback at the bottom of this file that
-   pulls from Google Fonts if the local copy is missing.) */
+   Casual handwritten Google Font (SIL OFL licensed). Bundled directly
+   in the repo at /fonts/indie-flower.woff2 so the kiosk never needs
+   internet access to render text — the font is shipped alongside the
+   app. The Google Fonts CDN URL below is a redundant fallback for
+   development PCs where the bundled file might be missing.
+
+   Latin subset only (~20 KB). Indie Flower's latin-ext file is the
+   same path with a different hash — we don't need it for the kiosk. */
 @font-face {
   font-family: "Indie Flower";
   font-style: normal;
   font-weight: 400;
-  font-display: swap;
+  font-display: swap; /* show fallback for the millisecond before
+                         the locally-bundled woff2 has loaded */
   src: url("/fonts/indie-flower.woff2") format("woff2"),
-       /* Fallback: Google Fonts CDN. Used when the local font hasn't
-          been downloaded yet (first-run, before install-fonts runs). */
-       url("https://fonts.gstatic.com/s/indieflower/v21/m8JVjfNVeKWVnh3QMuKkFcZlbkGG1dKEDw.woff2") format("woff2");
+       url("https://fonts.gstatic.com/s/indieflower/v24/m8JVjfNVeKWVnh3QMuKkFcZVaUuH.woff2") format("woff2");
 }
 
 :root {
@@ -76,6 +79,17 @@ html, body {
 input, textarea, select, optgroup, option {
   font: inherit;
   color: inherit;
+}
+
+/* Belt-and-braces: force Indie Flower on every element on the page,
+   including inline `font-family: monospace` overrides that exist in
+   the codebase (e.g. the JWT input on the network page). The kiosk
+   user-experience requires a single, consistent display font; if a
+   given block needs to be visually different, use a class-based
+   override that still keeps "Indie Flower" first in the stack. */
+*, *::before, *::after {
+  font-family: "Indie Flower", "Comic Sans MS", system-ui, -apple-system,
+               "Segoe UI", Roboto, sans-serif !important;
 }
 
 button {
