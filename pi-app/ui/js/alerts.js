@@ -133,10 +133,10 @@ function setFields(evt) {
   overlay.querySelector('[data-name]').textContent   = evt.name || 'Anonymous';
   // The CSS bounce animation provides the motion — the sticker
   // itself is a static PNG so we don't bother re-setting `src` on
-  // every show. If you swap STICKER_URL to an animated GIF, append
+  // every show. If you swap the sticker to an animated GIF, append
   // `?t=` + Date.now() here so back-to-back tips restart the loop.
   const sticker = overlay.querySelector('[data-sticker]');
-  if (!sticker.src.endsWith(STICKER_URL)) sticker.src = STICKER_URL;
+  if (sticker && !sticker.src.endsWith(stickerUrl)) sticker.src = stickerUrl;
 }
 
 function showOverlay() {
