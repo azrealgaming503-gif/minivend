@@ -393,6 +393,22 @@ function dispatchDonation(evt) {
     });
     return;
   }
+  // Live-only gate: if enabled and the stream is *known* offline, log
+  // the tip but don't fire a drop. Unknown live status (no feed / token
+  // lacks the scope) is allowed through so the feature can't silently
+  // block every dispense.
+  if (settings.getAll().dispenseOnlyWhenLive && se.status().live === false) {
+    console.log(`[donation]   ↳ suppressed (stream offline, dispenseOnlyWhenLive=true)`);
+    const entry = history.add({ ...evt, motor: resolvedMotor, status: 'skipped_offline',
+                                detail: 'stream offline — dispense suppressed' });
+    broadcast({
+      type: 'donation', id: entry.id, motor: null,
+      source: evt.source, name: evt.name, amount: evt.amount,
+      currency: evt.currency, message: evt.message, suppressed: 'offline',
+    });
+    return;
+  }
+
   const labels = settings.getAll().chamberLabels;
   const entry = history.add({ ...evt, motor: resolvedMotor, status: 'queued' });
   broadcast({
@@ -425,6 +441,8 @@ function syncSeState() {
       connectedAt: s.connected ? (settings.getAll().streamelements.connectedAt || Date.now()) : null,
       lastError:   s.lastError,
       lastEventAt: s.lastEventAt,
+      live:          s.live,
+      liveSupported: s.liveSupported,
     },
   });
   broadcast({ type: 'streamelements_state', state: s });

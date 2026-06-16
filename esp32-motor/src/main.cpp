@@ -6,7 +6,7 @@
 //
 // Protocol (Pi -> ESP32):
 //   PING                              -> "PONG <fw>"
-//   STATUS                            -> "STATUS M1_EN=.. M1_SPD=.. M2_EN=.. M2_SPD=.."
+//   STATUS                            -> "STATUS M1_EN=.. M1_SPD=.. M2_EN=.. M2_SPD=.. DRV=<0|1>"
 //   SENSOR                            -> "SENSOR S1=<0|1> S2=<0|1>"
 //   ENABLE   <id> <0|1>               -> "OK" / "ERR ..."
 //   JOG      <id> <dir> <speed>       -> "OK"
@@ -36,6 +36,11 @@
 //     as a hard stop for the currently-active DISPENSE on that motor.
 //     A drop while no DISPENSE is active is still reported as an event
 //     line ("EVT SENSOR <id> <0|1>") so the UI can show "manual drop".
+//   - The shared driver EN line is managed automatically: it is enabled
+//     while either motor is actively stepping and released IDLE_RELEASE_MS
+//     after the last motion, to reduce heat build-up (no holding torque
+//     between drops). ENABLE <id> 1 also powers the drivers immediately
+//     so there is settle time before the following DISPENSE/JOG/RUNFOR.
 
 #include <Arduino.h>
 
@@ -52,6 +57,15 @@ static const int M2_DIR_PIN  = 33;
 // Tie both drivers' EN pins together to this pin.
 static const int EN_PIN = 27;
 static const bool EN_ACTIVE_LOW = true;
+
+// Auto-release the drivers this many ms after the last motor motion.
+// Steppers draw their full rated current (and get hot) whenever the
+// driver is enabled, even when standing still holding torque. A vend
+// carousel doesn't need holding torque between drops, so we cut driver
+// power shortly after each move to keep the drivers and motors cool.
+// A short grace window avoids toggling EN between back-to-back moves.
+// Set to 0 to disable auto-release (drivers stay powered once enabled).
+static const uint32_t IDLE_RELEASE_MS = 750;
 
 // Drop sensors (INPUT_PULLUP, edge = item dropped). Active LOW assumes
 // a typical photointerrupter or microswitch wired to GND when triggered.
@@ -106,9 +120,22 @@ static Sensor sensors[2] = {
 static String lineBuf;
 
 // ---------------- Helpers ----------------
+// Tracks the physical EN-line state and the last time a motor stepped,
+// so we can release the drivers when idle (heat reduction).
+static bool g_driverPowered = false;
+static uint32_t g_lastActiveMs = 0;
+
 static void driverEnabled(bool en) {
   if (EN_ACTIVE_LOW) digitalWrite(EN_PIN, en ? LOW : HIGH);
   else               digitalWrite(EN_PIN, en ? HIGH : LOW);
+}
+
+// Set the shared driver power, remembering current state so we only
+// touch the pin on an actual transition.
+static void setDriverPower(bool on) {
+  if (on == g_driverPowered) return;
+  driverEnabled(on);
+  g_driverPowered = on;
 }
 
 static Motor* motorById(int id) {
@@ -145,6 +172,26 @@ static void stopMotor(Motor& m) {
 static void stopAll() {
   stopMotor(m1);
   stopMotor(m2);
+}
+
+// A motor counts as "active" (drawing current / generating motion) when
+// it has been enabled and has a non-zero step rate.
+static bool motorActive(const Motor& m) {
+  return m.enabledRequested && m.intervalUs != 0;
+}
+
+// Enable the shared driver line while anything is moving and release it
+// IDLE_RELEASE_MS after the last motion, to keep the drivers/motors cool.
+static void serviceDriverPower() {
+  if (motorActive(m1) || motorActive(m2)) {
+    g_lastActiveMs = millis();
+    setDriverPower(true);
+    return;
+  }
+  if (IDLE_RELEASE_MS == 0) return; // auto-release disabled
+  if (g_driverPowered && (uint32_t)(millis() - g_lastActiveMs) >= IDLE_RELEASE_MS) {
+    setDriverPower(false);
+  }
 }
 
 // Drive a single step pulse on the active motor's STEP pin if it's time.
@@ -256,7 +303,9 @@ static void handleCommand(const String& line) {
     Serial.print(" M2_EN=");
     Serial.print(m2.enabledRequested ? 1 : 0);
     Serial.print(" M2_SPD=");
-    Serial.println(m2.speedStepsPerS);
+    Serial.print(m2.speedStepsPerS);
+    Serial.print(" DRV=");
+    Serial.println(g_driverPowered ? 1 : 0);
     return;
   }
   if (cmd == "SENSOR") {
@@ -273,8 +322,13 @@ static void handleCommand(const String& line) {
     Motor* m = motorById((int)id);
     if (!m) { replyErr("BAD_MOTOR", "id must be 1 or 2"); return; }
     m->enabledRequested = (en != 0);
-    // Drivers share one EN pin: enable if either motor requests it.
-    driverEnabled(m1.enabledRequested || m2.enabledRequested);
+    // Drivers share one EN pin. Power them up now if either motor is
+    // enabled so there's settle time before the next move; the idle
+    // auto-release in serviceDriverPower() drops power once motion ends.
+    if (m1.enabledRequested || m2.enabledRequested) {
+      setDriverPower(true);
+      g_lastActiveMs = millis(); // hold through the grace window
+    }
     Serial.println("OK");
     return;
   }
@@ -397,6 +451,7 @@ void loop() {
   // Stepper service.
   serviceTimedStop(m1);
   serviceTimedStop(m2);
+  serviceDriverPower();   // power EN before stepping; release when idle
   serviceStepper(m1);
   serviceStepper(m2);
 

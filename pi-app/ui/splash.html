@@ -56,12 +56,16 @@
       justify-content: center;
     }
     .wm {
+      position: relative;
+      z-index: 2;
       display: flex;
       align-items: baseline;
       gap: 6px;
       font-size: 180px;
-      font-weight: 400;
-      -webkit-text-stroke: 1px #3d2e54;
+      /* Indie Flower only ships at weight 400, so bold is synthesized
+         and reinforced with a thicker text-stroke for real presence. */
+      font-weight: 700;
+      -webkit-text-stroke: 2px #3d2e54;
       animation: pulse 2.8s ease-in-out infinite;
     }
     .dot {
@@ -76,12 +80,73 @@
       0%, 100% { opacity: 1; }
       50%      { opacity: 0.78; }
     }
+
+    /* ===== Falling sakura petals =====
+       Pure CSS/transform animation (GPU-friendly, no JS deps to paint).
+       A handful of petals drift down and to the right as if a gentle
+       wind is blowing them across the screen. */
+    .sakura {
+      position: fixed;
+      inset: 0;
+      z-index: 1;
+      overflow: hidden;
+      pointer-events: none;
+    }
+    .sakura-petal {
+      position: absolute;
+      top: 0;
+      width: 16px;
+      height: 16px;
+      background: radial-gradient(circle at 30% 30%, #ffe1ec 0%, #ffb3cd 55%, #ff8fb6 100%);
+      border-radius: 100% 0 100% 0;
+      opacity: 0;
+      will-change: transform, opacity;
+      filter: drop-shadow(0 1px 1px rgba(180, 90, 130, 0.15));
+      animation-name: sakura-fall;
+      animation-timing-function: ease-in-out;
+      animation-iteration-count: infinite;
+    }
+    @keyframes sakura-fall {
+      0%   { transform: translate(0, -12vh) rotate(0deg);   opacity: 0; }
+      10%  { opacity: var(--petal-opacity, 0.85); }
+      50%  { transform: translate(calc(var(--drift) * 0.55 + 26px), 50vh) rotate(180deg); }
+      90%  { opacity: var(--petal-opacity, 0.85); }
+      100% { transform: translate(var(--drift), 112vh) rotate(360deg); opacity: 0; }
+    }
+    @media (prefers-reduced-motion: reduce) {
+      .sakura { display: none; }
+    }
   </style>
 </head>
 <body>
+  <div class="sakura" id="sakura"></div>
   <div class="splash">
     <div class="wm"><span>Blu</span><span class="dot"></span></div>
   </div>
+  <script>
+    // Spawn a few sakura petals with randomized fall paths so the
+    // "wind" looks natural. Negative animation-delays mean some petals
+    // are already mid-screen on the first paint (the splash is brief).
+    (function spawnSakura() {
+      const layer = document.getElementById('sakura');
+      if (!layer) return;
+      const N = 14;
+      for (let i = 0; i < N; i++) {
+        const p = document.createElement('span');
+        p.className = 'sakura-petal';
+        const dur   = 6 + Math.random() * 5;        // 6–11s fall
+        const size  = 10 + Math.random() * 12;      // 10–22px
+        p.style.left   = (Math.random() * 100) + 'vw';
+        p.style.width  = size + 'px';
+        p.style.height = size + 'px';
+        p.style.setProperty('--drift', (40 + Math.random() * 150) + 'px');
+        p.style.setProperty('--petal-opacity', (0.55 + Math.random() * 0.4).toFixed(2));
+        p.style.animationDuration = dur.toFixed(2) + 's';
+        p.style.animationDelay    = (-Math.random() * dur).toFixed(2) + 's';
+        layer.appendChild(p);
+      }
+    })();
+  </script>
   <script>
     // Tell the server to tear down the plymouth boot splash now that
     // chromium has actually painted. Fire-and-forget — if it fails

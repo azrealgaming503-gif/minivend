@@ -23,10 +23,35 @@
        above. Only the very first page load in a session (i.e. an
        actual cold boot or full Chromium restart) sees the splash. -->
   <div id="boot-splash" class="boot-splash">
+    <div class="boot-splash-sakura" id="boot-splash-sakura"></div>
     <div class="boot-splash-wordmark">
       <span>Blu</span><span class="boot-splash-dot"></span>
     </div>
   </div>
+  <script>
+    // Sakura petals for the boot splash. Spawned synchronously so they
+    // paint with the wordmark. Skipped when the splash is suppressed on
+    // intra-session navigations (the container is display:none then).
+    (function spawnBootSakura() {
+      const layer = document.getElementById('boot-splash-sakura');
+      if (!layer) return;
+      const N = 16;
+      for (let i = 0; i < N; i++) {
+        const p = document.createElement('span');
+        p.className = 'boot-splash-petal';
+        const dur  = 6 + Math.random() * 5;     // 6–11s fall
+        const size = 10 + Math.random() * 12;    // 10–22px
+        p.style.left   = (Math.random() * 100) + 'vw';
+        p.style.width  = size + 'px';
+        p.style.height = size + 'px';
+        p.style.setProperty('--drift', (40 + Math.random() * 150) + 'px');
+        p.style.setProperty('--petal-opacity', (0.55 + Math.random() * 0.4).toFixed(2));
+        p.style.animationDuration = dur.toFixed(2) + 's';
+        p.style.animationDelay    = (-Math.random() * dur).toFixed(2) + 's';
+        layer.appendChild(p);
+      }
+    })();
+  </script>
 
   <!-- Idle screen: only the looping cat animation. Donation alerts still
        overlay on top (alerts.js). Swipe UP anywhere on the screen to open

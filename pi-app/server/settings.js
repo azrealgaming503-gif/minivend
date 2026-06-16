@@ -111,6 +111,16 @@ const DEFAULTS = Object.freeze({
   //                    when you want every supporter on-screen.
   alertsAllAmounts: false,
 
+  // When true, donations only trigger a physical dispense while the
+  // connected StreamElements channel is live. Tips received while the
+  // stream is offline are still logged to history (status
+  // 'skipped_offline') but no drop fires. Live status comes from the
+  // StreamElements channel.stream.status feed; if that feed isn't
+  // available (token lacks the stream-live:read scope, or status hasn't
+  // been reported yet) the dispense is allowed through so the feature
+  // never silently blocks every drop. Default off.
+  dispenseOnlyWhenLive: false,
+
   // Screen brightness, 10–100. Implemented two ways at once:
   //   1. CSS filter on the UI (always works, even on dumb HDMI panels).
   //   2. Hardware backlight via /sys/class/backlight/*/brightness
@@ -132,6 +142,8 @@ const DEFAULTS = Object.freeze({
     connectedAt: null,
     lastError: null,
     lastEventAt: null,
+    live: null,          // true/false when known, null = unknown
+    liveSupported: null, // true if the live-status feed is available
   },
 });
 
@@ -189,6 +201,7 @@ class SettingsStore {
     out.brightness = br;
 
     out.alertsAllAmounts = !!out.alertsAllAmounts;
+    out.dispenseOnlyWhenLive = !!out.dispenseOnlyWhenLive;
 
     if (!Array.isArray(out.dispenseTiers)) {
       out.dispenseTiers = DEFAULTS.dispenseTiers.map((t) => ({ ...t }));
@@ -231,6 +244,8 @@ class SettingsStore {
       connectedAt: Number.isFinite(se.connectedAt) ? se.connectedAt : null,
       lastError:   se.lastError ? String(se.lastError).slice(0, 240) : null,
       lastEventAt: Number.isFinite(se.lastEventAt) ? se.lastEventAt : null,
+      live:          (se.live === true || se.live === false) ? se.live : null,
+      liveSupported: (se.liveSupported === true || se.liveSupported === false) ? se.liveSupported : null,
     };
 
     return out;

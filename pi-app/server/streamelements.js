@@ -49,7 +49,12 @@ const ME_URL        = 'https://api.streamelements.com/kappa/v2/channels/me';
 const ASTRO_URL     = 'wss://astro.streamelements.com';
 
 const ASTRO_TOPIC   = 'channel.activities';
-const SCOPES        = ['tips:read', 'activities:read', 'channel:read'];
+// Stream online/offline status topic. Requires the `stream-live:read`
+// scope; existing tokens authorized before this scope was added will be
+// rejected when subscribing (handled gracefully — live detection just
+// stays unavailable until the streamer reconnects their account).
+const STATUS_TOPIC  = 'channel.stream.status';
+const SCOPES        = ['tips:read', 'activities:read', 'channel:read', 'stream-live:read'];
 
 const RECONNECT_BASE_MS = 1000;
 const RECONNECT_MAX_MS  = 60_000;
@@ -87,6 +92,15 @@ class StreamElementsClient extends EventEmitter {
     this.connected = false;
     this.lastError = null;
     this.lastEventAt = null;
+
+    // Live stream status (from the channel.stream.status topic):
+    //   live          — true/false once known, null while unknown.
+    //   liveSupported — true if the status subscription succeeded,
+    //                   false if rejected (token lacks stream-live:read),
+    //                   null until we've tried.
+    this.live = null;
+    this.liveSupported = null;
+    this._subNonces = {}; // subscribe nonce -> topic, to route responses
 
     this._reconnectAttempts = 0;
     this._reconnectTimer = null;
@@ -139,6 +153,8 @@ class StreamElementsClient extends EventEmitter {
       expiresAt: this.tokens && this.tokens.expires_at || null,
       lastError: this.lastError,
       lastEventAt: this.lastEventAt,
+      live: this.live,
+      liveSupported: this.liveSupported,
     };
   }
 
@@ -217,6 +233,8 @@ class StreamElementsClient extends EventEmitter {
     this.tokens  = null;
     this.account = null;
     this.connected = false;
+    this.live = null;
+    this.liveSupported = null;
     this._saveTokens();
     this.emit('state');
   }
@@ -322,6 +340,8 @@ class StreamElementsClient extends EventEmitter {
 
     ws.on('close', (code, reason) => {
       this.connected = false;
+      // Live status is no longer trustworthy once the socket drops.
+      this.live = null;
       this.lastError = `closed code=${code} reason=${(reason || '').toString().slice(0, 80) || '-'}`;
       this.emit('state');
       this._scheduleReconnect();
@@ -345,13 +365,40 @@ class StreamElementsClient extends EventEmitter {
       return;
     }
     if (msg.type === 'response') {
+      const topic = msg.nonce ? this._subNonces[msg.nonce] : null;
       if (msg.error) {
+        // A rejected stream-status subscription is expected for tokens
+        // issued before the stream-live:read scope existed. Treat it as
+        // "live detection unavailable" rather than a fatal auth error —
+        // do NOT refresh (the refreshed token has the same old scopes,
+        // which would just loop).
+        if (topic === STATUS_TOPIC) {
+          this.liveSupported = false;
+          this.live = null;
+          this.emit('state');
+          return;
+        }
         this.lastError = `subscribe error: ${msg.error} ${msg.data && msg.data.message || ''}`.trim();
         this.emit('state');
         // err_unauthorized usually means expired token — try a refresh.
         if (/unauth/i.test(msg.error)) this._refresh();
       } else {
-        this.connected = true;
+        if (topic === STATUS_TOPIC) {
+          // Subscribed OK; the current isLive arrives as a separate
+          // message (and on every subsequent online/offline change).
+          this.liveSupported = true;
+        } else {
+          this.connected = true;
+        }
+        this.emit('state');
+      }
+      return;
+    }
+    if (msg.type === 'message' && msg.topic === STATUS_TOPIC) {
+      const d = msg.data || {};
+      if (typeof d.isLive === 'boolean') {
+        this.live = d.isLive;
+        this.liveSupported = true;
         this.emit('state');
       }
       return;
@@ -376,17 +423,28 @@ class StreamElementsClient extends EventEmitter {
       this._fetchAccount().then(() => this._subscribe(retry + 1));
       return;
     }
+    this._subscribedRoom = this.account.id;
+    this._subNonces = {};
+    // Donations/activities feed (required) + live status feed (optional).
+    this._sendSubscribe(ASTRO_TOPIC);
+    this._sendSubscribe(STATUS_TOPIC);
+  }
+
+  _sendSubscribe(topic) {
+    if (!this.tokens || !this.ws || this.ws.readyState !== WebSocket.OPEN) return;
+    if (!this.account || !this.account.id) return;
+    const nonce = crypto.randomUUID();
+    this._subNonces[nonce] = topic;
     const sub = {
       type: 'subscribe',
-      nonce: crypto.randomUUID(),
+      nonce,
       data: {
-        topic: ASTRO_TOPIC,
+        topic,
         room: this.account.id,
         token: this.tokens.access_token,
         token_type: this.tokens.mode === 'jwt' ? 'jwt' : 'oauth2',
       },
     };
-    this._subscribedRoom = this.account.id;
     try { this.ws.send(JSON.stringify(sub)); } catch (_) {}
   }
 

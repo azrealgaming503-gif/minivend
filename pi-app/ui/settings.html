@@ -65,6 +65,23 @@
       </section>
 
       <section class="section">
+        <h2>Live-only dispensing</h2>
+        <label class="toggle-row" for="only-live-input">
+          <div class="toggle-text">
+            <div>Only drop when the stream is <strong>live</strong></div>
+            <div class="meta" style="color: var(--text-2); font-size: 13px;">
+              Off (default): donations dispense whenever they arrive.<br />
+              On: donations only trigger a physical drop while your
+              StreamElements channel is live. Tips received while offline
+              are still logged to history, but no item drops.
+              <div id="live-status-note" style="margin-top: 6px;"></div>
+            </div>
+          </div>
+          <input id="only-live-input" type="checkbox" class="toggle-switch" />
+        </label>
+      </section>
+
+      <section class="section">
         <h2>Screen brightness</h2>
         <div class="row" style="align-items: center; gap: 14px; flex-wrap: wrap;">
           <input id="brightness-slider" type="range" min="10" max="100" step="5" value="100"
@@ -113,6 +130,8 @@
     const idleTimeoutStatus = document.getElementById('idle-timeout-status');
 
     const alertsAllInput   = document.getElementById('alerts-all-input');
+    const onlyLiveInput    = document.getElementById('only-live-input');
+    const liveStatusNote   = document.getElementById('live-status-note');
 
     const brightnessSlider = document.getElementById('brightness-slider');
     const brightnessValue  = document.getElementById('brightness-value');
@@ -129,6 +148,10 @@
       if (typeof s.alertsAllAmounts === 'boolean') {
         alertsAllInput.checked = s.alertsAllAmounts;
       }
+      if (typeof s.dispenseOnlyWhenLive === 'boolean') {
+        onlyLiveInput.checked = s.dispenseOnlyWhenLive;
+      }
+      updateLiveNote(s.streamelements);
       if (Number.isFinite(s.brightness)) {
         // Only override the slider if it isn't actively being dragged
         // — otherwise the live broadcast from our own PUT would jump
@@ -139,6 +162,42 @@
         brightnessValue.textContent = s.brightness;
       }
     }
+
+    // Render the current live-detection status under the toggle so the
+    // streamer can tell whether automatic detection is working.
+    function updateLiveNote(se) {
+      if (!se) { liveStatusNote.textContent = ''; return; }
+      let text, color = 'var(--text-2)';
+      if (se.liveSupported === false) {
+        text = '⚠ Live detection unavailable — reconnect StreamElements ' +
+               '(Accounts) to grant stream-status access. Drops are allowed for now.';
+        color = '#e0a23c';
+      } else if (se.live === true) {
+        text = '● Stream is currently LIVE.';
+        color = '#5fbf7f';
+      } else if (se.live === false) {
+        text = '● Stream is offline — drops are paused while this is on.';
+        color = '#d98a8a';
+      } else {
+        text = 'Stream status unknown (waiting for the next online/offline ' +
+               'change). Drops are allowed until status is known.';
+      }
+      liveStatusNote.textContent = text;
+      liveStatusNote.style.color = color;
+    }
+
+    onlyLiveInput.addEventListener('change', async (e) => {
+      const checked = !!e.target.checked;
+      try {
+        await fetch('/api/settings', {
+          method: 'PUT',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ dispenseOnlyWhenLive: checked }),
+        });
+      } catch (_) { /* server will reject; UI will re-sync on next state */ }
+    });
+
+    onMessage('streamelements_state', (m) => updateLiveNote(m.state));
 
     // ===== Brightness slider =====
     // Debounce PUTs while the user is dragging so we don't fire 50+

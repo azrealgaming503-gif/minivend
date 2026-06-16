@@ -851,18 +851,20 @@ body:not(.theme-pastel) .upload-zone-big {
    so the splash never gets a chance to paint. */
 .splash-suppressed .boot-splash { display: none !important; }
 .boot-splash-wordmark {
+  position: relative;
+  z-index: 2;
   display: flex;
   align-items: baseline;
   gap: 6px;
   /* Indie Flower for the brand mark to match the rest of the UI.
-     The font only ships at weight 400, so we add a tiny text-stroke
-     to give it presence at the splash's 160px scale. */
+     The font only ships at weight 400, so bold is synthesized and
+     reinforced with a thicker text-stroke for presence at this scale. */
   font-family: var(--font-family);
-  font-weight: 400;
+  font-weight: 700;
   font-size: 180px;
   letter-spacing: 0;
   color: #3d2e54;
-  -webkit-text-stroke: 1px #3d2e54;
+  -webkit-text-stroke: 2px #3d2e54;
   animation: boot-splash-pulse 2.8s ease-in-out infinite;
 }
 .boot-splash-dot {
@@ -875,6 +877,42 @@ body:not(.theme-pastel) .upload-zone-big {
 @keyframes boot-splash-pulse {
   0%, 100% { opacity: 1; }
   50%      { opacity: 0.78; }
+}
+
+/* ===== Boot-splash sakura petals =====
+   Gentle wind-blown cherry blossom petals drifting across the splash
+   for as long as it's on screen. Transform/opacity only so it stays
+   smooth on the Pi GPU. Petals sit behind the wordmark (z-index 1). */
+.boot-splash-sakura {
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  overflow: hidden;
+  pointer-events: none;
+}
+.boot-splash-petal {
+  position: absolute;
+  top: 0;
+  width: 16px;
+  height: 16px;
+  background: radial-gradient(circle at 30% 30%, #ffe1ec 0%, #ffb3cd 55%, #ff8fb6 100%);
+  border-radius: 100% 0 100% 0;
+  opacity: 0;
+  will-change: transform, opacity;
+  filter: drop-shadow(0 1px 1px rgba(180, 90, 130, 0.15));
+  animation-name: boot-splash-sakura-fall;
+  animation-timing-function: ease-in-out;
+  animation-iteration-count: infinite;
+}
+@keyframes boot-splash-sakura-fall {
+  0%   { transform: translate(0, -12vh) rotate(0deg);   opacity: 0; }
+  10%  { opacity: var(--petal-opacity, 0.85); }
+  50%  { transform: translate(calc(var(--drift) * 0.55 + 26px), 50vh) rotate(180deg); }
+  90%  { opacity: var(--petal-opacity, 0.85); }
+  100% { transform: translate(var(--drift), 112vh) rotate(360deg); opacity: 0; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .boot-splash-sakura { display: none; }
 }
 
 /* ===== On-screen number pad =====
