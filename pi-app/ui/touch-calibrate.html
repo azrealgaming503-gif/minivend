@@ -1,0 +1,212 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, user-scalable=no" />
+  <title>Touch calibration · MiniVend</title>
+  <link rel="stylesheet" href="/css/styles.css" />
+  <style>
+    html, body {
+      margin: 0; height: 100%; width: 100%;
+      overflow: hidden; touch-action: none;
+      background: #0c1a33; color: #f7eefc;
+      -webkit-user-select: none; user-select: none;
+    }
+    #stage { position: fixed; inset: 0; }
+    .hint {
+      position: fixed; left: 0; right: 0; top: 38%;
+      text-align: center; font-size: 22px; color: #cdbfe0;
+      padding: 0 24px; pointer-events: none;
+    }
+    .count { font-size: 15px; color: #8d7fb0; margin-top: 8px; }
+    /* Crosshair target */
+    .target {
+      position: fixed; width: 64px; height: 64px;
+      margin: -32px 0 0 -32px; pointer-events: none;
+    }
+    .target::before, .target::after {
+      content: ""; position: absolute; background: #ff8fb6;
+    }
+    .target::before { left: 31px; top: 0; width: 2px; height: 64px; }
+    .target::after  { top: 31px; left: 0; height: 2px; width: 64px; }
+    .target .ring {
+      position: absolute; inset: 18px; border: 2px solid #b886e5;
+      border-radius: 50%;
+    }
+    /* Results panel */
+    #result {
+      position: fixed; inset: 0; display: none;
+      align-items: center; justify-content: center;
+      background: #07101f; padding: 24px; overflow: auto;
+    }
+    #result .card {
+      max-width: 560px; width: 100%;
+      background: #0c1a33; border: 1px solid #2a3a55;
+      border-radius: 16px; padding: 22px;
+    }
+    #result h2 { margin: 0 0 10px; font-size: 24px; }
+    #result p  { color: #cdbfe0; font-size: 14px; line-height: 1.5; }
+    code, pre {
+      background: #07101f; border: 1px solid #2a3a55; border-radius: 8px;
+      color: #9fd0ff; font-size: 13px;
+    }
+    code { padding: 2px 6px; }
+    pre  { padding: 12px; overflow-x: auto; white-space: pre-wrap; word-break: break-word; }
+    .matrix { font-size: 18px; color: #5fbf7f; font-weight: 700; }
+    .row { display: flex; gap: 12px; flex-wrap: wrap; margin-top: 16px; }
+    button {
+      font-size: 16px; padding: 12px 20px; border-radius: 10px;
+      border: 1px solid #2a3a55; background: #14233f; color: #f7eefc;
+    }
+    button.primary { background: #b886e5; border-color: transparent; color: #1a0f2e; font-weight: 700; }
+    .warn { color: #e0a23c; }
+    .err  { color: #d98a8a; }
+  </style>
+</head>
+<body>
+  <div id="stage">
+    <div class="hint" id="hint">
+      Tap the center of each cross as accurately as you can.
+      <div class="count" id="count"></div>
+    </div>
+    <div class="target" id="target"><div class="ring"></div></div>
+  </div>
+
+  <div id="result">
+    <div class="card">
+      <h2>Calibration result</h2>
+      <p>Worst-case error after correction: <span id="resid" class="matrix"></span></p>
+      <p>Calibration matrix:</p>
+      <pre class="matrix" id="matrix"></pre>
+      <p>On the Pi, set this matrix in the touchscreen udev rule, then reload:</p>
+      <pre id="cmds"></pre>
+      <p id="note" class="warn"></p>
+      <div class="row">
+        <button class="primary" id="redo">Redo calibration</button>
+        <button id="back" onclick="location.href='/settings'">Back to settings</button>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    // Target points (normalized 0..1), inset from the edges to avoid
+    // panel edge non-linearity and unreachable corners.
+    const TARGETS = [
+      [0.12, 0.12], [0.88, 0.12], [0.88, 0.88], [0.12, 0.88], [0.5, 0.5],
+    ];
+    const samples = [];      // { sx, sy, tx, ty } normalized target vs touch
+    let idx = 0;
+
+    const targetEl = document.getElementById('target');
+    const countEl  = document.getElementById('count');
+
+    function showTarget() {
+      const [nx, ny] = TARGETS[idx];
+      targetEl.style.left = (nx * window.innerWidth) + 'px';
+      targetEl.style.top  = (ny * window.innerHeight) + 'px';
+      countEl.textContent = `Point ${idx + 1} of ${TARGETS.length}`;
+    }
+
+    document.getElementById('stage').addEventListener('pointerdown', (e) => {
+      e.preventDefault();
+      const [nx, ny] = TARGETS[idx];
+      samples.push({
+        sx: nx, sy: ny,
+        tx: e.clientX / window.innerWidth,
+        ty: e.clientY / window.innerHeight,
+      });
+      idx += 1;
+      if (idx < TARGETS.length) showTarget();
+      else finish();
+    });
+
+    // Solve a 3x3 linear system (Gaussian elimination with partial pivot).
+    function solve3(A, b) {
+      const M = A.map((row, i) => [...row, b[i]]);
+      for (let col = 0; col < 3; col++) {
+        let piv = col;
+        for (let r = col + 1; r < 3; r++) {
+          if (Math.abs(M[r][col]) > Math.abs(M[piv][col])) piv = r;
+        }
+        [M[col], M[piv]] = [M[piv], M[col]];
+        const d = M[col][col];
+        if (Math.abs(d) < 1e-12) return null;
+        for (let c = col; c < 4; c++) M[col][c] /= d;
+        for (let r = 0; r < 3; r++) {
+          if (r === col) continue;
+          const f = M[r][col];
+          for (let c = col; c < 4; c++) M[r][c] -= f * M[col][c];
+        }
+      }
+      return [M[0][3], M[1][3], M[2][3]];
+    }
+
+    // Least-squares affine fit mapping measured touch -> intended target.
+    function fitAffine(pts) {
+      let Sxx = 0, Sxy = 0, Sx = 0, Syy = 0, Sy = 0;
+      let bXx = 0, bXy = 0, bX = 0, bYx = 0, bYy = 0, bY = 0;
+      const n = pts.length;
+      for (const p of pts) {
+        Sxx += p.tx * p.tx; Sxy += p.tx * p.ty; Sx += p.tx;
+        Syy += p.ty * p.ty; Sy += p.ty;
+        bXx += p.sx * p.tx; bXy += p.sx * p.ty; bX += p.sx;
+        bYx += p.sy * p.tx; bYy += p.sy * p.ty; bY += p.sy;
+      }
+      const A = [[Sxx, Sxy, Sx], [Sxy, Syy, Sy], [Sx, Sy, n]];
+      const abc = solve3(A, [bXx, bXy, bX]);
+      const def = solve3(A, [bYx, bYy, bY]);
+      if (!abc || !def) return null;
+      return [...abc, ...def]; // a b c d e f
+    }
+
+    function finish() {
+      targetEl.style.display = 'none';
+      document.getElementById('hint').style.display = 'none';
+      const m = fitAffine(samples);
+      const resEl = document.getElementById('result');
+      resEl.style.display = 'flex';
+      if (!m) {
+        document.getElementById('matrix').textContent = 'fit failed — redo';
+        return;
+      }
+      const [a, b, c, d, e, f] = m;
+      const matrixStr = [a, b, c, d, e, f].map((v) => v.toFixed(5)).join(' ');
+      document.getElementById('matrix').textContent = matrixStr;
+
+      // Residual: max post-correction error, in pixels of the short edge.
+      let maxErr = 0;
+      for (const p of samples) {
+        const px = a * p.tx + b * p.ty + c;
+        const py = d * p.tx + e * p.ty + f;
+        const err = Math.hypot(px - p.sx, py - p.sy);
+        if (err > maxErr) maxErr = err;
+      }
+      const shortEdge = Math.min(window.innerWidth, window.innerHeight);
+      document.getElementById('resid').textContent =
+        `${(maxErr * shortEdge).toFixed(1)} px`;
+
+      document.getElementById('cmds').textContent =
+        `sudo sed -i 's#LIBINPUT_CALIBRATION_MATRIX="[^"]*"#LIBINPUT_CALIBRATION_MATRIX="${matrixStr}"#' \\\n` +
+        `  /etc/udev/rules.d/99-minivend-touchscreen.rules\n` +
+        `sudo udevadm control --reload-rules && sudo udevadm trigger\n` +
+        `# then reboot, or replug the touchscreen, to apply`;
+
+      document.getElementById('note').textContent =
+        'Note: this assumes the display rotation is "normal". If you rotated ' +
+        'the kiosk (KIOSK_ROTATE != normal), send these 6 numbers to be ' +
+        'combined with your rotation matrix instead of pasting directly.';
+    }
+
+    document.getElementById('redo').addEventListener('click', () => {
+      samples.length = 0; idx = 0;
+      document.getElementById('result').style.display = 'none';
+      targetEl.style.display = 'block';
+      document.getElementById('hint').style.display = 'block';
+      showTarget();
+    });
+
+    window.addEventListener('resize', () => { if (idx < TARGETS.length) showTarget(); });
+    showTarget();
+  </script>
+</body>
+</html>
