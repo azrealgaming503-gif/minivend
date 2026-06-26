@@ -89,10 +89,14 @@
   </div>
 
   <script>
-    // Target points (normalized 0..1), inset from the edges to avoid
-    // panel edge non-linearity and unreachable corners.
+    // Target points (normalized 0..1). A 3x3 grid spanning close to the
+    // edges (8%..92%) so the affine fit represents the WHOLE panel — a
+    // 5-point inset grid extrapolates at the borders, which can push the
+    // far edges off-screen and leave edge buttons unreachable.
     const TARGETS = [
-      [0.12, 0.12], [0.88, 0.12], [0.88, 0.88], [0.12, 0.88], [0.5, 0.5],
+      [0.08, 0.08], [0.50, 0.08], [0.92, 0.08],
+      [0.08, 0.50], [0.50, 0.50], [0.92, 0.50],
+      [0.08, 0.92], [0.50, 0.92], [0.92, 0.92],
     ];
     const samples = [];      // { sx, sy, tx, ty } normalized target vs touch
     let idx = 0;

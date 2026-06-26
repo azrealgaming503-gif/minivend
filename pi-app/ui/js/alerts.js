@@ -25,6 +25,9 @@ import { onMessage } from './ws-client.js';
 // to every page that imports alerts.js (which is all of them). Kept
 // here so individual pages don't need to remember a second import.
 import './brightness.js';
+// Side-effect import: filters ultra-brief phantom taps from the flaky
+// touch panel so buttons need a deliberate press (touch only).
+import './press-guard.js';
 
 // Preload Indie Flower on every settings/menu/game page (all import
 // alerts.js). Without this, Chromium may paint one frame in the UA

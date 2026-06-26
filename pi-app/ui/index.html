@@ -166,10 +166,13 @@
     // the navigation. Horizontal drag is ignored.
     (function installSwipe() {
       let startY = null, startX = null, startT = 0, moves = 0;
-      const THRESHOLD = 80;       // px
+      // Minimum travel before a vertical drag counts as a swipe. Scales
+      // with screen height (≈16%) so it's a deliberate gesture on any
+      // panel, with a hard floor so it can't get too twitchy.
+      const minDist = () => Math.max(110, window.innerHeight * 0.16);
       const MIN_TIME  = 70;       // ms — reject instant controller "jump" flicks
-      const MAX_TIME  = 800;      // ms
-      const MAX_DRIFT = 60;       // px sideways
+      const MAX_TIME  = 1000;     // ms
+      const MAX_DRIFT = 70;       // px sideways
       const MIN_MOVES = 2;        // real swipes stream touchmove events; glitches teleport
 
       function onStart(e) {
@@ -191,7 +194,7 @@
         if (dt < MIN_TIME || dt > MAX_TIME) return;
         if (isTouch && moves < MIN_MOVES) return;
         if (Math.abs(dx) > MAX_DRIFT) return;
-        if (-dy > THRESHOLD) {
+        if (-dy > minDist()) {
           // Swipe up
           location.href = '/menu';
         }

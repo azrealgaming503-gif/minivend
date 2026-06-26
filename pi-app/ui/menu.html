@@ -179,7 +179,9 @@
     // ===== Swipe down → back to idle =====
     (function installSwipe() {
       let startY = null, startX = null, startT = 0, moves = 0;
-      const THRESHOLD = 80, MIN_TIME = 70, MAX_TIME = 800, MAX_DRIFT = 60, MIN_MOVES = 2;
+      const MIN_TIME = 70, MAX_TIME = 1000, MAX_DRIFT = 70, MIN_MOVES = 2;
+      // Minimum travel (≈16% of screen height) before a drag counts.
+      const minDist = () => Math.max(110, window.innerHeight * 0.16);
       function onStart(e) {
         const p = e.touches ? e.touches[0] : e;
         startY = p.clientY; startX = p.clientX; startT = Date.now(); moves = 0;
@@ -196,7 +198,7 @@
         // Reject phantom flicks (instant teleport with no move stream).
         if (dt < MIN_TIME || dt > MAX_TIME || Math.abs(dx) > MAX_DRIFT) return;
         if (isTouch && moves < MIN_MOVES) return;
-        if (dy > THRESHOLD) location.href = '/';
+        if (dy > minDist()) location.href = '/';
       }
       window.addEventListener('touchstart', onStart, { passive: true });
       window.addEventListener('touchmove',  onMove,  { passive: true });
