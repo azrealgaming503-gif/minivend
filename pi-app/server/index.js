@@ -451,6 +451,21 @@ se.on('tip', (tip) => {
   dispatchDonation(tip);
   syncSeState();
 });
+// Channel-point / store redemptions: purely a visual shout-out, gated by
+// the showRedeemAlerts toggle. No dispense, no history entry.
+se.on('redeem', (redeem) => {
+  if (settings.getAll().showRedeemAlerts) {
+    console.log(`[redeem] ${redeem.name} redeemed "${redeem.redemption}"`);
+    broadcast({
+      type: 'redeem',
+      name: redeem.name,
+      redemption: redeem.redemption,
+      amount: redeem.amount,
+      message: redeem.message,
+    });
+  }
+  syncSeState();
+});
 se.on('state', syncSeState);
 se.start();
 syncSeState();
@@ -459,6 +474,23 @@ syncSeState();
 app.get('/api/integrations/streamelements/status', (_req, res) => {
   res.json({ ok: true, status: se.status() });
 });
+
+// Preview the redeem overlay without waiting for a real redemption.
+// Always broadcasts (bypasses the showRedeemAlerts gate) so the settings
+// "Test" button can show what it looks like.
+app.post('/api/integrations/streamelements/test-redeem',
+  express.json({ limit: '4kb' }),
+  (req, res) => {
+    const b = req.body || {};
+    broadcast({
+      type: 'redeem',
+      name: (b.name || 'TestViewer').toString().slice(0, 80),
+      redemption: (b.redemption || 'Hydrate!').toString().slice(0, 120),
+      amount: Number(b.amount) || 0,
+      message: (b.message || '').toString().slice(0, 200),
+    });
+    res.json({ ok: true });
+  });
 
 app.post('/api/integrations/streamelements/pair/new', async (_req, res) => {
   try {

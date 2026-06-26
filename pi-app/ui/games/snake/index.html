@@ -57,6 +57,12 @@
         <button class="primary" id="overlay-restart">Play again</button>
       </div>
     </main>
+    <div class="dpad" id="dpad">
+      <button class="up"    data-dir="up"    aria-label="Up">▲</button>
+      <button class="left"  data-dir="left"  aria-label="Left">◀</button>
+      <button class="right" data-dir="right" aria-label="Right">▶</button>
+      <button class="down"  data-dir="down"  aria-label="Down">▼</button>
+    </div>
   </div>
 
   <script type="module">
@@ -260,6 +266,17 @@
       if (Math.abs(dx) > Math.abs(dy)) setDir(dx > 0 ? 1 : -1, 0);
       else                              setDir(0, dy > 0 ? 1 : -1);
     }, { passive: true });
+
+    // On-screen arrows (replaces the need to swipe). pointerdown so it
+    // reacts instantly and doesn't wait for the synthetic click.
+    const DIRS = { up: [0, -1], down: [0, 1], left: [-1, 0], right: [1, 0] };
+    document.getElementById('dpad').addEventListener('pointerdown', (e) => {
+      const btn = e.target.closest('button[data-dir]');
+      if (!btn) return;
+      e.preventDefault();
+      const d = DIRS[btn.dataset.dir];
+      if (d) setDir(d[0], d[1]);
+    });
 
     restartBtn.addEventListener('click', reset);
     overlayRestartBtn.addEventListener('click', reset);

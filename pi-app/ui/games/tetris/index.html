@@ -28,7 +28,7 @@
       box-shadow: 0 8px 22px rgba(123, 101, 147, 0.12);
     }
     .t-controls {
-      display: grid; grid-template-columns: 1fr 1fr 1fr;
+      display: grid; grid-template-columns: repeat(5, 1fr);
       gap: 8px; padding: 10px 14px;
       flex: 0 0 auto; border-top: 1px solid var(--stroke);
     }
@@ -74,9 +74,11 @@
       </div>
     </main>
     <div class="t-controls">
-      <button id="btn-left">◀</button>
-      <button id="btn-rot">⟳</button>
-      <button id="btn-right">▶</button>
+      <button id="btn-left"  aria-label="Move left">◀</button>
+      <button id="btn-rot"   aria-label="Rotate">⟳</button>
+      <button id="btn-down"  aria-label="Soft drop">▼</button>
+      <button id="btn-drop"  aria-label="Hard drop">⤓</button>
+      <button id="btn-right" aria-label="Move right">▶</button>
     </div>
   </div>
 
@@ -352,6 +354,8 @@
     document.getElementById('btn-left').addEventListener('click',  () => move(-1));
     document.getElementById('btn-right').addEventListener('click', () => move(+1));
     document.getElementById('btn-rot').addEventListener('click',   rotate);
+    document.getElementById('btn-down').addEventListener('click',  () => { if (running) softDrop(); });
+    document.getElementById('btn-drop').addEventListener('click',  () => { if (running) hardDrop(); });
 
     // Keyboard (handy when devs are on a laptop)
     window.addEventListener('keydown', (e) => {

@@ -225,4 +225,64 @@ onMessage('sticker_changed', (m) => {
   if (m.url) applyStickerUrl(m.url);
 });
 
+// =================================================================
+// Channel-point redeem overlay
+// =================================================================
+// Independent of the donation overlay (its own element + timer). The
+// server only sends `redeem` events when the showRedeemAlerts setting
+// is on, so by the time we get here we always want to show it. No
+// dispense is associated — it's purely a visual shout-out.
+let redeemOverlay = null;
+let redeemHideTimer = null;
+const REDEEM_HOLD_MS = 7000;
+
+function buildRedeemOverlay() {
+  const el = document.createElement('div');
+  el.id = 'redeem-overlay';
+  el.className = 'redeem-overlay';
+  el.innerHTML = `
+    <div class="redeem-sakura" data-redeem-sakura></div>
+    <div class="redeem-stack">
+      <div class="redeem-redeemer" data-redeemer>Someone</div>
+      <div class="redeem-label">Redeemed</div>
+      <div class="redeem-name" data-redeem-name>a reward</div>
+    </div>
+  `;
+  document.body.appendChild(el);
+  spawnRedeemSakura(el.querySelector('[data-redeem-sakura]'));
+  return el;
+}
+
+function spawnRedeemSakura(layer) {
+  if (!layer || layer.childElementCount) return; // spawn once, reused per show
+  const N = 16;
+  for (let i = 0; i < N; i++) {
+    const p = document.createElement('span');
+    p.className = 'redeem-petal';
+    const dur  = 6 + Math.random() * 5;
+    const size = 10 + Math.random() * 12;
+    p.style.left   = (Math.random() * 100) + 'vw';
+    p.style.width  = size + 'px';
+    p.style.height = size + 'px';
+    p.style.setProperty('--drift', (40 + Math.random() * 150) + 'px');
+    p.style.setProperty('--petal-opacity', (0.55 + Math.random() * 0.4).toFixed(2));
+    p.style.animationDuration = dur.toFixed(2) + 's';
+    p.style.animationDelay    = (-Math.random() * dur).toFixed(2) + 's';
+    layer.appendChild(p);
+  }
+}
+
+function showRedeem(evt) {
+  if (!redeemOverlay) redeemOverlay = buildRedeemOverlay();
+  redeemOverlay.querySelector('[data-redeemer]').textContent   = evt.name || 'Someone';
+  redeemOverlay.querySelector('[data-redeem-name]').textContent = evt.redemption || 'a reward';
+  redeemOverlay.classList.add('visible');
+  if (redeemHideTimer) clearTimeout(redeemHideTimer);
+  redeemHideTimer = setTimeout(() => {
+    redeemOverlay.classList.remove('visible');
+  }, REDEEM_HOLD_MS);
+}
+
+onMessage('redeem', showRedeem);
+
 refreshEnv();

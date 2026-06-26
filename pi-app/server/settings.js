@@ -121,6 +121,13 @@ const DEFAULTS = Object.freeze({
   // never silently blocks every drop. Default off.
   dispenseOnlyWhenLive: false,
 
+  // When true, channel-point / store redemptions coming from the
+  // StreamElements activities feed pop a full-screen celebration overlay
+  // (redeemer name on top, "Redeemed", then the reward name in the
+  // middle, over falling sakura petals). These never trigger a dispense —
+  // they're purely a visual shout-out. Default off.
+  showRedeemAlerts: false,
+
   // Screen brightness, 10–100. Implemented two ways at once:
   //   1. CSS filter on the UI (always works, even on dumb HDMI panels).
   //   2. Hardware backlight via /sys/class/backlight/*/brightness
@@ -202,6 +209,7 @@ class SettingsStore {
 
     out.alertsAllAmounts = !!out.alertsAllAmounts;
     out.dispenseOnlyWhenLive = !!out.dispenseOnlyWhenLive;
+    out.showRedeemAlerts = !!out.showRedeemAlerts;
 
     if (!Array.isArray(out.dispenseTiers)) {
       out.dispenseTiers = DEFAULTS.dispenseTiers.map((t) => ({ ...t }));

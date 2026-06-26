@@ -465,23 +465,44 @@ class StreamElementsClient extends EventEmitter {
   }
 
   _handleActivity(payload) {
-    // payload shape: { event/type: 'tip', data: { ... }, provider, ... }
+    // payload shape: { event/type: 'tip'|'redemption'|..., data: {...}, provider }
     const evt = payload.type || payload.event;
-    if (evt !== 'tip') return;
     const data = payload.data || {};
-    const tip = {
-      source: 'streamelements',
-      name: data.username || data.displayName || 'Anonymous',
-      amount: Number(data.amount) || 0,
-      currency: data.currency || 'USD',
-      message: data.message || '',
-      provider: payload.provider || data.provider || null,
-      tipId: data.tipId || data._id || null,
-      raw: payload,
-    };
-    this.lastEventAt = Date.now();
-    this.emit('tip', tip);
-    this.emit('state');
+
+    if (evt === 'tip') {
+      const tip = {
+        source: 'streamelements',
+        name: data.username || data.displayName || 'Anonymous',
+        amount: Number(data.amount) || 0,
+        currency: data.currency || 'USD',
+        message: data.message || '',
+        provider: payload.provider || data.provider || null,
+        tipId: data.tipId || data._id || null,
+        raw: payload,
+      };
+      this.lastEventAt = Date.now();
+      this.emit('tip', tip);
+      this.emit('state');
+      return;
+    }
+
+    // Channel-point / loyalty-store redemptions. StreamElements surfaces
+    // both as `redemption` activities; `data.redemption` is the reward
+    // title, `data.amount` the points cost (when present).
+    if (evt === 'redemption') {
+      const redeem = {
+        source: 'streamelements',
+        name: data.username || data.displayName || 'Someone',
+        redemption: data.redemption || data.item || data.message || 'a reward',
+        amount: Number(data.amount) || 0,
+        message: data.message || '',
+        provider: payload.provider || data.provider || null,
+        raw: payload,
+      };
+      this.lastEventAt = Date.now();
+      this.emit('redeem', redeem);
+      this.emit('state');
+    }
   }
 }
 

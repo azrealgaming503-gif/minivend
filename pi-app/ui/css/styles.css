@@ -513,6 +513,102 @@ a { color: var(--accent); text-decoration: none; }
   50%      { box-shadow: 0 8px 28px rgba(184, 134, 229, 0.55); }
 }
 
+/* ===== On-screen game D-pad =====
+   Touch arrow controls for games that would otherwise need swipes
+   (snake, 2048). A 3x3 grid: up top-center, left/right middle,
+   down bottom-center. Sits in a fixed-height footer so the play area
+   shrinks to fit above it. */
+.dpad {
+  flex: 0 0 auto;
+  display: grid;
+  grid-template-columns: repeat(3, 72px);
+  grid-template-rows: repeat(3, 56px);
+  gap: 8px;
+  justify-content: center;
+  align-content: center;
+  padding: 10px 0 16px;
+  border-top: 1px solid var(--stroke);
+}
+.dpad button {
+  font-size: 28px;
+  line-height: 1;
+  background: var(--surface);
+  color: var(--text);
+  border: 1px solid var(--stroke);
+  border-radius: 14px;
+  display: flex; align-items: center; justify-content: center;
+  touch-action: manipulation;
+  user-select: none; -webkit-user-select: none;
+}
+.dpad button:active {
+  background: linear-gradient(135deg, var(--accent), var(--accent-2, var(--accent)));
+  color: #fff; border-color: transparent;
+}
+.dpad .up    { grid-column: 2; grid-row: 1; }
+.dpad .left  { grid-column: 1; grid-row: 2; }
+.dpad .right { grid-column: 3; grid-row: 2; }
+.dpad .down  { grid-column: 2; grid-row: 3; }
+
+/* ===== Channel-point redeem overlay =====
+   Full-screen shout-out for StreamElements redemptions: redeemer name
+   on top, "Redeemed", then the reward name centered, over falling
+   sakura petals (reuses the boot-splash petal animation). */
+.redeem-overlay {
+  position: fixed; inset: 0;
+  background:
+    radial-gradient(ellipse at top,    rgba(184, 134, 229, 0.28), transparent 60%),
+    radial-gradient(ellipse at bottom, rgba(255, 163, 209, 0.28), transparent 60%),
+    var(--bg);
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.18s ease;
+  z-index: 99;
+  color: var(--text);
+  overflow: hidden;
+}
+.redeem-overlay.visible { opacity: 1; pointer-events: auto; }
+.redeem-sakura {
+  position: absolute; inset: 0;
+  overflow: hidden; pointer-events: none; z-index: 0;
+}
+.redeem-petal {
+  position: absolute; top: 0; width: 16px; height: 16px;
+  background: radial-gradient(circle at 30% 30%, #ffe1ec 0%, #ffb3cd 55%, #ff8fb6 100%);
+  border-radius: 100% 0 100% 0;
+  opacity: 0; will-change: transform, opacity;
+  filter: drop-shadow(0 1px 1px rgba(180, 90, 130, 0.15));
+  animation-name: boot-splash-sakura-fall;
+  animation-timing-function: ease-in-out;
+  animation-iteration-count: infinite;
+}
+.redeem-stack {
+  position: absolute; inset: 0; z-index: 1;
+  display: grid; grid-template-rows: auto auto 1fr;
+  justify-items: center; align-items: start;
+  padding: 8vh 24px 6vh; gap: 12px; text-align: center;
+}
+.redeem-redeemer {
+  font-size: clamp(28px, 7vmin, 52px); font-weight: 700;
+  letter-spacing: -0.01em; line-height: 1.1; max-width: 92%;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.redeem-label {
+  font-size: clamp(16px, 3.6vmin, 26px); font-weight: 600;
+  text-transform: uppercase; letter-spacing: 0.18em; color: var(--text-2);
+}
+.redeem-name {
+  align-self: center;
+  font-size: clamp(40px, 12vmin, 104px); font-weight: 900; line-height: 1.05;
+  letter-spacing: -0.02em; max-width: 94%;
+  background: linear-gradient(135deg, var(--accent), var(--accent-2, var(--accent)));
+  -webkit-background-clip: text; background-clip: text;
+  -webkit-text-fill-color: transparent;
+  text-shadow: 0 6px 24px rgba(184, 134, 229, 0.25);
+}
+@media (prefers-reduced-motion: reduce) {
+  .redeem-sakura { display: none; }
+}
+
 /* ===== Generic page chrome (settings, games launcher) ===== */
 .page {
   width: 100vw;

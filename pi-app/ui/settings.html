@@ -82,6 +82,24 @@
       </section>
 
       <section class="section">
+        <h2>Channel point redeems</h2>
+        <label class="toggle-row" for="redeem-alerts-input">
+          <div class="toggle-text">
+            <div>Show an alert for <strong>channel point redeems</strong></div>
+            <div class="meta" style="color: var(--text-2); font-size: 13px;">
+              Off (default): redemptions from StreamElements are ignored.<br />
+              On: each redemption pops a full-screen shout-out — the
+              redeemer's name on top, "Redeemed", then the reward name in
+              the center, over falling sakura petals. These never trigger
+              a drop.
+            </div>
+          </div>
+          <input id="redeem-alerts-input" type="checkbox" class="toggle-switch" />
+        </label>
+        <button type="button" id="redeem-test-btn" class="ghost" style="margin-top: 12px;">Preview alert</button>
+      </section>
+
+      <section class="section">
         <h2>Screen brightness</h2>
         <div class="row" style="align-items: center; gap: 14px; flex-wrap: wrap;">
           <input id="brightness-slider" type="range" min="10" max="100" step="5" value="100"
@@ -142,6 +160,8 @@
     const alertsAllInput   = document.getElementById('alerts-all-input');
     const onlyLiveInput    = document.getElementById('only-live-input');
     const liveStatusNote   = document.getElementById('live-status-note');
+    const redeemAlertsInput = document.getElementById('redeem-alerts-input');
+    const redeemTestBtn     = document.getElementById('redeem-test-btn');
 
     const brightnessSlider = document.getElementById('brightness-slider');
     const brightnessValue  = document.getElementById('brightness-value');
@@ -160,6 +180,9 @@
       }
       if (typeof s.dispenseOnlyWhenLive === 'boolean') {
         onlyLiveInput.checked = s.dispenseOnlyWhenLive;
+      }
+      if (typeof s.showRedeemAlerts === 'boolean') {
+        redeemAlertsInput.checked = s.showRedeemAlerts;
       }
       updateLiveNote(s.streamelements);
       if (Number.isFinite(s.brightness)) {
@@ -205,6 +228,27 @@
           body: JSON.stringify({ dispenseOnlyWhenLive: checked }),
         });
       } catch (_) { /* server will reject; UI will re-sync on next state */ }
+    });
+
+    redeemAlertsInput.addEventListener('change', async (e) => {
+      const checked = !!e.target.checked;
+      try {
+        await fetch('/api/settings', {
+          method: 'PUT',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ showRedeemAlerts: checked }),
+        });
+      } catch (_) { /* server will reject; UI re-syncs on next state */ }
+    });
+
+    redeemTestBtn.addEventListener('click', async () => {
+      try {
+        await fetch('/api/integrations/streamelements/test-redeem', {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ name: 'TestViewer', redemption: 'Hydrate!' }),
+        });
+      } catch (_) { /* ignore */ }
     });
 
     onMessage('streamelements_state', (m) => updateLiveNote(m.state));
