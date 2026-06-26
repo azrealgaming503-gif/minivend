@@ -97,6 +97,12 @@
     const samples = [];      // { sx, sy, tx, ty } normalized target vs touch
     let idx = 0;
 
+    // Minimum gap between accepted taps. A flaky panel can emit two
+    // contacts from one press; without this, a single tap could advance
+    // two targets and ruin the fit.
+    const TAP_COOLDOWN_MS = 350;
+    let lastAcceptMs = 0;
+
     const targetEl = document.getElementById('target');
     const countEl  = document.getElementById('count');
 
@@ -109,6 +115,9 @@
 
     document.getElementById('stage').addEventListener('pointerdown', (e) => {
       e.preventDefault();
+      const now = e.timeStamp || Date.now();
+      if (now - lastAcceptMs < TAP_COOLDOWN_MS) return;  // ignore double-fire
+      lastAcceptMs = now;
       const [nx, ny] = TARGETS[idx];
       samples.push({
         sx: nx, sy: ny,
@@ -116,6 +125,10 @@
         ty: e.clientY / window.innerHeight,
       });
       idx += 1;
+      // Brief visual cooldown so the user sees the tap registered before
+      // the next target accepts input.
+      targetEl.style.opacity = '0.25';
+      setTimeout(() => { targetEl.style.opacity = '1'; }, TAP_COOLDOWN_MS);
       if (idx < TARGETS.length) showTarget();
       else finish();
     });
