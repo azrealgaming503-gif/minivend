@@ -41,6 +41,17 @@ JSON
 
 cd "${REPO_DIR}"
 
+# The updater runs as root, so every tree-mutating git step below writes
+# files as root:root. The subsequent `npm install` runs as ${APP_USER}
+# (via sudo -u) and would then fail with EACCES on root-owned files such
+# as package-lock.json. Restore ownership after each git step so the app
+# user can always write its own checkout.
+APP_USER=minivend
+REPO_ROOT="$(git rev-parse --show-toplevel)"
+fix_perms() {
+  chown -R "${APP_USER}:${APP_USER}" "${REPO_ROOT}" 2>/dev/null || true
+}
+
 PREV="$(git rev-parse HEAD)"
 BRANCH="$(git rev-parse --abbrev-ref HEAD)"
 echo "STARTED prev=${PREV} branch=${BRANCH}"
@@ -59,6 +70,7 @@ echo "Updating ${PREV} -> ${NEXT}"
 echo "${PREV}" > "${LAST_GOOD}"
 
 git reset --hard "${NEXT}"
+fix_perms
 
 # Indie Flower ships in git at ui/fonts/, but older installs may be
 # missing the file (install-fonts never ran). Ensure it exists so the
@@ -73,6 +85,7 @@ fi
 # Run npm install in the background-safe way (npm forks ssh-agent etc.,
 # which doesn't matter here, but isolate the env).
 echo "Installing dependencies..."
+fix_perms   # install-fonts.sh above may also have written as root
 sudo -u minivend -H bash -c "cd ${REPO_DIR} && npm install --omit=dev --no-audit --no-fund --loglevel=error"
 
 # Re-install systemd unit files. They live in /etc/systemd/system/ as
@@ -134,6 +147,7 @@ fi
 # Rollback.
 echo "Health check failed; rolling back to ${PREV}"
 git reset --hard "${PREV}"
+fix_perms
 sudo -u minivend -H bash -c "cd ${REPO_DIR} && npm install --omit=dev --no-audit --no-fund --loglevel=error"
 systemctl restart minivend-server.service
 
