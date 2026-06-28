@@ -1,43 +1,68 @@
-// Minimum-press filter for a flaky capacitive panel.
+// Tap-reliability helper for a flaky capacitive panel.
 //
-// The touchscreen occasionally emits ultra-brief "blip" contacts (EMI /
-// grounding noise) that fire a click on whatever is under them, causing
-// buttons to trigger from a graze or a phantom touch. Requiring the
-// finger to stay down for a minimum duration before a tap counts filters
-// those out — a deliberate press always clears the bar, a stray blip
-// doesn't.
+// IMPORTANT: this NEVER blocks or cancels a real click. An earlier
+// version required a minimum press duration and swallowed shorter taps —
+// that made buttons fire their :active highlight (on touch-down) but then
+// drop the navigation, intermittently, because human taps are often
+// <110ms. That was wrong and is gone.
 //
-// Scope: only affects `click` (i.e. button/link taps). Games and jog
-// controls use pointerdown/up directly and are intentionally untouched so
-// they stay responsive. Mouse input is exempt so desktop dev still works.
+// What this does instead — fixes the panel's actual failure mode:
+//   The controller sometimes reports `pointerup` a few pixels off the
+//   element the touch started on, so the browser never fires `click` and
+//   the button lights up but nothing happens. On a clean tap (started and
+//   ended on the same actionable element, little movement, not an instant
+//   noise blip) we make sure the click fires. If the native click already
+//   happened, we do nothing — so there's never a double activation.
+//
+// Mouse input is ignored entirely (desktop dev is unaffected).
 
-const MIN_PRESS_MS = 110;       // how long a tap must be held to count
-const SWALLOW_WINDOW_MS = 350;  // how long to wait for the rejected click
+const MIN_TAP_MS = 35;   // shorter than this = noise blip, don't synthesize
+const MOVE_TOL   = 24;   // px of travel still considered a tap (not a drag)
+const ASSIST_MS  = 120;  // wait this long for the native click before assisting
 
-const downAt = new Map();       // pointerId -> pointerdown timestamp
-let swallowUntil = 0;           // suppress the next click until this time
+function actionable(el) {
+  return (el && el.closest) ? el.closest('a[href], button') : null;
+}
+
+let start = null;          // { el, x, y, t, id }
+let lastClickEl = null;
+let lastClickAt = 0;
 
 window.addEventListener('pointerdown', (e) => {
   if (e.pointerType === 'mouse') return;
-  downAt.set(e.pointerId, e.timeStamp);
+  start = {
+    el: actionable(e.target),
+    x: e.clientX, y: e.clientY,
+    t: e.timeStamp, id: e.pointerId,
+  };
+}, true);
+
+// Record every genuine click so the assist below can dedupe against it.
+window.addEventListener('click', (e) => {
+  lastClickEl = actionable(e.target);
+  lastClickAt = e.timeStamp;
 }, true);
 
 window.addEventListener('pointerup', (e) => {
   if (e.pointerType === 'mouse') return;
-  const t = downAt.get(e.pointerId);
-  downAt.delete(e.pointerId);
-  if (t != null && (e.timeStamp - t) < MIN_PRESS_MS) {
-    // Too brief to be a real press — arm the click swallow.
-    swallowUntil = e.timeStamp + SWALLOW_WINDOW_MS;
-  }
+  const s = start;
+  start = null;
+  if (!s || !s.el || s.id !== e.pointerId) return;
+
+  const dur   = e.timeStamp - s.t;
+  const moved = Math.hypot(e.clientX - s.x, e.clientY - s.y);
+  if (dur < MIN_TAP_MS) return;          // instant blip — likely noise
+  if (moved > MOVE_TOL) return;          // a drag/swipe, not a tap
+  if (actionable(e.target) !== s.el) return; // ended on a different element
+
+  const target = s.el;
+  setTimeout(() => {
+    // If the browser already delivered a click to this element, it was
+    // handled normally — don't fire a second one.
+    if (target === lastClickEl && (performance.now() - lastClickAt) < ASSIST_MS + 60) return;
+    // Native click was lost (up drifted off the element) — fire it.
+    target.click();
+  }, ASSIST_MS);
 }, true);
 
-window.addEventListener('click', (e) => {
-  if (swallowUntil && e.timeStamp <= swallowUntil) {
-    swallowUntil = 0;
-    e.stopPropagation();
-    e.preventDefault();
-  }
-}, true);
-
-window.addEventListener('pointercancel', (e) => { downAt.delete(e.pointerId); }, true);
+window.addEventListener('pointercancel', () => { start = null; }, true);

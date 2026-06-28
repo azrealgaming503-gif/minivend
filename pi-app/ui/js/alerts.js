@@ -25,8 +25,9 @@ import { onMessage } from './ws-client.js';
 // to every page that imports alerts.js (which is all of them). Kept
 // here so individual pages don't need to remember a second import.
 import './brightness.js';
-// Side-effect import: filters ultra-brief phantom taps from the flaky
-// touch panel so buttons need a deliberate press (touch only).
+// Side-effect import: tap-reliability helper. Re-fires a click when the
+// flaky panel drops it (touch-up drifting off the button), without ever
+// blocking real taps. Touch only.
 import './press-guard.js';
 
 // Preload Indie Flower on every settings/menu/game page (all import
