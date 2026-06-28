@@ -24,7 +24,10 @@ package-lock.json.bak
 !**/.env.example
 !**/.env.example.txt
 
-# Pi-app runtime state (created on the device, not source-controlled)
+# Pi-app runtime state (created on the device, not source-controlled).
+# These hold the user's live configuration and must NEVER be reverted by
+# `git reset --hard` during an OTA update, or the kiosk forgets its
+# settings on every update.
 pi-app/assets/state.json
 pi-app/assets/idle/*
 pi-app/assets/alerts/*
@@ -32,6 +35,11 @@ pi-app/assets/alerts/*
 !pi-app/assets/alerts/.gitkeep
 pi-app/.last-good-commit
 pi-app/.update-state.json
+pi-app/settings.json
+pi-app/donations.json
+# StreamElements tokens (secrets) — never commit
+se-tokens.json
+**/se-tokens.json
 
 # OS junk
 .DS_Store

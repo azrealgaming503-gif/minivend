@@ -94,6 +94,10 @@ ExecStart=/bin/sh -c '\
     --autoplay-policy=no-user-gesture-required \
     --start-fullscreen \
     --hide-scrollbars \
+    --process-per-site \
+    --disable-background-timer-throttling \
+    --disable-renderer-backgrounding \
+    --disable-backgrounding-occluded-windows \
     --disable-features=UseChromeOSDirectVideoDecoder,VaapiVideoDecoder,VaapiVideoEncoder,V4L2FlatVideoDecoder \
     --disable-accelerated-video-decode \
     --enable-features=UseSkiaRenderer \
