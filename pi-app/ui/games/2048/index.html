@@ -266,21 +266,9 @@
       }
     });
 
-    let touchStart = null;
-    gridEl.addEventListener('touchstart', (e) => {
-      const t = e.touches[0];
-      touchStart = { x: t.clientX, y: t.clientY };
-    }, { passive: true });
-    gridEl.addEventListener('touchend', (e) => {
-      if (!touchStart) return;
-      const t = e.changedTouches[0];
-      const dx = t.clientX - touchStart.x;
-      const dy = t.clientY - touchStart.y;
-      touchStart = null;
-      if (Math.abs(dx) < 24 && Math.abs(dy) < 24) return;
-      if (Math.abs(dx) > Math.abs(dy)) move(dx > 0 ? 1 : -1, 0);
-      else                              move(0, dy > 0 ? 1 : -1);
-    }, { passive: true });
+    // Swipe controls are intentionally disabled — the flaky touch panel
+    // misfires swipes mid-game. Tiles move only via the on-screen arrows
+    // (below) or a keyboard.
 
     // On-screen arrows (replaces the need to swipe).
     const DIRS = { up: [0, -1], down: [0, 1], left: [-1, 0], right: [1, 0] };

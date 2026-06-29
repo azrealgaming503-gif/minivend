@@ -250,22 +250,9 @@
       }
     });
 
-    // Touch swipes
-    let touchStart = null;
-    canvas.addEventListener('touchstart', (e) => {
-      const t = e.touches[0];
-      touchStart = { x: t.clientX, y: t.clientY };
-    }, { passive: true });
-    canvas.addEventListener('touchend', (e) => {
-      if (!touchStart) return;
-      const t = e.changedTouches[0];
-      const dx = t.clientX - touchStart.x;
-      const dy = t.clientY - touchStart.y;
-      touchStart = null;
-      if (Math.abs(dx) < 16 && Math.abs(dy) < 16) return;
-      if (Math.abs(dx) > Math.abs(dy)) setDir(dx > 0 ? 1 : -1, 0);
-      else                              setDir(0, dy > 0 ? 1 : -1);
-    }, { passive: true });
+    // Swipe controls are intentionally disabled — the flaky touch panel
+    // misfires swipes mid-game. Use the on-screen arrows (below) or a
+    // keyboard. Direction is driven entirely by the D-pad now.
 
     // On-screen arrows (replaces the need to swipe). pointerdown so it
     // reacts instantly and doesn't wait for the synthetic click.

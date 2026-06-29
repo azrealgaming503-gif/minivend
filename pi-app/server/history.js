@@ -5,8 +5,10 @@
 // the resolved chamber, and the final outcome — useful both for the
 // settings UI's "recent donations" view and for streamer post-mortems.
 //
-// Stored in /var/lib/minivend/donations.json so OTA updates can't wipe
-// it. Kept in memory too, with a cap so the file never grows unbounded.
+// Stored at pi-app/donations.json (path set in index.js). The file is
+// gitignored and untracked, so `git reset --hard` during an OTA update
+// leaves it alone. Kept in memory too, with a cap so it never grows
+// unbounded.
 
 const fs = require('fs');
 const path = require('path');

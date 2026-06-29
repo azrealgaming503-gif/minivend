@@ -178,9 +178,9 @@ pi-app/
 ├── ui/                   Static files served by Express
 │   ├── index.html        Kiosk idle screen + alert overlay
 │   ├── settings.html     Dashboard (uploads, dispense, tips, Wi-Fi, OTA)
-│   ├── games.html        Game launcher
-│   ├── games/{snake,2048}/  Touch-friendly games (self-contained)
-│   ├── js/{ws-client,alerts}.js
+│   ├── games/            Launcher (index.html) + self-contained games
+│   │                     (snake, 2048, tetris, simon)
+│   ├── js/{ws-client,alerts,press-guard,swipe-nav}.js
 │   └── css/styles.css
 ├── systemd/
 │   ├── minivend-server.service

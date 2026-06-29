@@ -330,26 +330,9 @@
     }
 
     // ----- Touch controls -----
-    let touchStart = null;
-    canvas.addEventListener('pointerdown', (e) => {
-      touchStart = { x: e.clientX, y: e.clientY, t: Date.now() };
-    });
-    canvas.addEventListener('pointerup', (e) => {
-      if (!touchStart || !running) { touchStart = null; return; }
-      const dx = e.clientX - touchStart.x;
-      const dy = e.clientY - touchStart.y;
-      const dt = Date.now() - touchStart.t;
-      const adx = Math.abs(dx), ady = Math.abs(dy);
-      if (adx < 14 && ady < 14 && dt < 250) {
-        rotate();
-      } else if (ady > adx && dy > 40) {
-        if (dy > 220) hardDrop(); else softDrop();
-      } else if (adx > ady) {
-        const steps = Math.max(1, Math.round(adx / 28));
-        for (let i = 0; i < steps; i++) move(dx > 0 ? 1 : -1);
-      }
-      touchStart = null;
-    });
+    // Swipe/tap-on-board controls are intentionally disabled — the flaky
+    // touch panel misfires them mid-game. All control is via the on-screen
+    // buttons below (◀ ⟳ ▼ ⤓ ▶) or a keyboard.
 
     document.getElementById('btn-left').addEventListener('click',  () => move(-1));
     document.getElementById('btn-right').addEventListener('click', () => move(+1));

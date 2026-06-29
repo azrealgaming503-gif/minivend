@@ -86,6 +86,7 @@
   <script type="module">
     import { onMessage } from '/js/ws-client.js';
     import '/js/alerts.js';
+    import { installSwipeNav } from '/js/swipe-nav.js';
 
     const root      = document.getElementById('root');
     const videoA    = document.getElementById('idle-video-a');
@@ -160,51 +161,8 @@
       img.src = url;
     }
 
-    // ===== Swipe-up to /menu, swipe-down to no-op (we're already on idle) =====
-    // Captures touch *and* mouse drag (helps when developing on a non-touch
-    // monitor). A vertical drag of > 80 px in the right direction triggers
-    // the navigation. Horizontal drag is ignored.
-    (function installSwipe() {
-      let startY = null, startX = null, startT = 0, moves = 0;
-      // Minimum travel before a vertical drag counts as a swipe. Scales
-      // with screen height (≈16%) so it's a deliberate gesture on any
-      // panel, with a hard floor so it can't get too twitchy.
-      const minDist = () => Math.max(110, window.innerHeight * 0.16);
-      const MIN_TIME  = 70;       // ms — reject instant controller "jump" flicks
-      const MAX_TIME  = 1000;     // ms
-      const MAX_DRIFT = 70;       // px sideways
-      const MIN_MOVES = 2;        // real swipes stream touchmove events; glitches teleport
-
-      function onStart(e) {
-        const p = e.touches ? e.touches[0] : e;
-        startY = p.clientY; startX = p.clientX; startT = Date.now(); moves = 0;
-      }
-      function onMove() { moves++; }
-      function onEnd(e) {
-        if (startY === null) return;
-        const p = e.changedTouches ? e.changedTouches[0] : e;
-        const isTouch = !!e.changedTouches;
-        const dy = p.clientY - startY;
-        const dx = p.clientX - startX;
-        const dt = Date.now() - startT;
-        startY = startX = null;
-        // Reject phantom touches: a real swipe takes time and streams move
-        // events. A flaky panel teleports from press point to release point
-        // in one frame with no moves, which used to read as a "swipe up".
-        if (dt < MIN_TIME || dt > MAX_TIME) return;
-        if (isTouch && moves < MIN_MOVES) return;
-        if (Math.abs(dx) > MAX_DRIFT) return;
-        if (-dy > minDist()) {
-          // Swipe up
-          location.href = '/menu';
-        }
-      }
-      window.addEventListener('touchstart',  onStart, { passive: true });
-      window.addEventListener('touchmove',   onMove,  { passive: true });
-      window.addEventListener('touchend',    onEnd,   { passive: true });
-      window.addEventListener('mousedown',   onStart);
-      window.addEventListener('mouseup',     onEnd);
-    })();
+    // Swipe up anywhere on the idle screen to open the menu.
+    installSwipeNav({ direction: 'up', to: '/menu' });
 
     // Hide the swipe hint after first interaction OR 6 seconds, whichever
     // comes first. Re-show it briefly any time the user taps without swiping.
