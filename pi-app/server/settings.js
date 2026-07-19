@@ -113,10 +113,11 @@ const DEFAULTS = Object.freeze({
     2: { dir: 1, rotations: 1 },
   },
 
-  // Minimum seconds between two physical dispenses. While a cooldown is
-  // active, incoming donations are still acknowledged on-screen and
-  // logged, but their dispense is queued FIFO. Set 0 to disable.
-  dispenseCooldownSec: 0,
+  // Per-chamber minimum seconds between dispenses. A tip that arrives for
+  // a chamber still within its cooldown window is skipped entirely — no
+  // dispense and no overlay (a hard rate-limit). Set 0 to disable a
+  // chamber's cooldown. Stored in seconds; the UI edits minutes.
+  chamberCooldownSec: { 1: 0, 2: 0 },
 
   // Alert filtering. Default behavior matches what most streamers
   // want: only celebrate tips that actually trigger a dispense.
@@ -216,10 +217,21 @@ class SettingsStore {
     if (t > 3600) t = 3600;
     out.kioskIdleTimeoutSec = t;
 
-    let cd = parseInt(out.dispenseCooldownSec, 10);
-    if (!Number.isFinite(cd) || cd < 0) cd = 0;
-    if (cd > 3600) cd = 3600;
-    out.dispenseCooldownSec = cd;
+    // Per-chamber cooldown, with a one-time migration from the old global
+    // `dispenseCooldownSec` field if it's still present in a settings file.
+    const legacyCd = parseInt(out.dispenseCooldownSec, 10);
+    const ccIn = (out.chamberCooldownSec && typeof out.chamberCooldownSec === 'object')
+      ? out.chamberCooldownSec : {};
+    const sanitizeCooldown = (id) => {
+      const raw = (ccIn[id] != null) ? ccIn[id] : ccIn[String(id)];
+      let v = parseInt(raw, 10);
+      if (!Number.isFinite(v)) v = Number.isFinite(legacyCd) ? legacyCd : 0;
+      if (v < 0)    v = 0;
+      if (v > 3600) v = 3600;
+      return v;
+    };
+    out.chamberCooldownSec = { 1: sanitizeCooldown(1), 2: sanitizeCooldown(2) };
+    delete out.dispenseCooldownSec;
 
     let br = parseInt(out.brightness, 10);
     if (!Number.isFinite(br)) br = DEFAULTS.brightness;

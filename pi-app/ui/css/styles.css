@@ -528,9 +528,16 @@ a { color: var(--accent); text-decoration: none; }
 }
 .redeem-stack {
   position: absolute; inset: 0; z-index: 1;
-  display: grid; grid-template-rows: auto auto 1fr;
+  display: grid; grid-template-rows: auto auto 1fr auto;
   justify-items: center; align-items: start;
   padding: 8vh 24px 6vh; gap: 12px; text-align: center;
+}
+.redeem-sticker {
+  max-width: 40vw; max-height: 26vh;
+  width: auto; height: auto;
+  object-fit: contain;
+  align-self: end;
+  filter: drop-shadow(0 6px 18px rgba(0, 0, 0, 0.25));
 }
 .redeem-redeemer {
   font-size: clamp(28px, 7vmin, 52px); font-weight: 700;
@@ -553,6 +560,43 @@ a { color: var(--accent); text-decoration: none; }
 @media (prefers-reduced-motion: reduce) {
   .redeem-sakura { display: none; }
 }
+
+/* ===== Drag-and-drop overlay uploader ===== */
+.dropzone {
+  border: 2px dashed var(--stroke);
+  border-radius: 14px;
+  background: var(--bg);
+  padding: 18px;
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  flex-wrap: wrap;
+  cursor: pointer;
+  transition: border-color 0.15s ease, background 0.15s ease;
+}
+.dropzone.dragover {
+  border-color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 10%, var(--bg));
+}
+.dropzone-preview {
+  width: 84px; height: 84px;
+  flex: 0 0 84px;
+  border-radius: 10px;
+  border: 1px solid var(--stroke);
+  background: var(--surface);
+  display: flex; align-items: center; justify-content: center;
+  overflow: hidden;
+  color: var(--text-2);
+  font-size: 11px;
+  text-align: center;
+}
+.dropzone-preview img {
+  width: 100%; height: 100%; object-fit: contain; display: block;
+}
+.dropzone-body { flex: 1; min-width: 180px; display: flex; flex-direction: column; gap: 4px; }
+.dropzone-title { font-weight: 600; }
+.dropzone-hint { color: var(--text-2); font-size: 13px; }
+.dropzone-actions { display: flex; gap: 8px; margin-top: 6px; flex-wrap: wrap; }
 
 /* ===== Generic page chrome (settings, games launcher) ===== */
 .page {

@@ -52,6 +52,8 @@ import './press-guard.js';
 // Served from /api/state `stickerUrl` (default blu-happy.png). USB
 // import on Settings can replace blu-happy.png / blu-happy.gif.
 let stickerUrl = '/img/blu-happy.png';
+let donationStickerUrl = null;  // custom donation overlay GIF (overrides blu-happy)
+let redeemStickerUrl   = null;  // custom redeem overlay GIF (optional)
 const HOLD_AFTER_DONE_MS = 4500;     // how long to keep overlay up after motor done
 const HOLD_IF_NO_MOTOR   = 5000;     // alerts with no dispense (all-amounts mode)
 const HOLD_IF_STUCK_MS   = 20000;    // absolute cap (cooldown queue safety)
@@ -72,11 +74,21 @@ function fmtAmount(amount, currency) {
 // more — every alert uses the same sticker.
 const env = { chamberLabels: { 1: 'Left', 2: 'Right' } };
 
+// The donation overlay shows the custom uploaded GIF if one is set,
+// otherwise the default blu-happy sticker.
+function currentDonationSticker() { return donationStickerUrl || stickerUrl; }
+
+function updateDonationSticker(bust) {
+  const img = overlay && overlay.querySelector('[data-sticker]');
+  if (!img) return;
+  const base = currentDonationSticker();
+  img.src = bust ? `${base}${base.includes('?') ? '&' : '?'}t=${Date.now()}` : base;
+}
+
 function applyStickerUrl(url) {
   if (!url) return;
   stickerUrl = url;
-  const img = overlay && overlay.querySelector('[data-sticker]');
-  if (img) img.src = stickerUrl;
+  updateDonationSticker(false);
 }
 
 function refreshEnv() {
@@ -88,6 +100,10 @@ function refreshEnv() {
         env.chamberLabels = j.settings.chamberLabels;
       }
       if (j.stickerUrl) applyStickerUrl(j.stickerUrl);
+      donationStickerUrl = j.donationOverlayUrl || null;
+      redeemStickerUrl   = j.redeemOverlayUrl || null;
+      updateDonationSticker(false);
+      updateRedeemSticker();
     })
     .catch(() => {});
 }
@@ -113,7 +129,7 @@ function buildOverlay() {
   `;
   // Preload the sticker so the first real alert doesn't show a
   // broken image while the GIF is still being fetched/cached.
-  el.querySelector('[data-sticker]').src = stickerUrl;
+  el.querySelector('[data-sticker]').src = currentDonationSticker();
   document.body.appendChild(el);
   return el;
 }
@@ -135,12 +151,9 @@ function setFields(evt) {
   ensureOverlay();
   overlay.querySelector('[data-amount]').textContent = fmtAmount(evt.amount, evt.currency);
   overlay.querySelector('[data-name]').textContent   = evt.name || 'Anonymous';
-  // The CSS bounce animation provides the motion — the sticker
-  // itself is a static PNG so we don't bother re-setting `src` on
-  // every show. If you swap the sticker to an animated GIF, append
-  // `?t=` + Date.now() here so back-to-back tips restart the loop.
-  const sticker = overlay.querySelector('[data-sticker]');
-  if (sticker && !sticker.src.endsWith(stickerUrl)) sticker.src = stickerUrl;
+  // Cache-bust the src on every show so an animated GIF restarts its
+  // loop for back-to-back tips (harmless for a static PNG).
+  updateDonationSticker(true);
 }
 
 function showOverlay() {
@@ -228,6 +241,12 @@ onMessage('settings_changed', refreshEnv);
 onMessage('sticker_changed', (m) => {
   if (m.url) applyStickerUrl(m.url);
 });
+onMessage('overlay_changed', (m) => {
+  donationStickerUrl = m.donation || null;
+  redeemStickerUrl   = m.redeem || null;
+  updateDonationSticker(false);
+  updateRedeemSticker();
+});
 
 // =================================================================
 // Channel-point redeem overlay
@@ -250,6 +269,7 @@ function buildRedeemOverlay() {
       <div class="redeem-redeemer" data-redeemer>Someone</div>
       <div class="redeem-label">Redeemed</div>
       <div class="redeem-name" data-redeem-name>a reward</div>
+      <img class="redeem-sticker" data-redeem-sticker alt="" hidden />
     </div>
   `;
   document.body.appendChild(el);
@@ -276,10 +296,22 @@ function spawnRedeemSakura(layer) {
   }
 }
 
+// Show/hide the redeem overlay image based on whether one is configured.
+function updateRedeemSticker() {
+  if (!redeemOverlay) return;
+  const img = redeemOverlay.querySelector('[data-redeem-sticker]');
+  if (img) img.hidden = !redeemStickerUrl;
+}
+
 function showRedeem(evt) {
   if (!redeemOverlay) redeemOverlay = buildRedeemOverlay();
   redeemOverlay.querySelector('[data-redeemer]').textContent   = evt.name || 'Someone';
   redeemOverlay.querySelector('[data-redeem-name]').textContent = evt.redemption || 'a reward';
+  const rimg = redeemOverlay.querySelector('[data-redeem-sticker]');
+  if (rimg) {
+    if (redeemStickerUrl) { rimg.src = `${redeemStickerUrl}?t=${Date.now()}`; rimg.hidden = false; }
+    else rimg.hidden = true;
+  }
   redeemOverlay.classList.add('visible');
   if (redeemHideTimer) clearTimeout(redeemHideTimer);
   redeemHideTimer = setTimeout(() => {

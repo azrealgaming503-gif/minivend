@@ -154,10 +154,12 @@ class AssetStore {
     this.dir = assetsDir;
     this.idleDir = path.join(assetsDir, 'idle');
     this.alertsDir = path.join(assetsDir, 'alerts');
+    this.overlaysDir = path.join(assetsDir, 'overlays');
     this.statePath = path.join(assetsDir, 'state.json');
     ensureDir(this.idleDir);
     ensureDir(this.alertsDir);
-    this.state = { activeIdle: null, activeAlert: null };
+    ensureDir(this.overlaysDir);
+    this.state = { activeIdle: null, activeAlert: null, donationOverlay: null, redeemOverlay: null };
     this._load();
     // Auto-pick something if nothing's chosen yet — prefer packs over flat
     // files since they're usually the curated artist asset.
@@ -228,6 +230,49 @@ class AssetStore {
     if (!fs.existsSync(full)) return null;
     return name;
   }
+
+  // ----- Overlay GIFs (donation + redeem, one each) -----
+  // Each overlay has its own optional image. `kind` is 'donation' or
+  // 'redeem'; stored in state as donationOverlay / redeemOverlay.
+  _overlayKey(kind) {
+    if (kind === 'donation') return 'donationOverlay';
+    if (kind === 'redeem')   return 'redeemOverlay';
+    throw new Error(`bad overlay kind: ${kind}`);
+  }
+
+  setOverlay(kind, name) {
+    const key = this._overlayKey(kind);
+    // Remove any previous file for this kind so old uploads don't pile up.
+    const prev = this.state[key];
+    if (prev && prev !== name) {
+      try { fs.unlinkSync(path.join(this.overlaysDir, prev)); } catch (_) {}
+    }
+    this.state[key] = name || null;
+    this._save();
+    return this.state[key];
+  }
+
+  clearOverlay(kind) {
+    const key = this._overlayKey(kind);
+    const prev = this.state[key];
+    if (prev) {
+      try { fs.unlinkSync(path.join(this.overlaysDir, prev)); } catch (_) {}
+    }
+    this.state[key] = null;
+    this._save();
+  }
+
+  getOverlay(kind) {
+    const name = this.state[this._overlayKey(kind)];
+    if (!name) return null;
+    if (!fs.existsSync(path.join(this.overlaysDir, name))) return null;
+    return name;
+  }
+
+  overlayUrl(kind) {
+    const name = this.getOverlay(kind);
+    return name ? `/assets/overlays/${encodeURIComponent(name)}` : null;
+  }
 }
 
 function mount(app, { store, broadcast }) {
@@ -244,8 +289,64 @@ function mount(app, { store, broadcast }) {
   });
 
   // Static serve the raw files (works for both flat files and pack subdirs).
-  app.use('/assets/idle',   express.static(store.idleDir,   { fallthrough: false }));
-  app.use('/assets/alerts', express.static(store.alertsDir, { fallthrough: false }));
+  app.use('/assets/idle',     express.static(store.idleDir,     { fallthrough: false }));
+  app.use('/assets/alerts',   express.static(store.alertsDir,   { fallthrough: false }));
+  app.use('/assets/overlays', express.static(store.overlaysDir, { fallthrough: false }));
+
+  // ----- Overlay GIFs (donation + redeem) -----
+  // One optional image per overlay. Uploaded via the drag-and-drop zones
+  // on the Donations / Settings pages. Images only (gif/png/webp/jpg).
+  const overlayUpload = multer({
+    storage: multer.diskStorage({
+      destination: (_req, _file, cb) => cb(null, store.overlaysDir),
+      filename: (req, file, cb) => {
+        const kind = req.params.kind === 'redeem' ? 'redeem' : 'donation';
+        // Prefix with kind + timestamp so a new upload never collides with
+        // the old file that setOverlay() is about to delete.
+        cb(null, `${kind}-${Date.now()}-${safeName(file.originalname)}`);
+      },
+    }),
+    limits: { fileSize: 25 * 1024 * 1024 },
+    fileFilter: (_req, file, cb) => {
+      const ext = path.extname(file.originalname).toLowerCase();
+      const ok = IMAGE_EXTS.has(ext);
+      cb(ok ? null : new Error('overlay images must be gif/png/webp/jpg'), ok);
+    },
+  });
+
+  app.get('/api/assets/overlay', (_req, res) => {
+    res.json({
+      ok: true,
+      donation: store.overlayUrl('donation'),
+      redeem:   store.overlayUrl('redeem'),
+    });
+  });
+
+  app.post('/api/assets/overlay/:kind', (req, res) => {
+    const kind = req.params.kind;
+    if (kind !== 'donation' && kind !== 'redeem') {
+      return res.status(400).json({ ok: false, err: 'bad_kind' });
+    }
+    overlayUpload.single('file')(req, res, (err) => {
+      if (err) return res.status(400).json({ ok: false, err: err.message });
+      if (!req.file) return res.status(400).json({ ok: false, err: 'no_file' });
+      store.setOverlay(kind, req.file.filename);
+      const urls = { donation: store.overlayUrl('donation'), redeem: store.overlayUrl('redeem') };
+      broadcast({ type: 'overlay_changed', ...urls });
+      res.json({ ok: true, url: urls[kind], ...urls });
+    });
+  });
+
+  app.delete('/api/assets/overlay/:kind', (req, res) => {
+    const kind = req.params.kind;
+    if (kind !== 'donation' && kind !== 'redeem') {
+      return res.status(400).json({ ok: false, err: 'bad_kind' });
+    }
+    store.clearOverlay(kind);
+    const urls = { donation: store.overlayUrl('donation'), redeem: store.overlayUrl('redeem') };
+    broadcast({ type: 'overlay_changed', ...urls });
+    res.json({ ok: true, ...urls });
+  });
 
   // Full description of the active idle pick. Replaces the old 302 endpoint.
   app.get('/api/assets/idle/active', async (_req, res) => {

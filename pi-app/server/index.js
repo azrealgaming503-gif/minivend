@@ -160,6 +160,8 @@ app.get('/api/state', (_req, res) => {
     dispense: config.dispense,
     settings: settings.getAll(),
     stickerUrl: resolveStickerUrl(),
+    donationOverlayUrl: store.overlayUrl('donation'),
+    redeemOverlayUrl:   store.overlayUrl('redeem'),
   });
 });
 
@@ -274,16 +276,28 @@ app.post('/api/stop', express.json({ limit: '4kb' }), (req, res) => {
 //   - broadcast "donation_done"
 //   - start cooldown (lastDispenseAt = Date.now())
 //   - drainDispenseQueue() (will respect cooldown automatically)
-let lastDispenseAt = 0;
+const lastDispenseAt = { 1: 0, 2: 0 };  // per-chamber completion timestamps
 let activeJob = null;          // job currently dispensing (or null)
 const dispenseQueue = [];      // FIFO of {historyId, motor, evt}
 let drainTimer = null;
 
-function cooldownMsRemaining() {
-  const cd = (settings.getAll().dispenseCooldownSec || 0) * 1000;
+// Remaining cooldown (ms) for a chamber, from its own chamberCooldownSec.
+function cooldownMsRemaining(motor) {
+  const cc = settings.getAll().chamberCooldownSec || {};
+  const cd = (parseInt(cc[motor] != null ? cc[motor] : cc[String(motor)], 10) || 0) * 1000;
   if (cd <= 0) return 0;
-  const elapsed = Date.now() - lastDispenseAt;
+  const elapsed = Date.now() - (lastDispenseAt[motor] || 0);
   return Math.max(0, cd - elapsed);
+}
+
+// A chamber is unavailable for a new tip if it's cooling down, currently
+// dispensing, or already has a job waiting in the queue. Used to skip
+// tips entirely during cooldown (no dispense, no overlay).
+function chamberBlockedMs(motor) {
+  let ms = cooldownMsRemaining(motor);
+  if (activeJob && activeJob.motor === motor) ms = Math.max(ms, 1);
+  if (dispenseQueue.some((j) => j.motor === motor)) ms = Math.max(ms, 1);
+  return ms;
 }
 
 function snapshotQueue() {
@@ -295,7 +309,7 @@ function snapshotQueue() {
 function broadcastDispenseState(extra = {}) {
   broadcast({
     type: 'dispense_state',
-    cooldownMs: cooldownMsRemaining(),
+    cooldownMs: { 1: cooldownMsRemaining(1), 2: cooldownMsRemaining(2) },
     queue: snapshotQueue(),
     active: activeJob ? {
       id: activeJob.historyId,
@@ -312,12 +326,9 @@ function drainDispenseQueue() {
   if (activeJob) return;                          // wait for current to finish
   if (dispenseQueue.length === 0) return;
 
-  const wait = cooldownMsRemaining();
-  if (wait > 0) {
-    drainTimer = setTimeout(drainDispenseQueue, wait + 50);
-    return;
-  }
-
+  // No cooldown wait here: per-chamber cooldown is enforced up front in
+  // dispatchDonation (tips during cooldown are skipped entirely), so the
+  // queue only ever holds tips that are cleared to dispense.
   const job = dispenseQueue.shift();
   if (!motor.connected) {
     history.update(job.historyId, {
@@ -369,8 +380,8 @@ motor.on('dispense_result', (info) => {
     kind: info.kind,
     ms:   info.ms,
   });
+  lastDispenseAt[activeJob.motor] = Date.now();  // start this chamber's cooldown
   activeJob = null;
-  lastDispenseAt = Date.now();
   broadcastDispenseState();
   drainDispenseQueue();
 });
@@ -410,6 +421,16 @@ function dispatchDonation(evt) {
       source: evt.source, name: evt.name, amount: evt.amount,
       currency: evt.currency, message: evt.message, suppressed: 'offline',
     });
+    return;
+  }
+
+  // Per-chamber cooldown: skip the tip entirely (no dispense, no overlay)
+  // if this chamber is still cooling down, currently dispensing, or already
+  // has a tip queued. Still logged so the operator sees it in history.
+  if (chamberBlockedMs(resolvedMotor) > 0) {
+    console.log(`[donation]   ↳ skipped (chamber ${resolvedMotor} cooldown active)`);
+    history.add({ ...evt, motor: resolvedMotor, status: 'skipped_cooldown',
+                  detail: 'chamber cooldown active' });
     return;
   }
 

@@ -97,6 +97,15 @@
           <input id="redeem-alerts-input" type="checkbox" class="toggle-switch" />
         </label>
         <button type="button" id="redeem-test-btn" class="ghost" style="margin-top: 12px;">Preview alert</button>
+
+        <div style="margin-top: 16px;">
+          <div style="font-weight: 600; margin-bottom: 6px;">Redeem overlay image</div>
+          <p class="meta" style="color: var(--text-2); font-size: 13px; margin: 0 0 10px;">
+            Optional GIF/image shown on the redeem overlay. Drag one in or
+            tap to choose. Leave empty for text + petals only.
+          </p>
+          <div id="redeem-overlay-zone"></div>
+        </div>
       </section>
 
       <section class="section">
@@ -140,7 +149,15 @@
     import '/js/alerts.js';
     import { attachNumpad } from '/js/numpad.js';
     import { openUsbBrowser } from '/js/usb-browser.js';
+    import { initOverlayUploader } from '/js/overlay-upload.js';
     attachNumpad();
+
+    initOverlayUploader({
+      zoneId: 'redeem-overlay-zone',
+      kind: 'redeem',
+      title: 'Redeem overlay image',
+      hint: 'Drag a GIF/PNG here, or tap to choose.',
+    });
 
     document.getElementById('usb-sticker-btn').addEventListener('click', () => {
       const st = document.getElementById('usb-sticker-status');
