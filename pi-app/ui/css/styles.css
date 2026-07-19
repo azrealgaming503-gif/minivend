@@ -46,8 +46,14 @@
 * { box-sizing: border-box; }
 
 /* Touchscreen kiosk — never show a mouse cursor. Touch events from the
-   panel can otherwise briefly materialize a pointer in Chromium/cage. */
-*, *::before, *::after { cursor: none !important; }
+   panel can otherwise briefly materialize a pointer in Chromium/cage.
+   Scoped to touch-only devices (hover:none + pointer:coarse) so that
+   remote access from a laptop/desktop with a real mouse still shows a
+   normal cursor. The kiosk also hides the pointer at the OS level via a
+   transparent cursor theme, so it stays cursor-free either way. */
+@media (hover: none) and (pointer: coarse) {
+  *, *::before, *::after { cursor: none !important; }
+}
 
 /* Force the HTML `hidden` attribute to win over component CSS that uses
    `display: flex`/`grid`. Without this override the UA's `[hidden]
