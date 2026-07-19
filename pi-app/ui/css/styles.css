@@ -252,58 +252,6 @@ a { color: var(--accent); text-decoration: none; }
   50%      { box-shadow: 0 0 24px rgba(78, 200, 255, 0.7); }
 }
 
-/* ===== Idle menu button (touch, replaces the old swipe-up) ===== */
-.idle-menu-btn {
-  position: absolute;
-  bottom: 24px;
-  left: 50%;
-  transform: translateX(-50%);
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  padding: 12px 22px;
-  border: 1px solid rgba(255, 255, 255, 0.35);
-  border-radius: 999px;
-  background: rgba(7, 16, 31, 0.45);
-  color: #fff;
-  font-size: 15px;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-  z-index: 8;
-  cursor: pointer;
-  backdrop-filter: blur(4px);
-  -webkit-backdrop-filter: blur(4px);
-  opacity: 0.72;
-  transition: opacity 0.25s ease, transform 0.1s ease, background 0.25s ease;
-}
-.idle-menu-btn:hover { opacity: 0.95; }
-.idle-menu-btn:active {
-  transform: translateX(-50%) scale(0.96);
-  background: rgba(7, 16, 31, 0.65);
-  opacity: 1;
-}
-.idle-menu-btn-icon {
-  width: 20px; height: 14px;
-  flex: 0 0 auto;
-  background-image: linear-gradient(currentColor, currentColor);
-  background-repeat: no-repeat;
-  background-size: 100% 2px;
-  background-position: center;
-  position: relative;
-}
-.idle-menu-btn-icon::before,
-.idle-menu-btn-icon::after {
-  content: "";
-  position: absolute;
-  left: 0; right: 0;
-  height: 2px;
-  background: currentColor;
-  border-radius: 2px;
-}
-.idle-menu-btn-icon::before { top: 0; }
-.idle-menu-btn-icon::after  { bottom: 0; }
-.idle-menu-btn-label { line-height: 1; }
-
 /* ===== Menu page ===== */
 .menu-body { background: var(--bg); }
 .menu-root {

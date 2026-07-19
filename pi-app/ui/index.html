@@ -74,12 +74,8 @@
       </div>
     </div>
 
-    <!-- Persistent touch button to open the menu. Kept subtle so it
-         doesn't distract from the idle animation, but always tappable. -->
-    <button class="idle-menu-btn" id="idle-menu-btn" aria-label="Open menu">
-      <span class="idle-menu-btn-icon" aria-hidden="true"></span>
-      <span class="idle-menu-btn-label">Menu</span>
-    </button>
+    <!-- Double-tap anywhere on the idle screen to open the menu.
+         (See the double-tap handler in the script below.) -->
   </div>
 
   <script type="module">
@@ -92,7 +88,6 @@
     const image     = document.getElementById('idle-image');
     const cover     = document.getElementById('idle-cover');
     const empty     = document.getElementById('idle-empty');
-    const menuBtn   = document.getElementById('idle-menu-btn');
     const bootSplash = document.getElementById('boot-splash');
 
     // ===== Boot-splash handoff =====
@@ -159,9 +154,24 @@
       img.src = url;
     }
 
-    // Tap the Menu button to open the menu. (Swipe navigation removed —
-    // the panel is touch-button only now.)
-    menuBtn.addEventListener('click', () => { location.href = '/menu'; });
+    // Double-tap anywhere on the idle screen to open the menu. Two taps
+    // must land within DBL_MS of each other and close together (DBL_DIST)
+    // so a single stray tap never navigates. pointerup covers both touch
+    // and mouse and fires once per tap (no synthetic-event double count).
+    const DBL_MS = 400, DBL_DIST = 60;
+    let lastTapT = 0, lastTapX = 0, lastTapY = 0;
+    window.addEventListener('pointerup', (e) => {
+      const now = Date.now();
+      const x = e.clientX, y = e.clientY;
+      if (now - lastTapT < DBL_MS &&
+          Math.abs(x - lastTapX) < DBL_DIST &&
+          Math.abs(y - lastTapY) < DBL_DIST) {
+        lastTapT = 0;
+        location.href = '/menu';
+        return;
+      }
+      lastTapT = now; lastTapX = x; lastTapY = y;
+    });
 
     // ===== Idle player =====
     // Two-element ping-pong: activeEl is what the user sees, bufferEl is
