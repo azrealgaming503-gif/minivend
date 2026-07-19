@@ -159,26 +159,18 @@
 
     <footer class="menu-footer">
       <button class="pill-btn" id="back-btn">← Back to idle</button>
-      <div class="swipe-hint swipe-hint-down">
-        <div class="swipe-hint-label">swipe down</div>
-        <div class="swipe-hint-arrow down"></div>
-      </div>
     </footer>
   </div>
 
   <script type="module">
     import { onMessage } from '/js/ws-client.js';
     import '/js/alerts.js';
-    import { installSwipeNav } from '/js/swipe-nav.js';
 
     const dot   = document.getElementById('motor-dot');
     const label = document.getElementById('motor-label');
     const back  = document.getElementById('back-btn');
 
     back.addEventListener('click', () => location.href = '/');
-
-    // Swipe down → back to idle.
-    installSwipeNav({ direction: 'down', to: '/' });
 
     function setMotorStatus(connected, fw) {
       dot.classList.toggle('ok',   !!connected);

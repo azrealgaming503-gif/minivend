@@ -93,6 +93,26 @@ const DEFAULTS = Object.freeze({
     2: 'Right',
   },
 
+  // ----- Physical dispense motion -----
+  // The ESP32 dispense is time-based: it spins the stepper at `dispenseSpeed`
+  // (steps/sec) until the drop sensor fires OR a maximum run-time elapses.
+  // We express that maximum as a number of *revolutions* per chamber, so it
+  // maps directly to how far a coil/auger turns to push one item out.
+  // Partial turns are allowed (e.g. 0.5). Each chamber also has its own
+  // direction so mirrored hardware can both eject "outward".
+  //
+  // Revolutions are converted to milliseconds by the server:
+  //   maxMs = rotations * stepsPerRev / dispenseSpeed * 1000
+  // `stepsPerRev` is microsteps per full turn (motor steps × driver
+  // microstepping). Calibrate it once with the Test dispense button until
+  // "1.0 rotation" equals one physical revolution of the coil.
+  dispenseSpeed: 1200,   // steps/sec sent to the stepper during a dispense
+  stepsPerRev: 200,      // microsteps per full revolution (match your driver)
+  chamberDispense: {
+    1: { dir: 1, rotations: 1 },
+    2: { dir: 1, rotations: 1 },
+  },
+
   // Minimum seconds between two physical dispenses. While a cooldown is
   // active, incoming donations are still acknowledged on-screen and
   // logged, but their dispense is queued FIFO. Set 0 to disable.
@@ -211,6 +231,33 @@ class SettingsStore {
     out.dispenseOnlyWhenLive = !!out.dispenseOnlyWhenLive;
     out.showRedeemAlerts = !!out.showRedeemAlerts;
 
+    // ----- Dispense motion -----
+    let ds = parseInt(out.dispenseSpeed, 10);
+    if (!Number.isFinite(ds)) ds = DEFAULTS.dispenseSpeed;
+    if (ds < 100)   ds = 100;
+    if (ds > 10000) ds = 10000;
+    out.dispenseSpeed = ds;
+
+    let spr = parseInt(out.stepsPerRev, 10);
+    if (!Number.isFinite(spr)) spr = DEFAULTS.stepsPerRev;
+    if (spr < 1)      spr = 1;
+    if (spr > 100000) spr = 100000;
+    out.stepsPerRev = spr;
+
+    const cdIn = (out.chamberDispense && typeof out.chamberDispense === 'object')
+      ? out.chamberDispense : {};
+    const sanitizeChamber = (id) => {
+      const row = cdIn[id] || cdIn[String(id)] || {};
+      let rot = Number(row.rotations);
+      if (!Number.isFinite(rot)) rot = DEFAULTS.chamberDispense[id].rotations;
+      if (rot < 0.05) rot = 0.05;
+      if (rot > 100)  rot = 100;
+      rot = Math.round(rot * 20) / 20;   // snap to 0.05 to avoid float noise
+      const dir = (parseInt(row.dir, 10) === -1) ? -1 : 1;
+      return { dir, rotations: rot };
+    };
+    out.chamberDispense = { 1: sanitizeChamber(1), 2: sanitizeChamber(2) };
+
     if (!Array.isArray(out.dispenseTiers)) {
       out.dispenseTiers = DEFAULTS.dispenseTiers.map((t) => ({ ...t }));
     }
@@ -279,6 +326,18 @@ class SettingsStore {
       }
     }
     return exact != null ? exact : pick;
+  }
+
+  // Concrete DISPENSE parameters for a chamber, derived from the
+  // configured direction + revolutions. `maxMs` is the run-time
+  // equivalent of `rotations` full turns at `dispenseSpeed`.
+  dispenseParamsFor(motorId) {
+    const id = (parseInt(motorId, 10) === 2) ? 2 : 1;
+    const cd = this._values.chamberDispense[id] || { dir: 1, rotations: 1 };
+    const speed = this._values.dispenseSpeed;
+    const steps = cd.rotations * this._values.stepsPerRev;
+    const maxMs = Math.max(50, Math.round((steps / speed) * 1000));
+    return { dir: cd.dir, speed, maxMs, rotations: cd.rotations };
   }
 
   getAll() { return { ...this._values }; }

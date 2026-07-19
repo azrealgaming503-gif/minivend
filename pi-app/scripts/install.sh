@@ -89,7 +89,13 @@ apt install -y \
   libnss3 libatk-bridge2.0-0 libgtk-3-0 \
   ffmpeg \
   build-essential \
-  network-manager wireless-tools
+  network-manager wireless-tools \
+  avahi-daemon
+
+# mDNS: lets phones/laptops reach the kiosk at "<hostname>.local" (e.g.
+# minivend.local) without knowing its IP — used by the "Access from your
+# phone" panel. Enable now and on boot; harmless if already running.
+systemctl enable --now avahi-daemon.service 2>/dev/null || true
 
 if ! command -v node >/dev/null || [ "$(node -v | sed 's/v\([0-9]*\).*/\1/')" -lt 20 ]; then
   echo "==> Installing Node.js 20 via NodeSource"

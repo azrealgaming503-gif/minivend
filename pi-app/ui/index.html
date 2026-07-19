@@ -54,8 +54,7 @@
   </script>
 
   <!-- Idle screen: only the looping cat animation. Donation alerts still
-       overlay on top (alerts.js). Swipe UP anywhere on the screen to open
-       the menu page; swipe DOWN from the menu to return. -->
+       overlay on top (alerts.js). Tap the Menu button to open the menu. -->
   <div class="kiosk-root" id="root">
     <div class="idle-stage">
       <video id="idle-video-a"  class="idle-media" muted playsinline preload="auto"></video>
@@ -75,18 +74,17 @@
       </div>
     </div>
 
-    <!-- Swipe hint that auto-fades after a few seconds, so the screen
-         is just the cat in steady state. -->
-    <div class="swipe-hint" id="swipe-hint">
-      <div class="swipe-hint-arrow"></div>
-      <div class="swipe-hint-label">swipe up for menu</div>
-    </div>
+    <!-- Persistent touch button to open the menu. Kept subtle so it
+         doesn't distract from the idle animation, but always tappable. -->
+    <button class="idle-menu-btn" id="idle-menu-btn" aria-label="Open menu">
+      <span class="idle-menu-btn-icon" aria-hidden="true"></span>
+      <span class="idle-menu-btn-label">Menu</span>
+    </button>
   </div>
 
   <script type="module">
     import { onMessage } from '/js/ws-client.js';
     import '/js/alerts.js';
-    import { installSwipeNav } from '/js/swipe-nav.js';
 
     const root      = document.getElementById('root');
     const videoA    = document.getElementById('idle-video-a');
@@ -94,7 +92,7 @@
     const image     = document.getElementById('idle-image');
     const cover     = document.getElementById('idle-cover');
     const empty     = document.getElementById('idle-empty');
-    const swipeHint = document.getElementById('swipe-hint');
+    const menuBtn   = document.getElementById('idle-menu-btn');
     const bootSplash = document.getElementById('boot-splash');
 
     // ===== Boot-splash handoff =====
@@ -161,22 +159,9 @@
       img.src = url;
     }
 
-    // Swipe up anywhere on the idle screen to open the menu.
-    installSwipeNav({ direction: 'up', to: '/menu' });
-
-    // Hide the swipe hint after first interaction OR 6 seconds, whichever
-    // comes first. Re-show it briefly any time the user taps without swiping.
-    let hintHideTimer = null;
-    function hideHint(delay = 0) {
-      clearTimeout(hintHideTimer);
-      hintHideTimer = setTimeout(() => swipeHint.classList.add('hidden'), delay);
-    }
-    function flashHint() {
-      swipeHint.classList.remove('hidden');
-      hideHint(2500);
-    }
-    hideHint(6000);
-    window.addEventListener('touchstart', flashHint, { passive: true });
+    // Tap the Menu button to open the menu. (Swipe navigation removed —
+    // the panel is touch-button only now.)
+    menuBtn.addEventListener('click', () => { location.href = '/menu'; });
 
     // ===== Idle player =====
     // Two-element ping-pong: activeEl is what the user sees, bufferEl is

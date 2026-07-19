@@ -167,9 +167,13 @@ app.get('/api/state', (_req, res) => {
 app.post('/api/dispense', express.json({ limit: '4kb' }), (req, res) => {
   const body = req.body || {};
   const id = parseInt(body.motor, 10) || config.dispense.motor;
-  const dir = body.dir === -1 ? -1 : +1;
-  const speed = parseInt(body.speed, 10) || config.dispense.speed;
-  const maxMs = parseInt(body.max_ms, 10) || config.dispense.maxMs;
+  // Per-chamber configured motion (direction + revolutions → run-time).
+  // Explicit body params still win so the manual jog can override with
+  // its own dir/speed/max_ms.
+  const cfg = settings.dispenseParamsFor(id);
+  const dir = body.dir === -1 ? -1 : (body.dir === 1 ? 1 : cfg.dir);
+  const speed = parseInt(body.speed, 10) || cfg.speed;
+  const maxMs = parseInt(body.max_ms, 10) || cfg.maxMs;
   const ok = motor.dispense(id, dir, speed, maxMs);
   if (!ok) return res.status(503).json({ ok: false, err: 'motor_not_connected' });
   broadcast({ type: 'dispense_started', motor: id, dir, speed, max_ms: maxMs });
@@ -330,7 +334,7 @@ function drainDispenseQueue() {
   }
 
   activeJob = job;
-  const { dir, speed, maxMs } = config.dispense;
+  const { dir, speed, maxMs } = settings.dispenseParamsFor(job.motor);
   const labels = settings.getAll().chamberLabels;
   motor.dispense(job.motor, dir, speed, maxMs);
   history.update(job.historyId, { status: 'dispensing' });
@@ -526,10 +530,9 @@ app.post('/api/integrations/streamelements/disconnect', async (_req, res) => {
   res.json({ ok: true, status: se.status() });
 });
 
-// Convenience: a QR-friendly URL synthesizer the UI can call when
-// debugging without going through pair/new (e.g. show the raw OAuth
-// URL with the pairing id embedded as state).
-app.get('/api/integrations/streamelements/qr', async (req, res) => {
+// Generic QR renderer: turns any URL/text into an SVG QR code. Used by the
+// "Access from your phone" panel (and any other UI that needs a scan code).
+async function renderQr(req, res) {
   const url = req.query.url ? String(req.query.url) : '';
   if (!url) return res.status(400).json({ ok: false, err: 'missing url' });
   try {
@@ -539,7 +542,10 @@ app.get('/api/integrations/streamelements/qr', async (req, res) => {
   } catch (e) {
     res.status(500).json({ ok: false, err: e.message });
   }
-});
+}
+app.get('/api/qr', renderQr);
+// Back-compat alias for the StreamElements pairing flow.
+app.get('/api/integrations/streamelements/qr', renderQr);
 
 // ---------- Asset endpoints ----------
 mountAssets(app, { store, broadcast });

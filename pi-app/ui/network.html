@@ -16,6 +16,56 @@
     <div class="page-body">
 
       <section class="section">
+        <h2>Access from your phone</h2>
+        <p class="meta" style="color: var(--text-2); font-size: 13px; margin: 0 0 12px;">
+          Open the full kiosk control panel on your phone or laptop to
+          upload images, change settings, and manage the machine. Your
+          device must be on the <strong>same Wi-Fi</strong> as the kiosk.
+        </p>
+        <div class="row" style="justify-content: space-between; gap: 14px; flex-wrap: wrap; align-items: center;">
+          <div id="portal-summary" class="meta" style="color: var(--text-2); font-size: 13px;">
+            Tap "Show access code" to reveal the address &amp; QR.
+          </div>
+          <div class="row" style="gap: 8px; flex-wrap: wrap;">
+            <button id="portal-show">Show access code</button>
+          </div>
+        </div>
+        <div id="portal-panel" hidden style="margin-top: 16px; padding: 14px;
+                                             border: 1px solid var(--stroke); border-radius: 12px;
+                                             background: var(--bg);">
+          <div class="row" style="gap: 16px; align-items: flex-start; flex-wrap: wrap;">
+            <div id="portal-qr" style="background: #fff; padding: 8px; border-radius: 8px;
+                                        width: 200px; height: 200px;
+                                        display: flex; align-items: center; justify-content: center;
+                                        color: #000; font-size: 12px;">generating QR...</div>
+            <div class="col" style="gap: 10px; flex: 1; min-width: 220px;">
+              <div style="font-weight: 600;">Scan with your phone's camera</div>
+              <div class="meta" style="color: var(--text-2); font-size: 13px;">
+                Or type one of these into your phone's browser:
+              </div>
+              <div>
+                <div style="font-weight: 600; font-size: 13px;">Easy address</div>
+                <div id="portal-friendly" class="meta"
+                     style="color: var(--text-2); font-size: 13px; word-break: break-all;">—</div>
+              </div>
+              <div>
+                <div style="font-weight: 600; font-size: 13px;">Direct address</div>
+                <div id="portal-direct" class="meta"
+                     style="color: var(--text-2); font-size: 13px; word-break: break-all;">—</div>
+              </div>
+              <div class="meta" style="color: var(--text-2); font-size: 12px;">
+                Anyone on this Wi-Fi can use this to control the machine — only
+                share it on a network you trust. Auto-hides in 60 seconds.
+              </div>
+              <div class="row" style="margin-top: 2px;">
+                <button id="portal-hide" class="ghost">Hide</button>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section class="section">
         <h2>Wi-Fi</h2>
         <div id="wifi-info" class="row" style="justify-content: space-between; gap: 14px; flex-wrap: wrap;">
           <div>
@@ -134,6 +184,63 @@
     import '/js/alerts.js';
     import { attachKeyboard } from '/js/keyboard.js';
     attachKeyboard();
+
+    // ===== Access-from-phone portal (QR + address, hidden behind a tap) =====
+    const portalShow    = document.getElementById('portal-show');
+    const portalHide    = document.getElementById('portal-hide');
+    const portalPanel   = document.getElementById('portal-panel');
+    const portalQr      = document.getElementById('portal-qr');
+    const portalFriendly = document.getElementById('portal-friendly');
+    const portalDirect  = document.getElementById('portal-direct');
+    let portalHideTimer = null;
+
+    function closePortal() {
+      portalPanel.hidden = true;
+      portalShow.textContent = 'Show access code';
+      clearTimeout(portalHideTimer);
+    }
+    async function openPortal() {
+      portalPanel.hidden = false;
+      portalShow.textContent = 'Refresh code';
+      portalQr.innerHTML = 'detecting address...';
+      portalFriendly.textContent = '—';
+      portalDirect.textContent = '—';
+      const port = location.port || '3000';
+      let ip = null, hostname = null;
+      try {
+        const w = await (await fetch('/api/wifi')).json();
+        if (w && w.ok) { ip = w.ip || null; hostname = w.hostname || null; }
+      } catch (_) {}
+
+      const friendlyUrl = hostname ? `http://${hostname}.local:${port}/menu` : null;
+      const directUrl   = ip ? `http://${ip}:${port}/menu` : null;
+      // Encode the most broadly-reliable address (raw IP works on every
+      // phone; the .local name needs mDNS support). Fall back to whatever
+      // we have.
+      const qrUrl = directUrl || friendlyUrl;
+
+      portalFriendly.textContent = friendlyUrl || '(hostname unavailable)';
+      portalDirect.textContent   = directUrl || '(IP not detected — check Wi-Fi)';
+
+      if (qrUrl) {
+        portalQr.innerHTML =
+          `<img src="/api/qr?url=${encodeURIComponent(qrUrl)}" alt="phone access QR"
+                style="width: 100%; height: 100%; display: block;"/>`;
+      } else {
+        portalQr.innerHTML =
+          `<span style="color:#900; padding:8px; text-align:center;">No network address yet.</span>`;
+      }
+
+      clearTimeout(portalHideTimer);
+      portalHideTimer = setTimeout(closePortal, 60_000);
+    }
+    portalShow.addEventListener('click', () => {
+      if (portalPanel.hidden) {
+        if (!confirm('Show the phone-access address and QR code on screen?\n\nAnyone watching the stream could scan it and control the machine. It auto-hides in 60 seconds.')) return;
+      }
+      openPortal();
+    });
+    portalHide.addEventListener('click', closePortal);
 
     // ===== Wi-Fi (with IP hidden behind a confirm) =====
     const wifiSummary  = document.getElementById('wifi-summary');

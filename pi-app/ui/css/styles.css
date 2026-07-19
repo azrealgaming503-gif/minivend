@@ -246,55 +246,59 @@ a { color: var(--accent); text-decoration: none; }
   50%      { box-shadow: 0 0 24px rgba(78, 200, 255, 0.7); }
 }
 
-/* ===== Swipe hint (auto-fading overlay nudge) ===== */
-.swipe-hint {
+/* ===== Idle menu button (touch, replaces the old swipe-up) ===== */
+.idle-menu-btn {
   position: absolute;
   bottom: 24px;
   left: 50%;
   transform: translateX(-50%);
   display: flex;
-  flex-direction: column;
   align-items: center;
-  gap: 8px;
-  pointer-events: none;
-  z-index: 8;
-  opacity: 1;
-  transition: opacity 0.6s ease;
-  filter: drop-shadow(0 0 6px rgba(7, 16, 31, 0.8));
-}
-.swipe-hint.hidden { opacity: 0; }
-.swipe-hint-arrow {
-  width: 22px; height: 22px;
-  border-right: 3px solid var(--accent);
-  border-top:   3px solid var(--accent);
-  transform: rotate(-45deg);
-  animation: swipe-bob 1.6s ease-in-out infinite;
-}
-.swipe-hint-arrow.down {
-  transform: rotate(135deg);
-  animation-name: swipe-bob-down;
-}
-.swipe-hint-label {
-  color: var(--text);
-  font-size: 13px;
-  letter-spacing: 0.1em;
+  gap: 10px;
+  padding: 12px 22px;
+  border: 1px solid rgba(255, 255, 255, 0.35);
+  border-radius: 999px;
+  background: rgba(7, 16, 31, 0.45);
+  color: #fff;
+  font-size: 15px;
+  letter-spacing: 0.08em;
   text-transform: uppercase;
-  opacity: 0.85;
+  z-index: 8;
+  cursor: pointer;
+  backdrop-filter: blur(4px);
+  -webkit-backdrop-filter: blur(4px);
+  opacity: 0.72;
+  transition: opacity 0.25s ease, transform 0.1s ease, background 0.25s ease;
 }
-.swipe-hint-down {
-  bottom: auto;
-  top: 24px;
+.idle-menu-btn:hover { opacity: 0.95; }
+.idle-menu-btn:active {
+  transform: translateX(-50%) scale(0.96);
+  background: rgba(7, 16, 31, 0.65);
+  opacity: 1;
 }
-@keyframes swipe-bob {
-  0%, 100% { transform: rotate(-45deg) translate(0, 0);  opacity: 0.6; }
-  50%      { transform: rotate(-45deg) translate(4px, -4px); opacity: 1; }
+.idle-menu-btn-icon {
+  width: 20px; height: 14px;
+  flex: 0 0 auto;
+  background-image: linear-gradient(currentColor, currentColor);
+  background-repeat: no-repeat;
+  background-size: 100% 2px;
+  background-position: center;
+  position: relative;
 }
-@keyframes swipe-bob-down {
-  0%, 100% { transform: rotate(135deg) translate(0, 0);   opacity: 0.6; }
-  50%      { transform: rotate(135deg) translate(4px, -4px); opacity: 1; }
+.idle-menu-btn-icon::before,
+.idle-menu-btn-icon::after {
+  content: "";
+  position: absolute;
+  left: 0; right: 0;
+  height: 2px;
+  background: currentColor;
+  border-radius: 2px;
 }
+.idle-menu-btn-icon::before { top: 0; }
+.idle-menu-btn-icon::after  { bottom: 0; }
+.idle-menu-btn-label { line-height: 1; }
 
-/* ===== Menu page (the swipe-up surface) ===== */
+/* ===== Menu page ===== */
 .menu-body { background: var(--bg); }
 .menu-root {
   position: relative;
@@ -378,19 +382,6 @@ a { color: var(--accent); text-decoration: none; }
   cursor: pointer;
 }
 .menu-footer .pill-btn:active { transform: scale(0.97); }
-.menu-footer .swipe-hint-down {
-  position: absolute;
-  top: -32px;
-  right: 22px;
-  bottom: auto;
-  left: auto;
-  transform: none;
-  flex-direction: row;
-  align-items: center;
-}
-.menu-footer .swipe-hint-down .swipe-hint-arrow.down {
-  width: 16px; height: 16px;
-}
 
 /* ===== Donation alert overlay (full-screen takeover) =====
    Sits above the idle videos, menu, settings — anything. Driven by
@@ -813,9 +804,6 @@ body.theme-pastel .menu-footer .pill-btn {
   border: 1px solid var(--stroke);
   color: var(--text);
 }
-body.theme-pastel .swipe-hint { filter: drop-shadow(0 0 6px rgba(255,255,255,0.6)); }
-body.theme-pastel .swipe-hint-arrow { border-color: var(--accent); }
-body.theme-pastel .swipe-hint-label { color: var(--text-2); }
 
 /* Page chrome (settings-like inner pages) */
 body.theme-pastel .page-header { border-bottom: 1px solid var(--stroke); }
@@ -906,6 +894,13 @@ body:not(.theme-pastel) .upload-zone-big {
   border-color: transparent;
   transform: scale(0.98);
   box-shadow: 0 6px 18px rgba(184,134,229,0.35);
+}
+
+/* Direction toggle on the dispense-motion calibration panel. */
+.dir-toggle { min-width: 190px; text-align: center; }
+.dir-toggle.dir-reverse {
+  border-color: var(--accent);
+  color: var(--accent);
 }
 
 /* Friendly "Preinstalled" badge for the bundled cat pack. */
