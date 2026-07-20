@@ -357,10 +357,24 @@ a { color: var(--accent); text-decoration: none; }
   display: flex;
   align-items: stretch;
   justify-content: stretch;
+  /* Pin the pastel palette so the overlay looks the same on the dark
+     idle/kiosk page as on the pastel settings pages. Without this it
+     reads the page's --bg, which is near-black on the idle screen
+     (theme-pastel is only on the settings pages), so the kiosk showed
+     a black overlay instead of pink. Mirrors .redeem-overlay below. */
+  --text:        #3d2e54;
+  --text-2:      #7b6593;
+  --accent:      #b886e5;
+  --accent-2:    #ffa3d1;
+  --accent-warm: #ffb84d;
+  --surface:     #ffffff;
+  --stroke:      #e6d3f0;
+  --danger:      #ef6a8f;
+  --success:     #6ec59a;
   background:
     radial-gradient(ellipse at top,    rgba(184, 134, 229, 0.28), transparent 60%),
     radial-gradient(ellipse at bottom, rgba(255, 163, 209, 0.28), transparent 60%),
-    var(--bg);
+    #f7eefc;
   opacity: 0;
   pointer-events: none;
   transition: opacity 0.18s ease;

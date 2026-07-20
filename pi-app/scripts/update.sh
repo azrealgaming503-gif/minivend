@@ -69,6 +69,18 @@ fi
 echo "Updating ${PREV} -> ${NEXT}"
 echo "${PREV}" > "${LAST_GOOD}"
 
+# Detect front-end changes BEFORE we move HEAD. The Chromium kiosk loads
+# the UI once at boot and never reloads on its own, so a pure HTML/CSS/JS
+# update lands on disk (and is served by the restarted server) but the
+# on-screen kiosk keeps rendering the stale page — e.g. old overlay colors
+# or missing settings handlers. Restart the kiosk when anything under ui/
+# changed so the display always matches what's deployed.
+UI_CHANGED=0
+if git diff --name-only "${PREV}" "${NEXT}" -- ui/ | grep -q .; then
+  UI_CHANGED=1
+  echo "UI files changed; kiosk will be restarted."
+fi
+
 git reset --hard "${NEXT}"
 fix_perms
 
@@ -122,8 +134,8 @@ systemctl daemon-reload
 echo "Restarting minivend-server.service..."
 systemctl restart minivend-server.service
 
-if [ "${KIOSK_NEEDS_RESTART}" = "1" ]; then
-  echo "Kiosk unit changed; restarting minivend-kiosk.service..."
+if [ "${KIOSK_NEEDS_RESTART}" = "1" ] || [ "${UI_CHANGED}" = "1" ]; then
+  echo "Restarting minivend-kiosk.service (unit or UI changed)..."
   systemctl restart minivend-kiosk.service
 fi
 
