@@ -1,0 +1,161 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, user-scalable=no" />
+  <title>Channel point redeems · MiniVend</title>
+  <link rel="stylesheet" href="/css/styles.css" />
+</head>
+<body class="theme-pastel">
+  <div class="page">
+    <header class="page-header">
+      <h1>Channel point redeems</h1>
+      <a href="/menu"><button class="ghost">← Menu</button></a>
+    </header>
+
+    <div class="page-body">
+
+      <section class="section">
+        <h2>Redeem alerts</h2>
+        <label class="toggle-row" for="redeem-alerts-input">
+          <div class="toggle-text">
+            <div>Show an alert for <strong>channel point redeems</strong></div>
+            <div class="meta" style="color: var(--text-2); font-size: 13px;">
+              Off (default): redemptions from StreamElements are ignored.<br />
+              On: each redemption pops a full-screen shout-out — the
+              redeemer's name on top, "Redeemed", then the reward name in
+              the center, over falling sakura petals. These never trigger
+              a drop.
+            </div>
+          </div>
+          <input id="redeem-alerts-input" type="checkbox" class="toggle-switch" />
+        </label>
+        <button type="button" id="redeem-test-btn" class="ghost" style="margin-top: 12px;">Preview alert</button>
+      </section>
+
+      <section class="section">
+        <h2>Redeem overlay image</h2>
+        <p class="meta" style="color: var(--text-2); font-size: 13px; margin: 0 0 12px;">
+          Optional GIF/image shown on the redeem overlay. Drag one in or
+          tap to choose. Leave empty for text + petals only.
+        </p>
+        <div id="redeem-overlay-zone"></div>
+      </section>
+
+      <section class="section">
+        <h2>Overlay duration</h2>
+        <div class="row" style="justify-content: space-between; align-items: center; gap: 14px; flex-wrap: wrap;">
+          <div>
+            <div>How long the redeem overlay stays on screen</div>
+            <div class="meta" style="color: var(--text-2); font-size: 13px;">
+              1 – 60 seconds.
+            </div>
+          </div>
+          <div class="row" style="align-items: center; gap: 8px;">
+            <input id="redeem-duration-input" type="number" min="1" max="60" step="1"
+                   data-numpad-title="Redeem overlay seconds" style="width: 96px;" />
+            <span class="meta" style="color: var(--text-2);">sec</span>
+            <button id="redeem-duration-save" class="primary">Save</button>
+          </div>
+        </div>
+        <p id="redeem-duration-status" class="meta" style="color: var(--text-2); font-size: 13px; margin-top: 8px; min-height: 1.2em;"></p>
+      </section>
+
+    </div>
+  </div>
+
+  <script type="module">
+    import { onMessage } from '/js/ws-client.js';
+    import '/js/alerts.js';
+    import { attachNumpad } from '/js/numpad.js';
+    import { initOverlayUploader } from '/js/overlay-upload.js';
+    attachNumpad();
+
+    initOverlayUploader({
+      zoneId: 'redeem-overlay-zone',
+      kind: 'redeem',
+      title: 'Redeem overlay image',
+      hint: 'Drag a GIF/PNG here, or tap to choose.',
+    });
+
+    const redeemAlertsInput = document.getElementById('redeem-alerts-input');
+    const redeemTestBtn     = document.getElementById('redeem-test-btn');
+    const durationInput     = document.getElementById('redeem-duration-input');
+    const durationSave      = document.getElementById('redeem-duration-save');
+    const durationStatus    = document.getElementById('redeem-duration-status');
+
+    function applySettings(s) {
+      if (!s) return;
+      if (typeof s.showRedeemAlerts === 'boolean') {
+        redeemAlertsInput.checked = s.showRedeemAlerts;
+      }
+      if (Number.isFinite(s.redeemOverlaySec)) {
+        durationInput.value = s.redeemOverlaySec;
+      }
+    }
+
+    redeemAlertsInput.addEventListener('change', async (e) => {
+      const checked = !!e.target.checked;
+      try {
+        await fetch('/api/settings', {
+          method: 'PUT',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ showRedeemAlerts: checked }),
+        });
+      } catch (_) { /* server will reject; UI re-syncs on next state */ }
+    });
+
+    redeemTestBtn.addEventListener('click', async () => {
+      try {
+        await fetch('/api/integrations/streamelements/test-redeem', {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ name: 'TestViewer', redemption: 'Hydrate!' }),
+        });
+      } catch (_) { /* ignore */ }
+    });
+
+    durationSave.addEventListener('click', async () => {
+      durationStatus.textContent = 'Saving…';
+      try {
+        const r = await fetch('/api/settings', {
+          method: 'PUT',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ redeemOverlaySec: parseInt(durationInput.value, 10) }),
+        });
+        const j = await r.json();
+        if (!j.ok) { durationStatus.textContent = `Error: ${j.err || 'unknown'}`; return; }
+        applySettings(j.settings);
+        durationStatus.textContent = `Saved · ${j.settings.redeemOverlaySec} sec`;
+        setTimeout(() => { durationStatus.textContent = ''; }, 2000);
+      } catch (e) {
+        durationStatus.textContent = `Save failed: ${e.message}`;
+      }
+    });
+
+    onMessage('settings_changed', (m) => applySettings(m.settings));
+
+    // Auto-return to idle.
+    let kioskIdleTimeoutMs = 30_000;
+    let autoReturnTimer = null;
+    function bumpAutoReturn() {
+      clearTimeout(autoReturnTimer);
+      autoReturnTimer = setTimeout(() => { location.href = '/'; }, kioskIdleTimeoutMs);
+    }
+    ['pointerdown', 'touchstart', 'keydown', 'mousemove'].forEach((evt) =>
+      window.addEventListener(evt, bumpAutoReturn, { passive: true })
+    );
+    bumpAutoReturn();
+
+    fetch('/api/state').then((r) => r.json()).then((j) => {
+      if (j && j.ok) {
+        applySettings(j.settings);
+        if (j.settings && Number.isFinite(j.settings.kioskIdleTimeoutSec)) {
+          kioskIdleTimeoutMs = j.settings.kioskIdleTimeoutSec * 1000;
+          bumpAutoReturn();
+        }
+      }
+    }).catch(() => {});
+  </script>
+</body>
+</html>

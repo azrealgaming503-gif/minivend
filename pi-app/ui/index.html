@@ -80,6 +80,7 @@
 
   <script type="module">
     import { onMessage } from '/js/ws-client.js';
+    import { onResync } from '/js/kiosk-sync.js';
     import '/js/alerts.js';
 
     const root      = document.getElementById('root');
@@ -181,6 +182,7 @@
     let activeEl = videoA;
     let bufferEl = videoB;
     let currentPlayer = null;
+    let lastIdleName = null;   // name of the active idle asset (for resync)
 
     function showVideoElements() {
       empty.hidden = true;
@@ -449,14 +451,16 @@
       let r;
       try { r = await fetch('/api/assets/idle/active'); }
       catch (e) { console.warn('[idle] fetch failed', e); showEmpty(); return; }
-      if (r.status === 404) { showEmpty(); return; }
+      if (r.status === 404) { lastIdleName = null; showEmpty(); return; }
       if (!r.ok)            { showEmpty(); return; }
       const j = await r.json();
       if (j.kind === 'file') {
+        lastIdleName = j.name;
         const ext = (j.name.split('.').pop() || '').toLowerCase();
         currentPlayer = new FilePlayer(`${j.url}?v=${Date.now()}`, ext);
         currentPlayer.start();
       } else if (j.kind === 'pack' && j.manifest && Array.isArray(j.manifest.sequence)) {
+        lastIdleName = j.name;
         currentPlayer = new CatCyclePlayer(j.baseUrl, j.framesUrl, j.manifest);
         currentPlayer.start();
       } else {
@@ -467,6 +471,24 @@
 
     // ===== Live updates =====
     onMessage('idle_changed', () => loadActiveIdle());
+
+    // Catch up after a missed broadcast (socket was down during an
+    // upload) or a bfcache restore. Only reload the player if the active
+    // clip actually changed, so we don't cause a needless re-buffer flash
+    // when nothing changed.
+    onResync(async () => {
+      let changed = true;
+      try {
+        const r = await fetch('/api/assets/idle/active');
+        if (r.ok) {
+          const j = await r.json();
+          changed = (j && j.name) !== lastIdleName;
+        } else if (r.status === 404) {
+          changed = (lastIdleName !== null);
+        }
+      } catch (_) { changed = true; }
+      if (changed) loadActiveIdle();
+    });
 
     // ===== Pause the cat while a donation overlay is active =====
     // alerts.js toggles document.body.classList "alert-active". When it's

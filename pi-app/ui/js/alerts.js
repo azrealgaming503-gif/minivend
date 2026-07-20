@@ -21,6 +21,10 @@
 // has already been made.
 
 import { onMessage } from './ws-client.js';
+// Re-pull live content (sticker/overlay/settings) when the socket
+// reconnects or the page is restored, so the kiosk never shows stale
+// uploads after missing a broadcast. See ui/js/kiosk-sync.js.
+import { onResync } from './kiosk-sync.js';
 // Side-effect import: applies the saved screen-brightness CSS filter
 // to every page that imports alerts.js (which is all of them). Kept
 // here so individual pages don't need to remember a second import.
@@ -54,9 +58,13 @@ import './press-guard.js';
 let stickerUrl = '/img/blu-happy.png';
 let donationStickerUrl = null;  // custom donation overlay GIF (overrides blu-happy)
 let redeemStickerUrl   = null;  // custom redeem overlay GIF (optional)
-const HOLD_AFTER_DONE_MS = 4500;     // how long to keep overlay up after motor done
-const HOLD_IF_NO_MOTOR   = 5000;     // alerts with no dispense (all-amounts mode)
-const HOLD_IF_STUCK_MS   = 20000;    // absolute cap (cooldown queue safety)
+// Overlay hold durations (ms). Configurable via settings and refreshed
+// from /api/state + settings_changed. donationHoldMs covers both the
+// after-dispense hold and alert-only tips; redeemHoldMs is the redeem
+// overlay's display time.
+let donationHoldMs = 5000;           // settings.donationOverlaySec
+let redeemHoldMs   = 7000;           // settings.redeemOverlaySec
+const HOLD_IF_STUCK_MS = 20000;      // absolute cap (safety)
 
 function fmtAmount(amount, currency) {
   const n = Number(amount);
@@ -98,6 +106,12 @@ function refreshEnv() {
       if (!j || !j.ok) return;
       if (j.settings && j.settings.chamberLabels) {
         env.chamberLabels = j.settings.chamberLabels;
+      }
+      if (j.settings && Number.isFinite(j.settings.donationOverlaySec)) {
+        donationHoldMs = j.settings.donationOverlaySec * 1000;
+      }
+      if (j.settings && Number.isFinite(j.settings.redeemOverlaySec)) {
+        redeemHoldMs = j.settings.redeemOverlaySec * 1000;
       }
       if (j.stickerUrl) applyStickerUrl(j.stickerUrl);
       donationStickerUrl = j.donationOverlayUrl || null;
@@ -199,7 +213,7 @@ function show(evt) {
   state.safetyTimer = setTimeout(hideOverlay, HOLD_IF_STUCK_MS);
   // Alerts with no associated dispense (e.g. alertsAllAmounts=true,
   // sub-tier tip) auto-hide on their own short timer.
-  if (!evt.motor) state.hideTimer = setTimeout(hideOverlay, HOLD_IF_NO_MOTOR);
+  if (!evt.motor) state.hideTimer = setTimeout(hideOverlay, donationHoldMs);
 }
 
 onMessage('donation', (m) => {
@@ -223,7 +237,7 @@ onMessage('donation_done', (m) => {
   else if (m.kind === 'jam')  setDispense(`${label} jammed — please check`, 'jam');
   else                        setDispense('Done', 'done');
   if (state.hideTimer) clearTimeout(state.hideTimer);
-  state.hideTimer = setTimeout(hideOverlay, HOLD_AFTER_DONE_MS);
+  state.hideTimer = setTimeout(hideOverlay, donationHoldMs);
 });
 
 onMessage('donation_skipped', (m) => {
@@ -234,7 +248,7 @@ onMessage('donation_skipped', (m) => {
     'skipped',
   );
   if (state.hideTimer) clearTimeout(state.hideTimer);
-  state.hideTimer = setTimeout(hideOverlay, HOLD_AFTER_DONE_MS);
+  state.hideTimer = setTimeout(hideOverlay, donationHoldMs);
 });
 
 onMessage('settings_changed', refreshEnv);
@@ -257,7 +271,6 @@ onMessage('overlay_changed', (m) => {
 // dispense is associated — it's purely a visual shout-out.
 let redeemOverlay = null;
 let redeemHideTimer = null;
-const REDEEM_HOLD_MS = 7000;
 
 function buildRedeemOverlay() {
   const el = document.createElement('div');
@@ -316,9 +329,12 @@ function showRedeem(evt) {
   if (redeemHideTimer) clearTimeout(redeemHideTimer);
   redeemHideTimer = setTimeout(() => {
     redeemOverlay.classList.remove('visible');
-  }, REDEEM_HOLD_MS);
+  }, redeemHoldMs);
 }
 
 onMessage('redeem', showRedeem);
 
 refreshEnv();
+// Catch up on any sticker/overlay/setting changes we missed while the
+// socket was down or the page was frozen in the bfcache.
+onResync(refreshEnv);

@@ -500,10 +500,18 @@ a { color: var(--accent); text-decoration: none; }
    sakura petals (reuses the boot-splash petal animation). */
 .redeem-overlay {
   position: fixed; inset: 0;
+  /* Pin the pastel palette so the overlay looks the same on the dark
+     idle/kiosk page as on the pastel settings pages. Previously it read
+     the page's --bg, which is near-black on the idle screen (theme-pastel
+     is only on the settings pages), so the kiosk showed a black overlay. */
+  --text:     #3d2e54;
+  --text-2:   #7b6593;
+  --accent:   #b886e5;
+  --accent-2: #ffa3d1;
   background:
-    radial-gradient(ellipse at top,    rgba(184, 134, 229, 0.28), transparent 60%),
-    radial-gradient(ellipse at bottom, rgba(255, 163, 209, 0.28), transparent 60%),
-    var(--bg);
+    radial-gradient(ellipse at top,    rgba(184, 134, 229, 0.45), transparent 62%),
+    radial-gradient(ellipse at bottom, rgba(255, 163, 209, 0.50), transparent 58%),
+    #f7eefc;
   opacity: 0;
   pointer-events: none;
   transition: opacity 0.18s ease;

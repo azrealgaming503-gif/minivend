@@ -149,6 +149,13 @@ const DEFAULTS = Object.freeze({
   // they're purely a visual shout-out. Default off.
   showRedeemAlerts: false,
 
+  // How long overlays stay on screen, in seconds (1–60).
+  //   donationOverlaySec — hold after the dispense finishes (or, for
+  //     alert-only tips with no dispense, the total display time).
+  //   redeemOverlaySec   — total display time for a redeem shout-out.
+  donationOverlaySec: 5,
+  redeemOverlaySec: 7,
+
   // Screen brightness, 10–100. Implemented two ways at once:
   //   1. CSS filter on the UI (always works, even on dumb HDMI panels).
   //   2. Hardware backlight via /sys/class/backlight/*/brightness
@@ -242,6 +249,16 @@ class SettingsStore {
     out.alertsAllAmounts = !!out.alertsAllAmounts;
     out.dispenseOnlyWhenLive = !!out.dispenseOnlyWhenLive;
     out.showRedeemAlerts = !!out.showRedeemAlerts;
+
+    const clampSec = (v, def) => {
+      let n = parseInt(v, 10);
+      if (!Number.isFinite(n)) n = def;
+      if (n < 1)  n = 1;
+      if (n > 60) n = 60;
+      return n;
+    };
+    out.donationOverlaySec = clampSec(out.donationOverlaySec, DEFAULTS.donationOverlaySec);
+    out.redeemOverlaySec   = clampSec(out.redeemOverlaySec, DEFAULTS.redeemOverlaySec);
 
     // ----- Dispense motion -----
     let ds = parseInt(out.dispenseSpeed, 10);
