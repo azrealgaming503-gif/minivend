@@ -87,8 +87,8 @@
     <header class="ms-header">
       <a href="/games"><button class="ghost">← Back</button></a>
       <div class="ms-stats">
-        <span>🚩 <b id="mines-left">0</b></span>
-        <span>⏱ <b id="timer">0</b></span>
+        <span>⚑ <b id="mines-left">0</b></span>
+        <span>Time <b id="timer">0</b></span>
       </div>
       <div class="ms-diff">
         <button data-diff="easy" class="primary">Easy</button>
@@ -102,7 +102,7 @@
     </main>
 
     <footer class="ms-footer">
-      <button id="mode" class="ms-mode" data-mode="dig">⛏ Dig</button>
+      <button id="mode" class="ms-mode" data-mode="dig">Dig</button>
       <button id="restart">Restart</button>
     </footer>
 
@@ -183,10 +183,10 @@
       el.className = 'ms-cell';
       el.removeAttribute('data-n');
       el.textContent = '';
-      if (c.flagged && !c.revealed) { el.classList.add('flag'); el.textContent = '🚩'; return; }
+      if (c.flagged && !c.revealed) { el.classList.add('flag'); el.textContent = '⚑'; return; }
       if (!c.revealed) return;
       el.classList.add('revealed');
-      if (c.mine) { el.classList.add(c.boom ? 'boom' : 'mine'); el.textContent = '💣'; return; }
+      if (c.mine) { el.classList.add(c.boom ? 'boom' : 'mine'); el.textContent = '●'; return; }
       if (c.n > 0) { el.dataset.n = c.n; el.textContent = c.n; }
     }
 
@@ -260,12 +260,12 @@
 
     function win() {
       alive = false; stopTimer();
-      overlayTitle.textContent = '✨ Cleared!';
+      overlayTitle.textContent = 'Cleared! ★';
       overlaySub.textContent = `All mines found in ${timer}s.`;
       overlay.hidden = false;
     }
     function lose() {
-      overlayTitle.textContent = '💥 Boom!';
+      overlayTitle.textContent = 'Boom!';
       overlaySub.textContent = 'You hit a mine. Try again!';
       overlay.hidden = false;
     }
@@ -282,7 +282,7 @@
     modeBtn.addEventListener('click', () => {
       flagMode = !flagMode;
       modeBtn.dataset.mode = flagMode ? 'flag' : 'dig';
-      modeBtn.textContent = flagMode ? '🚩 Flag' : '⛏ Dig';
+      modeBtn.textContent = flagMode ? '⚑ Flag' : 'Dig';
     });
 
     document.getElementById('restart').addEventListener('click', newGame);

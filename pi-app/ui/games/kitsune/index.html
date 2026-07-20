@@ -9,19 +9,21 @@
     .k-page { display: flex; flex-direction: column; height: 100vh; overflow: hidden; }
     .k-header {
       display: flex; align-items: center; justify-content: space-between;
-      padding: 12px 18px; border-bottom: 1px solid var(--stroke); gap: 12px; z-index: 2;
+      padding: 10px 18px; border-bottom: 1px solid var(--stroke); gap: 12px; z-index: 3;
     }
     .k-title { font-size: 20px; font-weight: 600; }
     .k-title b { color: var(--accent); }
     .k-badge {
+      display: inline-flex; align-items: center; gap: 6px;
       font-size: 14px; color: var(--text-2);
       background: var(--surface); border: 1px solid var(--stroke);
       border-radius: 999px; padding: 6px 12px;
     }
+    .k-badge svg { width: 18px; height: 18px; }
+
     .k-stage {
       flex: 1; position: relative; min-height: 0;
       display: flex; flex-direction: column; align-items: center; justify-content: center;
-      gap: 8px;
     }
     /* Falling sakura backdrop (reuses the global keyframe). */
     .k-sakura { position: absolute; inset: 0; overflow: hidden; pointer-events: none; z-index: 0; }
@@ -32,41 +34,78 @@
       animation-name: boot-splash-sakura-fall;
       animation-timing-function: ease-in-out; animation-iteration-count: infinite;
     }
-    .k-pet-wrap { position: relative; z-index: 1; display: flex; flex-direction: column; align-items: center; }
+    /* Soft grassy ground band the little foxes walk along. */
+    .k-ground {
+      position: absolute; left: 0; right: 0; bottom: 0; height: 26%;
+      background: linear-gradient(180deg, rgba(198,153,234,0.12), rgba(255,163,209,0.18));
+      border-top: 2px dashed rgba(184,134,229,0.35);
+      z-index: 0;
+    }
+    /* Roaming foxes layer. */
+    .k-yard { position: absolute; inset: 0; z-index: 1; pointer-events: none; overflow: hidden; }
+    .k-walker {
+      position: absolute; left: 0;
+      animation: k-walk var(--dur, 14s) linear infinite;
+      animation-delay: var(--delay, 0s);
+      will-change: transform;
+    }
+    .k-walker > .step { display: block; animation: k-step 0.42s ease-in-out infinite; }
+    .k-walker svg { display: block; width: 100%; height: auto; }
+    @keyframes k-walk {
+      0%   { transform: translateX(0)            scaleX(1); }
+      48%  { transform: translateX(var(--range)) scaleX(1); }
+      50%  { transform: translateX(var(--range)) scaleX(-1); }
+      98%  { transform: translateX(0)            scaleX(-1); }
+      100% { transform: translateX(0)            scaleX(1); }
+    }
+    @keyframes k-step { 0%,100% { transform: translateY(0); } 50% { transform: translateY(-4px); } }
+
+    .k-pet-wrap { position: relative; z-index: 2; display: flex; flex-direction: column; align-items: center; }
     .k-speech {
       position: relative; background: var(--surface); border: 1px solid var(--stroke);
       border-radius: 16px; padding: 10px 16px; font-size: 18px; color: var(--text);
       box-shadow: 0 6px 16px rgba(123,101,147,0.12); max-width: 80vw; text-align: center;
-      margin-bottom: 6px;
+      margin-bottom: 6px; min-height: 1.2em;
     }
     .k-speech::after {
       content: ''; position: absolute; bottom: -9px; left: 50%; transform: translateX(-50%);
       border-left: 9px solid transparent; border-right: 9px solid transparent;
       border-top: 9px solid var(--surface);
     }
-    .k-fox { width: min(42vmin, 280px); height: min(42vmin, 280px); }
+    .k-fox { width: min(42vmin, 280px); height: min(42vmin, 280px); cursor: pointer; }
     .k-fox.bob { animation: k-bob 3s ease-in-out infinite; }
     @keyframes k-bob { 0%,100% { transform: translateY(0); } 50% { transform: translateY(-10px); } }
-    .k-kits { display: flex; gap: 14px; margin-top: 4px; z-index: 1; }
-    .k-kit { font-size: 30px; animation: k-bob 2.4s ease-in-out infinite; }
-    .k-kit:nth-child(2) { animation-delay: 0.6s; }
-    .k-kit:nth-child(3) { animation-delay: 1.2s; }
+    @keyframes k-hop { 0% { transform: translateY(0); } 30% { transform: translateY(-26px); } 60% { transform: translateY(0); } }
 
-    .k-stats { z-index: 2; display: grid; grid-template-columns: 1fr 1fr; gap: 8px 18px; padding: 10px 18px; }
+    /* Floating reaction icons on an action. */
+    .k-float {
+      position: absolute; bottom: 42%; z-index: 4; pointer-events: none;
+      color: var(--accent-2); animation: k-floatup 1.25s ease-out forwards;
+    }
+    .k-float svg { width: 26px; height: 26px; }
+    @keyframes k-floatup {
+      0%   { opacity: 0; transform: translate(0, 0) scale(0.6); }
+      20%  { opacity: 1; }
+      100% { opacity: 0; transform: translate(var(--dx, 0), -130px) scale(1.15); }
+    }
+
+    .k-stats { z-index: 3; display: grid; grid-template-columns: 1fr 1fr; gap: 8px 18px; padding: 8px 18px; }
     .k-stat { display: flex; align-items: center; gap: 8px; }
-    .k-stat .lbl { width: 92px; font-size: 15px; color: var(--text-2); }
+    .k-stat .lbl { display: inline-flex; align-items: center; gap: 6px; width: 108px; font-size: 15px; color: var(--text-2); }
+    .k-stat .lbl svg { width: 16px; height: 16px; }
     .k-bar { flex: 1; height: 14px; border-radius: 999px; background: #ece1f4; overflow: hidden; }
     .k-bar > i { display: block; height: 100%; width: 0; border-radius: 999px; transition: width 0.3s ease, background 0.3s ease; }
 
     .k-actions {
-      z-index: 2; display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px;
-      padding: 12px 18px 16px; border-top: 1px solid var(--stroke);
+      z-index: 3; display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px;
+      padding: 10px 16px 14px; border-top: 1px solid var(--stroke);
     }
     .k-actions button {
-      font-size: 18px; font-weight: 700; padding: 16px 8px; border-radius: 16px;
+      font-size: 16px; font-weight: 700; padding: 12px 6px; border-radius: 14px;
       display: flex; flex-direction: column; align-items: center; gap: 4px;
     }
-    .k-actions .emoji { font-size: 28px; }
+    .k-actions .ic { display: inline-flex; }
+    .k-actions .ic svg { width: 26px; height: 26px; }
     .k-actions button.on {
       background: linear-gradient(135deg, var(--accent), var(--accent-2)); color: #fff; border-color: transparent;
     }
@@ -77,53 +116,71 @@
     <header class="k-header">
       <a href="/games"><button class="ghost">← Back</button></a>
       <div class="k-title">Your kitsune <b id="pet-name">Kit</b></div>
-      <div class="k-badge" id="tails-badge">🦊 1 tail</div>
+      <div class="k-badge" id="tails-badge"></div>
     </header>
 
-    <main class="k-stage">
+    <main class="k-stage" id="stage">
       <div class="k-sakura" id="sakura"></div>
+      <div class="k-ground"></div>
+      <div class="k-yard" id="yard"></div>
       <div class="k-pet-wrap">
-        <div class="k-speech" id="speech">Hi! I'm so happy to see you 💕</div>
+        <div class="k-speech" id="speech">Hi! I'm so happy to see you</div>
         <svg class="k-fox bob" id="fox" viewBox="0 0 220 220" aria-label="kitsune"></svg>
-      </div>
-      <div class="k-kits">
-        <span class="k-kit">🦊</span>
-        <span class="k-kit">🦊</span>
-        <span class="k-kit">🦊</span>
       </div>
     </main>
 
-    <section class="k-stats">
-      <div class="k-stat"><span class="lbl">🍙 Fullness</span><div class="k-bar"><i id="bar-fullness"></i></div></div>
-      <div class="k-stat"><span class="lbl">💗 Happy</span><div class="k-bar"><i id="bar-happy"></i></div></div>
-      <div class="k-stat"><span class="lbl">⚡ Energy</span><div class="k-bar"><i id="bar-energy"></i></div></div>
-      <div class="k-stat"><span class="lbl">✨ Clean</span><div class="k-bar"><i id="bar-clean"></i></div></div>
-    </section>
+    <section class="k-stats" id="stats"></section>
 
-    <div class="k-actions">
-      <button id="feed"><span class="emoji">🍙</span>Feed</button>
-      <button id="play"><span class="emoji">🎋</span>Play</button>
-      <button id="groom"><span class="emoji">🧼</span>Groom</button>
-      <button id="sleep"><span class="emoji">😴</span>Sleep</button>
-    </div>
+    <div class="k-actions" id="actions"></div>
   </div>
 
   <script type="module">
     import '/js/alerts.js';
 
+    // ---- SVG icon set (no color-emoji dependency; the kiosk has none) ----
+    const S = (inner, fill) =>
+      `<svg viewBox="0 0 24 24" fill="${fill ? 'currentColor' : 'none'}" stroke="${fill ? 'none' : 'currentColor'}"
+            stroke-width="2" stroke-linecap="round" stroke-linejoin="round">${inner}</svg>`;
+    const ICONS = {
+      feed:  S('<path d="M3 11h18a9 9 0 0 1-18 0z"/><path d="M12 11V6"/><path d="M9.5 6.5a2.5 2.5 0 0 1 5 0"/>'),
+      treat: S('<line x1="4" y1="20" x2="15" y2="9"/><circle cx="16" cy="8" r="2.6"/><circle cx="12" cy="12" r="2.6"/><circle cx="8" cy="16" r="2.6"/>'),
+      play:  S('<circle cx="12" cy="12" r="8"/><path d="M12 4a8 8 0 0 0 0 16M4 12a8 8 0 0 0 16 0"/>'),
+      pet:   S('<path d="M12 20s-6.5-4.2-9-8.3A4.6 4.6 0 0 1 12 6.5 4.6 4.6 0 0 1 21 11.7C18.5 15.8 12 20 12 20z"/>', true),
+      groom: S('<path d="M12 2l1.7 4.6L18 8l-4.3 1.4L12 14l-1.7-4.6L6 8l4.3-1.4z"/><path d="M18 15l.8 2.2L21 18l-2.2.8L18 21l-.8-2.2L15 18l2.2-.8z"/>', true),
+      bath:  S('<path d="M12 3s6 6.4 6 10.3a6 6 0 0 1-12 0C6 9.4 12 3 12 3z"/>', true),
+      trick: S('<path d="M12 2l2.9 6.3 6.9.8-5.1 4.7 1.4 6.8L12 17.8 5.9 20.6l1.4-6.8L2.2 9.1l6.9-.8z"/>', true),
+      sleep: S('<path d="M21 12.8A8 8 0 1 1 11.2 3a6 6 0 0 0 9.8 9.8z"/>', true),
+      wake:  S('<circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M2 12h2M20 12h2M5 5l1.5 1.5M17.5 17.5L19 19M19 5l-1.5 1.5M6.5 17.5L5 19"/>'),
+      full:  S('<path d="M3 11h18a9 9 0 0 1-18 0z"/>'),
+      happy: S('<path d="M12 20s-6.5-4.2-9-8.3A4.6 4.6 0 0 1 12 6.5 4.6 4.6 0 0 1 21 11.7C18.5 15.8 12 20 12 20z"/>', true),
+      energy:S('<path d="M13 2L4 14h7l-1 8 9-12h-7z"/>', true),
+      clean: S('<path d="M12 2l1.7 4.6L18 8l-4.3 1.4L12 14l-1.7-4.6L6 8l4.3-1.4z"/>', true),
+      tailbadge: S('<circle cx="12" cy="13" r="6"/><path d="M8 8 L6 3 L11 6 Z"/><path d="M16 8 L18 3 L13 6 Z"/>'),
+    };
+
+    // Small walking-fox sprite (faces right; flipped by the walk keyframe).
+    function foxSprite(hue) {
+      const body = hue || '#f6894f', head = '#ffb15a';
+      return `<svg viewBox="0 0 46 32">
+        <path d="M8 22 C -3 18 -1 8 8 11 C 10 15 11 19 11 22 Z" fill="${body}"/>
+        <path d="M3 14 C 1 13 1 12 4 12 C 5 13 5 14 4 15 Z" fill="#fff6ef"/>
+        <ellipse cx="23" cy="21" rx="14" ry="9" fill="${body}"/>
+        <rect x="15" y="26" width="3" height="6" rx="1.5" fill="#e07a45"/>
+        <rect x="29" y="26" width="3" height="6" rx="1.5" fill="#e07a45"/>
+        <circle cx="36" cy="15" r="8" fill="${head}"/>
+        <path d="M31 8 l-1 -7 l6 4 z" fill="${body}"/>
+        <path d="M41 8 l1 -7 l-6 4 z" fill="${body}"/>
+        <path d="M36 21 c -5 0 -6 -6 -2 -7 c 3 -1 5 -1 8 0 c 2 2 -1 7 -6 7 z" fill="#fff6ef"/>
+        <circle cx="39" cy="14" r="1.5" fill="#3a281c"/>
+        <path d="M42 19 h3 l-2 2 z" fill="#5a3d2b"/>
+      </svg>`;
+    }
+
     const KEY = 'minivend.kitsune.v1';
     const HR = 3600000;
-    // Per-hour decay/regen rates.
-    const RATE = {
-      fullness: -8,
-      happy:    -6,
-      clean:    -4,
-      energyAwake: -5,
-      energyAsleep: 22,
-    };
+    const RATE = { fullness: -8, happy: -6, clean: -4, energyAwake: -5, energyAsleep: 22 };
     const MAX_TAILS = 9;
     const BOND_PER_TAIL = 100;
-
     const clamp = (v) => Math.max(0, Math.min(100, v));
 
     let s = load();
@@ -133,27 +190,18 @@
         const raw = JSON.parse(localStorage.getItem(KEY));
         if (raw && typeof raw === 'object') return normalize(raw);
       } catch (_) {}
-      return {
-        name: 'Kit', fullness: 80, happy: 85, energy: 80, clean: 85,
-        bond: 0, asleep: false, lastTs: Date.now(),
-      };
+      return { name: 'Kit', fullness: 80, happy: 85, energy: 80, clean: 85, bond: 0, asleep: false, lastTs: Date.now() };
     }
     function normalize(r) {
       return {
         name: typeof r.name === 'string' ? r.name : 'Kit',
-        fullness: clamp(+r.fullness || 0),
-        happy: clamp(+r.happy || 0),
-        energy: clamp(+r.energy || 0),
-        clean: clamp(+r.clean || 0),
-        bond: Math.max(0, +r.bond || 0),
-        asleep: !!r.asleep,
-        lastTs: +r.lastTs || Date.now(),
+        fullness: clamp(+r.fullness || 0), happy: clamp(+r.happy || 0),
+        energy: clamp(+r.energy || 0), clean: clamp(+r.clean || 0),
+        bond: Math.max(0, +r.bond || 0), asleep: !!r.asleep, lastTs: +r.lastTs || Date.now(),
       };
     }
     function save() { localStorage.setItem(KEY, JSON.stringify(s)); }
 
-    // Apply real-time decay since the last tick so the pet "lives" between
-    // visits (stats drop while you're away; energy recovers if asleep).
     function decay() {
       const now = Date.now();
       const dtHr = Math.max(0, now - s.lastTs) / HR;
@@ -163,9 +211,7 @@
       s.happy    = clamp(s.happy    + RATE.happy    * dtHr);
       s.clean    = clamp(s.clean    + RATE.clean    * dtHr);
       s.energy   = clamp(s.energy + (s.asleep ? RATE.energyAsleep : RATE.energyAwake) * dtHr);
-      // Neglected pets slowly lose happiness faster when hungry/dirty.
       if (s.fullness < 20 || s.clean < 20) s.happy = clamp(s.happy - 3 * dtHr);
-      // Auto-wake once fully rested.
       if (s.asleep && s.energy >= 100) s.asleep = false;
     }
 
@@ -182,16 +228,16 @@
     // ---- Speech ----
     const speechEl = document.getElementById('speech');
     function needMessage() {
-      if (s.asleep) return 'Zzz… 😴';
+      if (s.asleep) return 'Zzz…';
       const needs = [
-        [s.fullness, 'My tummy is rumbling… feed me? 🍙'],
-        [s.energy,   'I\'m getting sleepy… 😴'],
-        [s.clean,    'I feel a bit grubby… groom me? 🧼'],
-        [s.happy,    'Play with me? 🎋'],
+        [s.fullness, 'My tummy is rumbling… feed me?'],
+        [s.energy,   'I\'m getting sleepy…'],
+        [s.clean,    'I feel a bit grubby… groom me?'],
+        [s.happy,    'Will you play with me?'],
       ].sort((a, b) => a[0] - b[0]);
       if (needs[0][0] < 30) return needs[0][1];
-      if (mood() === 'happy') return 'I feel wonderful! Thank you 💕';
-      return 'Boop! I\'m doing okay 🦊';
+      if (mood() === 'happy') return 'I feel wonderful! Thank you ♥';
+      return 'Boop! I\'m doing okay';
     }
     let speechTimer = null;
     function say(msg, hold = 2600) {
@@ -200,26 +246,18 @@
       speechTimer = setTimeout(() => { speechEl.textContent = needMessage(); }, hold);
     }
 
-    // ---- SVG kitsune ----
+    // ---- Main pet SVG ----
     const fox = document.getElementById('fox');
     function drawFox() {
-      const m = mood();
-      const n = tails();
-      // Tails fan out behind the body.
+      const m = mood(), n = tails();
       let tailSvg = '';
-      const spread = 78;                       // total degrees
-      const step = n > 1 ? spread / (n - 1) : 0;
-      const start = -spread / 2;
+      const spread = 78, step = n > 1 ? spread / (n - 1) : 0, start = -spread / 2;
       for (let i = 0; i < n; i++) {
         const ang = start + step * i;
-        tailSvg += `
-          <g transform="translate(110,150) rotate(${ang})">
-            <path d="M0,0 C -16,-42 -10,-96 0,-120 C 10,-96 16,-42 0,0 Z"
-                  fill="url(#furGrad)" stroke="#e79a55" stroke-width="2"/>
-            <path d="M0,-120 C -7,-104 -7,-96 0,-86 C 7,-96 7,-104 0,-120 Z" fill="#fff6ef"/>
-          </g>`;
+        tailSvg += `<g transform="translate(110,150) rotate(${ang})">
+            <path d="M0,0 C -16,-42 -10,-96 0,-120 C 10,-96 16,-42 0,0 Z" fill="url(#furGrad)" stroke="#e79a55" stroke-width="2"/>
+            <path d="M0,-120 C -7,-104 -7,-96 0,-86 C 7,-96 7,-104 0,-120 Z" fill="#fff6ef"/></g>`;
       }
-      // Eyes by mood.
       let eyes;
       if (m === 'sleep') {
         eyes = `<path d="M78 108 q10 8 20 0" stroke="#5a3d2b" stroke-width="4" fill="none" stroke-linecap="round"/>
@@ -228,72 +266,108 @@
         eyes = `<path d="M80 112 q8 -8 18 -2" stroke="#5a3d2b" stroke-width="5" fill="none" stroke-linecap="round"/>
                 <path d="M124 110 q10 -6 18 2" stroke="#5a3d2b" stroke-width="5" fill="none" stroke-linecap="round"/>`;
       } else {
-        eyes = `<circle cx="89" cy="110" r="6.5" fill="#3a281c"/>
-                <circle cx="131" cy="110" r="6.5" fill="#3a281c"/>
-                <circle cx="91" cy="108" r="2" fill="#fff"/>
-                <circle cx="133" cy="108" r="2" fill="#fff"/>`;
+        eyes = `<circle cx="89" cy="110" r="6.5" fill="#3a281c"/><circle cx="131" cy="110" r="6.5" fill="#3a281c"/>
+                <circle cx="91" cy="108" r="2" fill="#fff"/><circle cx="133" cy="108" r="2" fill="#fff"/>`;
       }
       const smile = (m === 'sad')
         ? `<path d="M100 138 q-8 -6 -16 0" stroke="#5a3d2b" stroke-width="3" fill="none" stroke-linecap="round"/>`
         : `<path d="M92 134 q8 8 16 0" stroke="#5a3d2b" stroke-width="3" fill="none" stroke-linecap="round"/>`;
-
       fox.innerHTML = `
-        <defs>
-          <linearGradient id="furGrad" x1="0" y1="0" x2="0" y2="1">
-            <stop offset="0" stop-color="#ffb15a"/>
-            <stop offset="1" stop-color="#f6894f"/>
-          </linearGradient>
-        </defs>
+        <defs><linearGradient id="furGrad" x1="0" y1="0" x2="0" y2="1">
+          <stop offset="0" stop-color="#ffb15a"/><stop offset="1" stop-color="#f6894f"/>
+        </linearGradient></defs>
         ${tailSvg}
-        <!-- body -->
         <ellipse cx="110" cy="150" rx="46" ry="40" fill="url(#furGrad)"/>
-        <!-- ears -->
         <path d="M72 78 L64 34 L100 66 Z" fill="url(#furGrad)" stroke="#e79a55" stroke-width="2"/>
         <path d="M148 78 L156 34 L120 66 Z" fill="url(#furGrad)" stroke="#e79a55" stroke-width="2"/>
-        <path d="M74 70 L70 46 L92 64 Z" fill="#ffd9c2"/>
-        <path d="M146 70 L150 46 L128 64 Z" fill="#ffd9c2"/>
-        <!-- head -->
+        <path d="M74 70 L70 46 L92 64 Z" fill="#ffd9c2"/><path d="M146 70 L150 46 L128 64 Z" fill="#ffd9c2"/>
         <circle cx="110" cy="112" r="46" fill="url(#furGrad)"/>
-        <!-- cheeks / muzzle -->
         <path d="M110 150 C 88 150 80 132 84 122 C 96 116 124 116 136 122 C 140 132 132 150 110 150 Z" fill="#fff6ef"/>
         ${eyes}
-        <!-- blush -->
         <ellipse cx="80" cy="126" rx="8" ry="5" fill="#ffb3cd" opacity="0.7"/>
         <ellipse cx="140" cy="126" rx="8" ry="5" fill="#ffb3cd" opacity="0.7"/>
-        <!-- nose + mouth -->
         <path d="M104 126 h12 l-6 7 z" fill="#5a3d2b"/>
-        ${smile}
-      `;
+        ${smile}`;
       fox.classList.toggle('bob', m !== 'sleep');
+    }
+    function hop() { fox.style.animation = 'k-hop .5s ease'; setTimeout(() => { fox.style.animation = ''; }, 500); }
+
+    // ---- Roaming foxes ----
+    const yard = document.getElementById('yard');
+    let walkerCount = -1;
+    function buildWalkers(n) {
+      walkerCount = n;
+      yard.innerHTML = '';
+      const w = yard.clientWidth || window.innerWidth;
+      for (let i = 0; i < n; i++) {
+        const size = 44 + Math.round(Math.random() * 26);       // px width
+        const range = Math.max(40, w - size - 8);
+        const el = document.createElement('div');
+        el.className = 'k-walker';
+        el.style.width = size + 'px';
+        el.style.bottom = (6 + Math.random() * 16) + '%';
+        el.style.setProperty('--range', range + 'px');
+        el.style.setProperty('--dur', (10 + Math.random() * 9).toFixed(1) + 's');
+        el.style.setProperty('--delay', (-Math.random() * 12).toFixed(1) + 's');
+        el.innerHTML = `<span class="step">${foxSprite()}</span>`;
+        yard.appendChild(el);
+      }
+    }
+
+    // ---- Floating reactions ----
+    const stage = document.getElementById('stage');
+    function burst(iconSvg, n = 5) {
+      for (let i = 0; i < n; i++) {
+        const el = document.createElement('span');
+        el.className = 'k-float';
+        el.innerHTML = iconSvg;
+        el.style.left = (46 + Math.random() * 8) + '%';
+        el.style.setProperty('--dx', (Math.random() * 90 - 45).toFixed(0) + 'px');
+        el.style.animationDelay = (Math.random() * 0.18).toFixed(2) + 's';
+        stage.appendChild(el);
+        setTimeout(() => el.remove(), 1400);
+      }
     }
 
     // ---- Stat bars ----
+    const statsEl = document.getElementById('stats');
+    const STAT_DEFS = [
+      { k: 'fullness', label: 'Fullness', icon: ICONS.full },
+      { k: 'happy',    label: 'Happy',    icon: ICONS.happy },
+      { k: 'energy',   label: 'Energy',   icon: ICONS.energy },
+      { k: 'clean',    label: 'Clean',    icon: ICONS.clean },
+    ];
+    statsEl.innerHTML = STAT_DEFS.map((d) =>
+      `<div class="k-stat"><span class="lbl">${d.icon}${d.label}</span>
+         <div class="k-bar"><i id="bar-${d.k}"></i></div></div>`).join('');
     function barColor(v) {
       if (v < 25) return '#ef6a8f';
       if (v < 55) return '#ffb84d';
       return 'linear-gradient(90deg, #b886e5, #ffa3d1)';
     }
-    function setBar(id, v) {
-      const el = document.getElementById(id);
-      el.style.width = v + '%';
-      el.style.background = barColor(v);
+    function setBar(k) {
+      const el = document.getElementById('bar-' + k);
+      el.style.width = s[k] + '%';
+      el.style.background = barColor(s[k]);
     }
 
     const nameEl = document.getElementById('pet-name');
     const tailsBadge = document.getElementById('tails-badge');
-    const sleepBtn = document.getElementById('sleep');
 
     function render() {
-      setBar('bar-fullness', s.fullness);
-      setBar('bar-happy', s.happy);
-      setBar('bar-energy', s.energy);
-      setBar('bar-clean', s.clean);
+      STAT_DEFS.forEach((d) => setBar(d.k));
       nameEl.textContent = s.name;
       const n = tails();
-      tailsBadge.textContent = `🦊 ${n} tail${n > 1 ? 's' : ''}`;
-      sleepBtn.classList.toggle('on', s.asleep);
-      sleepBtn.querySelector('.emoji').textContent = s.asleep ? '☀️' : '😴';
-      sleepBtn.childNodes[1].nodeValue = s.asleep ? 'Wake' : 'Sleep';
+      tailsBadge.innerHTML = `${ICONS.tailbadge}${n} tail${n > 1 ? 's' : ''}`;
+      // Sleep/Wake button reflects state.
+      const sb = document.getElementById('sleep');
+      if (sb) {
+        sb.classList.toggle('on', s.asleep);
+        sb.innerHTML = `<span class="ic">${s.asleep ? ICONS.wake : ICONS.sleep}</span>${s.asleep ? 'Wake' : 'Sleep'}`;
+      }
+      // Number of roaming foxes grows with the tail count.
+      const want = Math.min(6, n + 1);
+      if (want !== walkerCount) buildWalkers(want);
       drawFox();
     }
 
@@ -301,41 +375,73 @@
     function reward(amount) {
       const before = tails();
       s.bond += amount;
-      if (tails() > before) say(`✨ ${s.name} grew a new tail! Now ${tails()} tails!`, 3200);
+      if (tails() > before) say(`New tail! ${s.name} now has ${tails()} tails ★`, 3400);
     }
-    document.getElementById('feed').addEventListener('click', () => {
-      if (s.asleep) return say('Shh… I\'m sleeping 😴');
-      if (s.fullness > 96) return say('I\'m too full! 🙅');
-      s.fullness = clamp(s.fullness + 26);
-      reward(4); say('Yum yum! 🍙'); commit();
-    });
-    document.getElementById('play').addEventListener('click', () => {
-      if (s.asleep) return say('Too sleepy to play 😴');
-      if (s.energy < 12) return say('I\'m too tired… let me rest 😴');
-      s.happy = clamp(s.happy + 24);
-      s.energy = clamp(s.energy - 12);
-      s.fullness = clamp(s.fullness - 6);
-      reward(5); say('Wheee! 🎋💨'); commit();
-    });
-    document.getElementById('groom').addEventListener('click', () => {
-      if (s.asleep) return say('Zzz… later? 😴');
-      if (s.clean > 96) return say('I\'m already sparkly ✨');
-      s.clean = clamp(s.clean + 30);
-      reward(3); say('So fresh! ✨'); commit();
-    });
-    sleepBtn.addEventListener('click', () => {
-      s.asleep = !s.asleep;
-      say(s.asleep ? 'Goodnight… 😴' : 'Good morning! ☀️');
-      commit();
-    });
-
     function commit() { save(); render(); }
+    function guardAwake(msg) { if (s.asleep) { say(msg); return false; } return true; }
+
+    const ACTIONS = [
+      { id: 'feed',  label: 'Feed',  icon: ICONS.feed,  run() {
+          if (!guardAwake('Shh… I\'m sleeping')) return;
+          if (s.fullness > 96) return say('I\'m too full!');
+          s.fullness = clamp(s.fullness + 26); reward(4); burst(ICONS.feed); hop(); say('Yum yum!'); commit();
+      } },
+      { id: 'treat', label: 'Treat', icon: ICONS.treat, run() {
+          if (!guardAwake('Maybe when I wake up')) return;
+          s.fullness = clamp(s.fullness + 10); s.happy = clamp(s.happy + 10);
+          reward(2); burst(ICONS.treat); hop(); say('A sweet treat! ♥'); commit();
+      } },
+      { id: 'play',  label: 'Play',  icon: ICONS.play,  run() {
+          if (!guardAwake('Too sleepy to play')) return;
+          if (s.energy < 12) return say('I\'m too tired… let me rest');
+          s.happy = clamp(s.happy + 24); s.energy = clamp(s.energy - 12); s.fullness = clamp(s.fullness - 6);
+          reward(5); burst(ICONS.play); hop(); say('Wheee!'); commit();
+      } },
+      { id: 'pet',   label: 'Pet',   icon: ICONS.pet,   run() {
+          if (s.asleep) return say('*sleepy purr*');
+          s.happy = clamp(s.happy + 14); reward(3); burst(ICONS.pet); hop(); say('*happy fox noises* ♥'); commit();
+      } },
+      { id: 'groom', label: 'Groom', icon: ICONS.groom, run() {
+          if (!guardAwake('Grooming later?')) return;
+          if (s.clean > 96) return say('I\'m already sparkly ★');
+          s.clean = clamp(s.clean + 30); reward(3); burst(ICONS.groom); hop(); say('So fresh!'); commit();
+      } },
+      { id: 'bath',  label: 'Bath',  icon: ICONS.bath,  run() {
+          if (!guardAwake('Not while I\'m napping!')) return;
+          s.clean = clamp(s.clean + 45); s.happy = clamp(s.happy - 6); s.energy = clamp(s.energy - 6);
+          reward(3); burst(ICONS.bath); hop(); say('Splash! Squeaky clean'); commit();
+      } },
+      { id: 'trick', label: 'Trick', icon: ICONS.trick, run() {
+          if (!guardAwake('Zzz… teach me later')) return;
+          if (s.energy < 15) return say('Too tired for tricks…');
+          s.happy = clamp(s.happy + 16); s.energy = clamp(s.energy - 10);
+          reward(8); burst(ICONS.trick); hop(); say('Ta-da! ★'); commit();
+      } },
+      { id: 'sleep', label: 'Sleep', icon: ICONS.sleep, run() {
+          s.asleep = !s.asleep; say(s.asleep ? 'Goodnight…' : 'Good morning!'); commit();
+      } },
+    ];
+
+    const actionsEl = document.getElementById('actions');
+    ACTIONS.forEach((a) => {
+      const btn = document.createElement('button');
+      btn.id = a.id;
+      btn.innerHTML = `<span class="ic">${a.icon}</span>${a.label}`;
+      btn.addEventListener('click', a.run);
+      actionsEl.appendChild(btn);
+    });
+    // Tap the pet itself to give it a pet.
+    fox.addEventListener('click', () => ACTIONS.find((a) => a.id === 'pet').run());
 
     // ---- Loop ----
-    function tick() { decay(); render(); save(); }
     speechEl.textContent = needMessage();
     render();
-    setInterval(tick, 5000);
+    setInterval(() => { decay(); render(); save(); }, 5000);
+    let resizeT = null;
+    window.addEventListener('resize', () => {
+      clearTimeout(resizeT);
+      resizeT = setTimeout(() => buildWalkers(walkerCount < 0 ? 2 : walkerCount), 250);
+    });
 
     // ---- Sakura petals ----
     (function spawnPetals() {
@@ -343,11 +449,9 @@
       for (let i = 0; i < 14; i++) {
         const p = document.createElement('span');
         p.className = 'k-petal';
-        const dur = 7 + Math.random() * 5;
-        const size = 9 + Math.random() * 11;
+        const dur = 7 + Math.random() * 5, size = 9 + Math.random() * 11;
         p.style.left = (Math.random() * 100) + 'vw';
-        p.style.width = size + 'px';
-        p.style.height = size + 'px';
+        p.style.width = size + 'px'; p.style.height = size + 'px';
         p.style.setProperty('--drift', (40 + Math.random() * 150) + 'px');
         p.style.setProperty('--petal-opacity', (0.5 + Math.random() * 0.4).toFixed(2));
         p.style.animationDuration = dur.toFixed(2) + 's';

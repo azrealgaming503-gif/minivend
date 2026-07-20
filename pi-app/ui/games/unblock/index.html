@@ -59,6 +59,7 @@
     .ub-block.target {
       background: linear-gradient(135deg, #ffb84d, #ff8fb6);
     }
+    .ub-block.target svg { width: 70%; height: 70%; }
     .ub-footer {
       display: flex; align-items: center; justify-content: center; gap: 14px;
       padding: 12px 18px; border-top: 1px solid var(--stroke);
@@ -92,12 +93,12 @@
     </main>
 
     <footer class="ub-footer">
-      <div class="ub-hint">Tap the 🦊 fox (or any block) to select it, then tap an empty
+      <div class="ub-hint">Tap the fox (or any block) to select it, then tap an empty
         square in its row/column to slide it. Free the fox out the right side!</div>
     </footer>
 
     <div id="overlay" class="ub-overlay" hidden>
-      <h2 id="overlay-title">🦊 Free!</h2>
+      <h2 id="overlay-title">Free!</h2>
       <p id="overlay-sub"></p>
       <button class="primary" id="overlay-next">Next level</button>
     </div>
@@ -108,6 +109,19 @@
 
     const N = 6;
     const EXIT_ROW = 2;
+
+    // Inline fox sprite for the target block (the kiosk has no emoji font).
+    const FOX_SVG = `<svg viewBox="0 0 46 40" aria-label="fox">
+      <path d="M10 8 L6 -1 L15 5 Z" fill="#f6894f"/>
+      <path d="M36 8 L40 -1 L31 5 Z" fill="#f6894f"/>
+      <path d="M14 6 L11 0 L19 5 Z" fill="#ffd9c2"/>
+      <path d="M32 6 L35 0 L27 5 Z" fill="#ffd9c2"/>
+      <circle cx="23" cy="18" r="16" fill="#ffb15a"/>
+      <path d="M23 30 C 14 30 10 20 14 15 C 18 12 28 12 32 15 C 36 20 32 30 23 30 Z" fill="#fff6ef"/>
+      <circle cx="16" cy="16" r="2.4" fill="#3a281c"/>
+      <circle cx="30" cy="16" r="2.4" fill="#3a281c"/>
+      <path d="M20 21 h6 l-3 4 z" fill="#5a3d2b"/>
+    </svg>`;
 
     // Each level: list of blocks. First block (id 0) is the fox (target),
     // always horizontal on EXIT_ROW. o = 'h' | 'v'. All hand-verified
@@ -210,7 +224,7 @@
         const hCells = b.o === 'v' ? b.len : 1;
         el.style.width  = (SPAN * wCells + GAP * (wCells - 1)) + '%';
         el.style.height = (SPAN * hCells + GAP * (hCells - 1)) + '%';
-        if (b.t) el.textContent = '🦊';
+        if (b.t) el.innerHTML = FOX_SVG;
         boardEl.appendChild(el);
         return el;
       });
@@ -297,7 +311,7 @@
         if (el) el.style.left = '105%';
         setTimeout(() => {
           const last = levelIndex === LEVELS.length - 1;
-          document.getElementById('overlay-title').textContent = '🦊 Free!';
+          document.getElementById('overlay-title').textContent = 'Free!';
           overlaySub.textContent = `Solved in ${moves} moves.` +
             (last ? ' You cleared every level!' : '');
           overlayNext.textContent = last ? 'Play from start' : 'Next level';

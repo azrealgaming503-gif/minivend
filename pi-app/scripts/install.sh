@@ -90,6 +90,7 @@ apt install -y \
   ffmpeg \
   build-essential \
   network-manager wireless-tools \
+  fonts-noto-color-emoji \
   avahi-daemon
 
 # mDNS: lets phones/laptops reach the kiosk at "<hostname>.local" (e.g.
