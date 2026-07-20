@@ -144,8 +144,18 @@ function serveIdleIndex(_req, res, next) {
 app.get('/',           serveIdleIndex);
 app.get('/index.html', serveIdleIndex);
 
-app.use('/', express.static(uiDir, { extensions: ['html'] }));
-app.use('/games', express.static(config.gamesDir));
+// Force the browser to revalidate HTML/CSS/JS on every load so the kiosk
+// always picks up UI changes after an OTA update (Chromium's disk cache
+// would otherwise keep serving a stale styles.css / *.js until the cache
+// was manually cleared). `no-cache` still allows a cheap 304 when the
+// file is unchanged. Large media (idle videos, stickers) stay cacheable.
+const noCacheCodeAssets = (res, filePath) => {
+  if (/\.(html|css|js|mjs)$/i.test(filePath)) {
+    res.setHeader('Cache-Control', 'no-cache');
+  }
+};
+app.use('/', express.static(uiDir, { extensions: ['html'], setHeaders: noCacheCodeAssets }));
+app.use('/games', express.static(config.gamesDir, { setHeaders: noCacheCodeAssets }));
 
 // ---------- Read-only state for UI bootstrap ----------
 app.get('/api/state', (_req, res) => {

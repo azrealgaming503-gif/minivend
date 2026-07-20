@@ -1,0 +1,319 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, user-scalable=no" />
+  <title>Unblock the Fox · Blu</title>
+  <link rel="stylesheet" href="/css/styles.css" />
+  <style>
+    .ub-page { display: flex; flex-direction: column; height: 100vh; }
+    .ub-header {
+      display: flex; align-items: center; justify-content: space-between;
+      padding: 12px 18px; border-bottom: 1px solid var(--stroke); gap: 12px;
+    }
+    .ub-stats { display: flex; gap: 20px; align-items: baseline; font-size: 20px; }
+    .ub-stats b { font-weight: 700; color: var(--accent); font-variant-numeric: tabular-nums; }
+    .ub-stage {
+      flex: 1; display: flex; align-items: center; justify-content: center;
+      padding: 14px; min-height: 0; touch-action: manipulation;
+    }
+    .ub-board {
+      position: relative;
+      width: min(94vmin, 96%);
+      aspect-ratio: 1; max-height: 100%;
+      background: #efe3f7;
+      border: 2px solid var(--stroke);
+      border-radius: 16px;
+      box-shadow: 0 10px 26px rgba(123, 101, 147, 0.14);
+      --n: 6;
+    }
+    /* Faint cell grid. */
+    .ub-cells {
+      position: absolute; inset: 0;
+      display: grid;
+      grid-template-columns: repeat(var(--n), 1fr);
+      grid-template-rows: repeat(var(--n), 1fr);
+      padding: 2%;
+      gap: 1.4%;
+    }
+    .ub-cells > div { background: rgba(255,255,255,0.45); border-radius: 8px; }
+    /* Exit marker on the right of the target row. */
+    .ub-exit {
+      position: absolute; right: -12px;
+      width: 12px; height: calc((100% - 4%) / 6);
+      background: linear-gradient(135deg, var(--accent), var(--accent-2));
+      border-radius: 0 8px 8px 0;
+    }
+    .ub-block {
+      position: absolute;
+      border-radius: 12px;
+      box-sizing: border-box;
+      display: flex; align-items: center; justify-content: center;
+      font-size: clamp(18px, 6vmin, 44px);
+      background: linear-gradient(135deg, #cdb2e6, #b58fd8);
+      box-shadow: inset 0 -3px 0 rgba(80,55,110,0.22), 0 3px 8px rgba(90,60,120,0.18);
+      transition: left 0.14s ease, top 0.14s ease;
+      cursor: pointer; user-select: none; -webkit-user-select: none;
+    }
+    .ub-block.sel { outline: 4px solid var(--accent); outline-offset: -2px; }
+    .ub-block.target {
+      background: linear-gradient(135deg, #ffb84d, #ff8fb6);
+    }
+    .ub-footer {
+      display: flex; align-items: center; justify-content: center; gap: 14px;
+      padding: 12px 18px; border-top: 1px solid var(--stroke);
+    }
+    .ub-hint { color: var(--text-2); font-size: 14px; text-align: center; }
+    .ub-overlay {
+      position: fixed; inset: 0; z-index: 10;
+      display: flex; align-items: center; justify-content: center; flex-direction: column; gap: 16px;
+      background: rgba(247, 238, 252, 0.9); backdrop-filter: blur(6px);
+    }
+    .ub-overlay h2 { margin: 0; font-size: 40px; color: var(--text); }
+    .ub-overlay p  { margin: 0; color: var(--text-2); font-size: 20px; }
+  </style>
+</head>
+<body class="theme-pastel">
+  <div class="ub-page">
+    <header class="ub-header">
+      <a href="/games"><button class="ghost">← Back</button></a>
+      <div class="ub-stats">
+        <span>Level <b id="level">1</b>/<b id="levels">1</b></span>
+        <span>Moves <b id="moves">0</b></span>
+      </div>
+      <button id="reset">Reset</button>
+    </header>
+
+    <main class="ub-stage">
+      <div class="ub-board" id="board">
+        <div class="ub-cells" id="cells"></div>
+        <div class="ub-exit" id="exit"></div>
+      </div>
+    </main>
+
+    <footer class="ub-footer">
+      <div class="ub-hint">Tap the 🦊 fox (or any block) to select it, then tap an empty
+        square in its row/column to slide it. Free the fox out the right side!</div>
+    </footer>
+
+    <div id="overlay" class="ub-overlay" hidden>
+      <h2 id="overlay-title">🦊 Free!</h2>
+      <p id="overlay-sub"></p>
+      <button class="primary" id="overlay-next">Next level</button>
+    </div>
+  </div>
+
+  <script type="module">
+    import '/js/alerts.js';
+
+    const N = 6;
+    const EXIT_ROW = 2;
+
+    // Each level: list of blocks. First block (id 0) is the fox (target),
+    // always horizontal on EXIT_ROW. o = 'h' | 'v'. All hand-verified
+    // solvable. Coords are x (col 0..5), y (row 0..5), len = 2 or 3.
+    const LEVELS = [
+      // 1 — one mover
+      [
+        { x: 0, y: 2, len: 2, o: 'h', t: true },
+        { x: 3, y: 0, len: 3, o: 'v' },
+        { x: 5, y: 3, len: 2, o: 'v' },
+      ],
+      // 2 — two movers
+      [
+        { x: 0, y: 2, len: 2, o: 'h', t: true },
+        { x: 3, y: 1, len: 2, o: 'v' },
+        { x: 0, y: 0, len: 3, o: 'h' },
+        { x: 5, y: 0, len: 2, o: 'v' },
+      ],
+      // 3 — clear two verticals down
+      [
+        { x: 0, y: 2, len: 2, o: 'h', t: true },
+        { x: 2, y: 2, len: 2, o: 'v' },
+        { x: 4, y: 2, len: 2, o: 'v' },
+        { x: 2, y: 0, len: 2, o: 'v' },
+        { x: 5, y: 3, len: 3, o: 'v' },
+      ],
+      // 4 — clear two blockers out of the exit row
+      [
+        { x: 0, y: 2, len: 2, o: 'h', t: true },
+        { x: 2, y: 2, len: 3, o: 'v' },
+        { x: 2, y: 0, len: 2, o: 'h' },
+        { x: 4, y: 0, len: 3, o: 'v' },
+        { x: 5, y: 3, len: 2, o: 'v' },
+        { x: 0, y: 4, len: 2, o: 'v' },
+      ],
+      // 5 — trickier
+      [
+        { x: 0, y: 2, len: 2, o: 'h', t: true },
+        { x: 2, y: 1, len: 2, o: 'v' },
+        { x: 3, y: 0, len: 2, o: 'h' },
+        { x: 4, y: 1, len: 3, o: 'v' },
+        { x: 2, y: 3, len: 2, o: 'h' },
+        { x: 5, y: 3, len: 3, o: 'v' },
+        { x: 0, y: 4, len: 3, o: 'h' },
+      ],
+    ];
+
+    const boardEl = document.getElementById('board');
+    const cellsEl = document.getElementById('cells');
+    const exitEl  = document.getElementById('exit');
+    const levelEl = document.getElementById('level');
+    const levelsEl = document.getElementById('levels');
+    const movesEl = document.getElementById('moves');
+    const overlay = document.getElementById('overlay');
+    const overlaySub = document.getElementById('overlay-sub');
+    const overlayNext = document.getElementById('overlay-next');
+
+    let blocks, blockEls, occ, selected, moves, levelIndex, solved;
+    levelsEl.textContent = LEVELS.length;
+
+    const PAD = 2, GAP = 1.4;                       // percent, must match CSS
+    const SPAN = (100 - PAD * 2 - GAP * (N - 1)) / N;  // one cell's width %
+    const at = (i) => PAD + i * (SPAN + GAP);
+
+    // Position the exit marker on the target row.
+    exitEl.style.top = `calc(2% + ${EXIT_ROW} * ((100% - 4%) / 6))`;
+
+    function buildCells() {
+      cellsEl.innerHTML = '';
+      for (let i = 0; i < N * N; i++) cellsEl.appendChild(document.createElement('div'));
+    }
+
+    function rebuildOcc() {
+      occ = Array.from({ length: N }, () => Array(N).fill(-1));
+      blocks.forEach((b, i) => {
+        for (let k = 0; k < b.len; k++) {
+          const x = b.o === 'h' ? b.x + k : b.x;
+          const y = b.o === 'v' ? b.y + k : b.y;
+          occ[y][x] = i;
+        }
+      });
+    }
+
+    function loadLevel(i) {
+      levelIndex = i;
+      blocks = LEVELS[i].map((b) => ({ ...b }));
+      selected = -1; moves = 0; solved = false;
+      levelEl.textContent = i + 1;
+      movesEl.textContent = 0;
+      overlay.hidden = true;
+      rebuildOcc();
+      // Build block elements once; moves just reposition them so the
+      // CSS left/top transition animates the slide.
+      boardEl.querySelectorAll('.ub-block').forEach((n) => n.remove());
+      blockEls = blocks.map((b, idx) => {
+        const el = document.createElement('div');
+        el.className = 'ub-block' + (b.t ? ' target' : '');
+        el.dataset.i = idx;
+        const wCells = b.o === 'h' ? b.len : 1;
+        const hCells = b.o === 'v' ? b.len : 1;
+        el.style.width  = (SPAN * wCells + GAP * (wCells - 1)) + '%';
+        el.style.height = (SPAN * hCells + GAP * (hCells - 1)) + '%';
+        if (b.t) el.textContent = '🦊';
+        boardEl.appendChild(el);
+        return el;
+      });
+      layout();
+    }
+
+    function layout() {
+      blocks.forEach((b, idx) => {
+        const el = blockEls[idx];
+        el.style.left = at(b.x) + '%';
+        el.style.top  = at(b.y) + '%';
+        el.classList.toggle('sel', idx === selected);
+      });
+    }
+
+    function cellFromEvent(e) {
+      const r = boardEl.getBoundingClientRect();
+      const px = (e.clientX - r.left) / r.width;
+      const py = (e.clientY - r.top)  / r.height;
+      const x = Math.min(N - 1, Math.max(0, Math.floor(px * N)));
+      const y = Math.min(N - 1, Math.max(0, Math.floor(py * N)));
+      return { x, y };
+    }
+
+    // Try to move the selected block toward (tx,ty) as far as the path
+    // allows, without passing the tapped cell.
+    function moveToward(tx, ty) {
+      if (selected < 0) return false;
+      const b = blocks[selected];
+      let did = false;
+      if (b.o === 'h') {
+        if (ty !== b.y) return false;
+        if (tx > b.x) {
+          while (b.x + b.len - 1 < tx && b.x + b.len <= N - 1 && occ[b.y][b.x + b.len] === -1) {
+            occ[b.y][b.x] = -1; occ[b.y][b.x + b.len] = selected; b.x++; did = true;
+          }
+        } else if (tx < b.x) {
+          while (b.x > tx && b.x - 1 >= 0 && occ[b.y][b.x - 1] === -1) {
+            occ[b.y][b.x + b.len - 1] = -1; occ[b.y][b.x - 1] = selected; b.x--; did = true;
+          }
+        }
+      } else {
+        if (tx !== b.x) return false;
+        if (ty > b.y) {
+          while (b.y + b.len - 1 < ty && b.y + b.len <= N - 1 && occ[b.y + b.len][b.x] === -1) {
+            occ[b.y][b.x] = -1; occ[b.y + b.len][b.x] = selected; b.y++; did = true;
+          }
+        } else if (ty < b.y) {
+          while (b.y > ty && b.y - 1 >= 0 && occ[b.y - 1][b.x] === -1) {
+            occ[b.y + b.len - 1][b.x] = -1; occ[b.y - 1][b.x] = selected; b.y--; did = true;
+          }
+        }
+      }
+      return did;
+    }
+
+    boardEl.addEventListener('pointerup', (e) => {
+      if (solved) return;
+      const { x, y } = cellFromEvent(e);
+      const hit = occ[y][x];
+      // Tapped a block → select it (unless we have one selected and tapped
+      // an empty spot in its line, handled below).
+      if (hit !== -1 && hit !== selected) {
+        selected = hit; layout(); return;
+      }
+      if (selected < 0) return;
+      // Tapped empty (or the selected block's own line) → try to move.
+      if (hit === selected || hit === -1) {
+        const moved = moveToward(x, y);
+        if (moved) {
+          moves++; movesEl.textContent = moves;
+          layout();
+          checkWin();
+        }
+      }
+    });
+
+    function checkWin() {
+      const fox = blocks[0];
+      if (fox.o === 'h' && fox.y === EXIT_ROW && fox.x + fox.len - 1 === N - 1) {
+        solved = true;
+        // Slide the fox off the right edge, then celebrate.
+        const el = boardEl.querySelector('.ub-block.target');
+        if (el) el.style.left = '105%';
+        setTimeout(() => {
+          const last = levelIndex === LEVELS.length - 1;
+          document.getElementById('overlay-title').textContent = '🦊 Free!';
+          overlaySub.textContent = `Solved in ${moves} moves.` +
+            (last ? ' You cleared every level!' : '');
+          overlayNext.textContent = last ? 'Play from start' : 'Next level';
+          overlay.hidden = false;
+        }, 260);
+      }
+    }
+
+    overlayNext.addEventListener('click', () => {
+      const next = (levelIndex + 1) % LEVELS.length;
+      loadLevel(next);
+    });
+    document.getElementById('reset').addEventListener('click', () => loadLevel(levelIndex));
+
+    buildCells();
+    loadLevel(0);
+  </script>
+</body>
+</html>

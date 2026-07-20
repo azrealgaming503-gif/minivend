@@ -1,0 +1,360 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, user-scalable=no" />
+  <title>Kitsune · Blu</title>
+  <link rel="stylesheet" href="/css/styles.css" />
+  <style>
+    .k-page { display: flex; flex-direction: column; height: 100vh; overflow: hidden; }
+    .k-header {
+      display: flex; align-items: center; justify-content: space-between;
+      padding: 12px 18px; border-bottom: 1px solid var(--stroke); gap: 12px; z-index: 2;
+    }
+    .k-title { font-size: 20px; font-weight: 600; }
+    .k-title b { color: var(--accent); }
+    .k-badge {
+      font-size: 14px; color: var(--text-2);
+      background: var(--surface); border: 1px solid var(--stroke);
+      border-radius: 999px; padding: 6px 12px;
+    }
+    .k-stage {
+      flex: 1; position: relative; min-height: 0;
+      display: flex; flex-direction: column; align-items: center; justify-content: center;
+      gap: 8px;
+    }
+    /* Falling sakura backdrop (reuses the global keyframe). */
+    .k-sakura { position: absolute; inset: 0; overflow: hidden; pointer-events: none; z-index: 0; }
+    .k-petal {
+      position: absolute; top: 0; width: 14px; height: 14px;
+      background: radial-gradient(circle at 30% 30%, #ffe1ec 0%, #ffb3cd 55%, #ff8fb6 100%);
+      border-radius: 100% 0 100% 0; opacity: 0;
+      animation-name: boot-splash-sakura-fall;
+      animation-timing-function: ease-in-out; animation-iteration-count: infinite;
+    }
+    .k-pet-wrap { position: relative; z-index: 1; display: flex; flex-direction: column; align-items: center; }
+    .k-speech {
+      position: relative; background: var(--surface); border: 1px solid var(--stroke);
+      border-radius: 16px; padding: 10px 16px; font-size: 18px; color: var(--text);
+      box-shadow: 0 6px 16px rgba(123,101,147,0.12); max-width: 80vw; text-align: center;
+      margin-bottom: 6px;
+    }
+    .k-speech::after {
+      content: ''; position: absolute; bottom: -9px; left: 50%; transform: translateX(-50%);
+      border-left: 9px solid transparent; border-right: 9px solid transparent;
+      border-top: 9px solid var(--surface);
+    }
+    .k-fox { width: min(42vmin, 280px); height: min(42vmin, 280px); }
+    .k-fox.bob { animation: k-bob 3s ease-in-out infinite; }
+    @keyframes k-bob { 0%,100% { transform: translateY(0); } 50% { transform: translateY(-10px); } }
+    .k-kits { display: flex; gap: 14px; margin-top: 4px; z-index: 1; }
+    .k-kit { font-size: 30px; animation: k-bob 2.4s ease-in-out infinite; }
+    .k-kit:nth-child(2) { animation-delay: 0.6s; }
+    .k-kit:nth-child(3) { animation-delay: 1.2s; }
+
+    .k-stats { z-index: 2; display: grid; grid-template-columns: 1fr 1fr; gap: 8px 18px; padding: 10px 18px; }
+    .k-stat { display: flex; align-items: center; gap: 8px; }
+    .k-stat .lbl { width: 92px; font-size: 15px; color: var(--text-2); }
+    .k-bar { flex: 1; height: 14px; border-radius: 999px; background: #ece1f4; overflow: hidden; }
+    .k-bar > i { display: block; height: 100%; width: 0; border-radius: 999px; transition: width 0.3s ease, background 0.3s ease; }
+
+    .k-actions {
+      z-index: 2; display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px;
+      padding: 12px 18px 16px; border-top: 1px solid var(--stroke);
+    }
+    .k-actions button {
+      font-size: 18px; font-weight: 700; padding: 16px 8px; border-radius: 16px;
+      display: flex; flex-direction: column; align-items: center; gap: 4px;
+    }
+    .k-actions .emoji { font-size: 28px; }
+    .k-actions button.on {
+      background: linear-gradient(135deg, var(--accent), var(--accent-2)); color: #fff; border-color: transparent;
+    }
+  </style>
+</head>
+<body class="theme-pastel">
+  <div class="k-page">
+    <header class="k-header">
+      <a href="/games"><button class="ghost">← Back</button></a>
+      <div class="k-title">Your kitsune <b id="pet-name">Kit</b></div>
+      <div class="k-badge" id="tails-badge">🦊 1 tail</div>
+    </header>
+
+    <main class="k-stage">
+      <div class="k-sakura" id="sakura"></div>
+      <div class="k-pet-wrap">
+        <div class="k-speech" id="speech">Hi! I'm so happy to see you 💕</div>
+        <svg class="k-fox bob" id="fox" viewBox="0 0 220 220" aria-label="kitsune"></svg>
+      </div>
+      <div class="k-kits">
+        <span class="k-kit">🦊</span>
+        <span class="k-kit">🦊</span>
+        <span class="k-kit">🦊</span>
+      </div>
+    </main>
+
+    <section class="k-stats">
+      <div class="k-stat"><span class="lbl">🍙 Fullness</span><div class="k-bar"><i id="bar-fullness"></i></div></div>
+      <div class="k-stat"><span class="lbl">💗 Happy</span><div class="k-bar"><i id="bar-happy"></i></div></div>
+      <div class="k-stat"><span class="lbl">⚡ Energy</span><div class="k-bar"><i id="bar-energy"></i></div></div>
+      <div class="k-stat"><span class="lbl">✨ Clean</span><div class="k-bar"><i id="bar-clean"></i></div></div>
+    </section>
+
+    <div class="k-actions">
+      <button id="feed"><span class="emoji">🍙</span>Feed</button>
+      <button id="play"><span class="emoji">🎋</span>Play</button>
+      <button id="groom"><span class="emoji">🧼</span>Groom</button>
+      <button id="sleep"><span class="emoji">😴</span>Sleep</button>
+    </div>
+  </div>
+
+  <script type="module">
+    import '/js/alerts.js';
+
+    const KEY = 'minivend.kitsune.v1';
+    const HR = 3600000;
+    // Per-hour decay/regen rates.
+    const RATE = {
+      fullness: -8,
+      happy:    -6,
+      clean:    -4,
+      energyAwake: -5,
+      energyAsleep: 22,
+    };
+    const MAX_TAILS = 9;
+    const BOND_PER_TAIL = 100;
+
+    const clamp = (v) => Math.max(0, Math.min(100, v));
+
+    let s = load();
+
+    function load() {
+      try {
+        const raw = JSON.parse(localStorage.getItem(KEY));
+        if (raw && typeof raw === 'object') return normalize(raw);
+      } catch (_) {}
+      return {
+        name: 'Kit', fullness: 80, happy: 85, energy: 80, clean: 85,
+        bond: 0, asleep: false, lastTs: Date.now(),
+      };
+    }
+    function normalize(r) {
+      return {
+        name: typeof r.name === 'string' ? r.name : 'Kit',
+        fullness: clamp(+r.fullness || 0),
+        happy: clamp(+r.happy || 0),
+        energy: clamp(+r.energy || 0),
+        clean: clamp(+r.clean || 0),
+        bond: Math.max(0, +r.bond || 0),
+        asleep: !!r.asleep,
+        lastTs: +r.lastTs || Date.now(),
+      };
+    }
+    function save() { localStorage.setItem(KEY, JSON.stringify(s)); }
+
+    // Apply real-time decay since the last tick so the pet "lives" between
+    // visits (stats drop while you're away; energy recovers if asleep).
+    function decay() {
+      const now = Date.now();
+      const dtHr = Math.max(0, now - s.lastTs) / HR;
+      s.lastTs = now;
+      if (dtHr <= 0) return;
+      s.fullness = clamp(s.fullness + RATE.fullness * dtHr);
+      s.happy    = clamp(s.happy    + RATE.happy    * dtHr);
+      s.clean    = clamp(s.clean    + RATE.clean    * dtHr);
+      s.energy   = clamp(s.energy + (s.asleep ? RATE.energyAsleep : RATE.energyAwake) * dtHr);
+      // Neglected pets slowly lose happiness faster when hungry/dirty.
+      if (s.fullness < 20 || s.clean < 20) s.happy = clamp(s.happy - 3 * dtHr);
+      // Auto-wake once fully rested.
+      if (s.asleep && s.energy >= 100) s.asleep = false;
+    }
+
+    function tails() { return Math.min(MAX_TAILS, 1 + Math.floor(s.bond / BOND_PER_TAIL)); }
+    function mood() {
+      const low = Math.min(s.fullness, s.happy, s.energy, s.clean);
+      const avg = (s.fullness + s.happy + s.energy + s.clean) / 4;
+      if (s.asleep) return 'sleep';
+      if (low < 18) return 'sad';
+      if (avg > 70) return 'happy';
+      return 'ok';
+    }
+
+    // ---- Speech ----
+    const speechEl = document.getElementById('speech');
+    function needMessage() {
+      if (s.asleep) return 'Zzz… 😴';
+      const needs = [
+        [s.fullness, 'My tummy is rumbling… feed me? 🍙'],
+        [s.energy,   'I\'m getting sleepy… 😴'],
+        [s.clean,    'I feel a bit grubby… groom me? 🧼'],
+        [s.happy,    'Play with me? 🎋'],
+      ].sort((a, b) => a[0] - b[0]);
+      if (needs[0][0] < 30) return needs[0][1];
+      if (mood() === 'happy') return 'I feel wonderful! Thank you 💕';
+      return 'Boop! I\'m doing okay 🦊';
+    }
+    let speechTimer = null;
+    function say(msg, hold = 2600) {
+      speechEl.textContent = msg;
+      clearTimeout(speechTimer);
+      speechTimer = setTimeout(() => { speechEl.textContent = needMessage(); }, hold);
+    }
+
+    // ---- SVG kitsune ----
+    const fox = document.getElementById('fox');
+    function drawFox() {
+      const m = mood();
+      const n = tails();
+      // Tails fan out behind the body.
+      let tailSvg = '';
+      const spread = 78;                       // total degrees
+      const step = n > 1 ? spread / (n - 1) : 0;
+      const start = -spread / 2;
+      for (let i = 0; i < n; i++) {
+        const ang = start + step * i;
+        tailSvg += `
+          <g transform="translate(110,150) rotate(${ang})">
+            <path d="M0,0 C -16,-42 -10,-96 0,-120 C 10,-96 16,-42 0,0 Z"
+                  fill="url(#furGrad)" stroke="#e79a55" stroke-width="2"/>
+            <path d="M0,-120 C -7,-104 -7,-96 0,-86 C 7,-96 7,-104 0,-120 Z" fill="#fff6ef"/>
+          </g>`;
+      }
+      // Eyes by mood.
+      let eyes;
+      if (m === 'sleep') {
+        eyes = `<path d="M78 108 q10 8 20 0" stroke="#5a3d2b" stroke-width="4" fill="none" stroke-linecap="round"/>
+                <path d="M122 108 q10 8 20 0" stroke="#5a3d2b" stroke-width="4" fill="none" stroke-linecap="round"/>`;
+      } else if (m === 'sad') {
+        eyes = `<path d="M80 112 q8 -8 18 -2" stroke="#5a3d2b" stroke-width="5" fill="none" stroke-linecap="round"/>
+                <path d="M124 110 q10 -6 18 2" stroke="#5a3d2b" stroke-width="5" fill="none" stroke-linecap="round"/>`;
+      } else {
+        eyes = `<circle cx="89" cy="110" r="6.5" fill="#3a281c"/>
+                <circle cx="131" cy="110" r="6.5" fill="#3a281c"/>
+                <circle cx="91" cy="108" r="2" fill="#fff"/>
+                <circle cx="133" cy="108" r="2" fill="#fff"/>`;
+      }
+      const smile = (m === 'sad')
+        ? `<path d="M100 138 q-8 -6 -16 0" stroke="#5a3d2b" stroke-width="3" fill="none" stroke-linecap="round"/>`
+        : `<path d="M92 134 q8 8 16 0" stroke="#5a3d2b" stroke-width="3" fill="none" stroke-linecap="round"/>`;
+
+      fox.innerHTML = `
+        <defs>
+          <linearGradient id="furGrad" x1="0" y1="0" x2="0" y2="1">
+            <stop offset="0" stop-color="#ffb15a"/>
+            <stop offset="1" stop-color="#f6894f"/>
+          </linearGradient>
+        </defs>
+        ${tailSvg}
+        <!-- body -->
+        <ellipse cx="110" cy="150" rx="46" ry="40" fill="url(#furGrad)"/>
+        <!-- ears -->
+        <path d="M72 78 L64 34 L100 66 Z" fill="url(#furGrad)" stroke="#e79a55" stroke-width="2"/>
+        <path d="M148 78 L156 34 L120 66 Z" fill="url(#furGrad)" stroke="#e79a55" stroke-width="2"/>
+        <path d="M74 70 L70 46 L92 64 Z" fill="#ffd9c2"/>
+        <path d="M146 70 L150 46 L128 64 Z" fill="#ffd9c2"/>
+        <!-- head -->
+        <circle cx="110" cy="112" r="46" fill="url(#furGrad)"/>
+        <!-- cheeks / muzzle -->
+        <path d="M110 150 C 88 150 80 132 84 122 C 96 116 124 116 136 122 C 140 132 132 150 110 150 Z" fill="#fff6ef"/>
+        ${eyes}
+        <!-- blush -->
+        <ellipse cx="80" cy="126" rx="8" ry="5" fill="#ffb3cd" opacity="0.7"/>
+        <ellipse cx="140" cy="126" rx="8" ry="5" fill="#ffb3cd" opacity="0.7"/>
+        <!-- nose + mouth -->
+        <path d="M104 126 h12 l-6 7 z" fill="#5a3d2b"/>
+        ${smile}
+      `;
+      fox.classList.toggle('bob', m !== 'sleep');
+    }
+
+    // ---- Stat bars ----
+    function barColor(v) {
+      if (v < 25) return '#ef6a8f';
+      if (v < 55) return '#ffb84d';
+      return 'linear-gradient(90deg, #b886e5, #ffa3d1)';
+    }
+    function setBar(id, v) {
+      const el = document.getElementById(id);
+      el.style.width = v + '%';
+      el.style.background = barColor(v);
+    }
+
+    const nameEl = document.getElementById('pet-name');
+    const tailsBadge = document.getElementById('tails-badge');
+    const sleepBtn = document.getElementById('sleep');
+
+    function render() {
+      setBar('bar-fullness', s.fullness);
+      setBar('bar-happy', s.happy);
+      setBar('bar-energy', s.energy);
+      setBar('bar-clean', s.clean);
+      nameEl.textContent = s.name;
+      const n = tails();
+      tailsBadge.textContent = `🦊 ${n} tail${n > 1 ? 's' : ''}`;
+      sleepBtn.classList.toggle('on', s.asleep);
+      sleepBtn.querySelector('.emoji').textContent = s.asleep ? '☀️' : '😴';
+      sleepBtn.childNodes[1].nodeValue = s.asleep ? 'Wake' : 'Sleep';
+      drawFox();
+    }
+
+    // ---- Actions ----
+    function reward(amount) {
+      const before = tails();
+      s.bond += amount;
+      if (tails() > before) say(`✨ ${s.name} grew a new tail! Now ${tails()} tails!`, 3200);
+    }
+    document.getElementById('feed').addEventListener('click', () => {
+      if (s.asleep) return say('Shh… I\'m sleeping 😴');
+      if (s.fullness > 96) return say('I\'m too full! 🙅');
+      s.fullness = clamp(s.fullness + 26);
+      reward(4); say('Yum yum! 🍙'); commit();
+    });
+    document.getElementById('play').addEventListener('click', () => {
+      if (s.asleep) return say('Too sleepy to play 😴');
+      if (s.energy < 12) return say('I\'m too tired… let me rest 😴');
+      s.happy = clamp(s.happy + 24);
+      s.energy = clamp(s.energy - 12);
+      s.fullness = clamp(s.fullness - 6);
+      reward(5); say('Wheee! 🎋💨'); commit();
+    });
+    document.getElementById('groom').addEventListener('click', () => {
+      if (s.asleep) return say('Zzz… later? 😴');
+      if (s.clean > 96) return say('I\'m already sparkly ✨');
+      s.clean = clamp(s.clean + 30);
+      reward(3); say('So fresh! ✨'); commit();
+    });
+    sleepBtn.addEventListener('click', () => {
+      s.asleep = !s.asleep;
+      say(s.asleep ? 'Goodnight… 😴' : 'Good morning! ☀️');
+      commit();
+    });
+
+    function commit() { save(); render(); }
+
+    // ---- Loop ----
+    function tick() { decay(); render(); save(); }
+    speechEl.textContent = needMessage();
+    render();
+    setInterval(tick, 5000);
+
+    // ---- Sakura petals ----
+    (function spawnPetals() {
+      const layer = document.getElementById('sakura');
+      for (let i = 0; i < 14; i++) {
+        const p = document.createElement('span');
+        p.className = 'k-petal';
+        const dur = 7 + Math.random() * 5;
+        const size = 9 + Math.random() * 11;
+        p.style.left = (Math.random() * 100) + 'vw';
+        p.style.width = size + 'px';
+        p.style.height = size + 'px';
+        p.style.setProperty('--drift', (40 + Math.random() * 150) + 'px');
+        p.style.setProperty('--petal-opacity', (0.5 + Math.random() * 0.4).toFixed(2));
+        p.style.animationDuration = dur.toFixed(2) + 's';
+        p.style.animationDelay = (-Math.random() * dur).toFixed(2) + 's';
+        layer.appendChild(p);
+      }
+    })();
+  </script>
+</body>
+</html>

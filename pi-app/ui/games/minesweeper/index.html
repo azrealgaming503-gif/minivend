@@ -1,0 +1,302 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, user-scalable=no" />
+  <title>Minesweeper · Blu</title>
+  <link rel="stylesheet" href="/css/styles.css" />
+  <style>
+    .ms-page { display: flex; flex-direction: column; height: 100vh; }
+    .ms-header {
+      display: flex; align-items: center; justify-content: space-between;
+      padding: 12px 18px; border-bottom: 1px solid var(--stroke); gap: 12px;
+    }
+    .ms-stats { display: flex; gap: 20px; align-items: baseline; font-size: 20px; }
+    .ms-stats b { font-weight: 700; color: var(--accent); font-variant-numeric: tabular-nums; }
+    .ms-stage {
+      flex: 1; display: flex; align-items: center; justify-content: center;
+      padding: 12px; touch-action: manipulation; min-height: 0;
+    }
+    .ms-board {
+      display: grid;
+      gap: 3px;
+      width: min(96vmin, 96%);
+      aspect-ratio: 1;
+      max-height: 100%;
+      background: #e6d3f0;
+      border: 2px solid var(--stroke);
+      border-radius: 14px;
+      padding: 8px;
+      box-shadow: 0 10px 26px rgba(123, 101, 147, 0.14);
+    }
+    .ms-cell {
+      display: flex; align-items: center; justify-content: center;
+      background: linear-gradient(135deg, #d8b8ef, #c79ae8);
+      border-radius: 6px;
+      font-weight: 800;
+      font-size: clamp(12px, 4.4vmin, 30px);
+      color: #3d2e54;
+      user-select: none; -webkit-user-select: none;
+      cursor: pointer;
+      box-shadow: inset 0 -2px 0 rgba(90, 60, 120, 0.18);
+      transition: background 0.08s ease, transform 0.06s ease;
+    }
+    .ms-cell:active { transform: scale(0.94); }
+    .ms-cell.revealed {
+      background: rgba(255, 255, 255, 0.72);
+      box-shadow: none;
+      cursor: default;
+    }
+    .ms-cell.flag { color: #d24b7a; }
+    .ms-cell.mine { background: #ff9db6; }
+    .ms-cell.boom { background: #ff5c86; color: #fff; }
+    /* Classic-ish number colors on the pastel base. */
+    .ms-cell[data-n="1"] { color: #3a7bd5; }
+    .ms-cell[data-n="2"] { color: #2e9e5b; }
+    .ms-cell[data-n="3"] { color: #d24b7a; }
+    .ms-cell[data-n="4"] { color: #7a3fb0; }
+    .ms-cell[data-n="5"] { color: #b05a2e; }
+    .ms-cell[data-n="6"] { color: #2a9d9d; }
+    .ms-cell[data-n="7"] { color: #6b2347; }
+    .ms-cell[data-n="8"] { color: #7b6593; }
+
+    .ms-footer {
+      display: flex; align-items: center; justify-content: center; gap: 14px;
+      padding: 12px 18px; border-top: 1px solid var(--stroke);
+    }
+    .ms-mode {
+      font-size: 22px; font-weight: 700; padding: 14px 26px; border-radius: 14px;
+      min-width: 220px;
+    }
+    .ms-mode[data-mode="flag"] {
+      background: linear-gradient(135deg, var(--accent), var(--accent-2));
+      color: #fff; border-color: transparent;
+    }
+    .ms-diff { display: flex; gap: 8px; }
+    .ms-overlay {
+      position: fixed; inset: 0; z-index: 10;
+      display: flex; align-items: center; justify-content: center; flex-direction: column; gap: 16px;
+      background: rgba(247, 238, 252, 0.9); backdrop-filter: blur(6px);
+    }
+    .ms-overlay h2 { margin: 0; font-size: 40px; color: var(--text); }
+    .ms-overlay p  { margin: 0; color: var(--text-2); font-size: 20px; }
+  </style>
+</head>
+<body class="theme-pastel">
+  <div class="ms-page">
+    <header class="ms-header">
+      <a href="/games"><button class="ghost">← Back</button></a>
+      <div class="ms-stats">
+        <span>🚩 <b id="mines-left">0</b></span>
+        <span>⏱ <b id="timer">0</b></span>
+      </div>
+      <div class="ms-diff">
+        <button data-diff="easy" class="primary">Easy</button>
+        <button data-diff="med">Medium</button>
+        <button data-diff="hard">Hard</button>
+      </div>
+    </header>
+
+    <main class="ms-stage">
+      <div class="ms-board" id="board"></div>
+    </main>
+
+    <footer class="ms-footer">
+      <button id="mode" class="ms-mode" data-mode="dig">⛏ Dig</button>
+      <button id="restart">Restart</button>
+    </footer>
+
+    <div id="overlay" class="ms-overlay" hidden>
+      <h2 id="overlay-title">Boom!</h2>
+      <p id="overlay-sub"></p>
+      <button class="primary" id="overlay-restart">Play again</button>
+    </div>
+  </div>
+
+  <script type="module">
+    import '/js/alerts.js';
+
+    const DIFFS = {
+      easy: { n: 9,  mines: 10 },
+      med:  { n: 12, mines: 24 },
+      hard: { n: 14, mines: 40 },
+    };
+
+    const boardEl   = document.getElementById('board');
+    const minesLeft = document.getElementById('mines-left');
+    const timerEl   = document.getElementById('timer');
+    const modeBtn   = document.getElementById('mode');
+    const overlay   = document.getElementById('overlay');
+    const overlayTitle = document.getElementById('overlay-title');
+    const overlaySub   = document.getElementById('overlay-sub');
+
+    let N, MINES, cells, flags, revealedCount, alive, started, seeded;
+    let flagMode = false;
+    let timer = 0, timerId = null;
+    let diff = 'easy';
+
+    function startTimer() {
+      stopTimer();
+      timerId = setInterval(() => { timer++; timerEl.textContent = timer; }, 1000);
+    }
+    function stopTimer() { if (timerId) { clearInterval(timerId); timerId = null; } }
+
+    function idx(x, y) { return y * N + x; }
+    function inBounds(x, y) { return x >= 0 && x < N && y >= 0 && y < N; }
+    function neighbors(x, y) {
+      const out = [];
+      for (let dy = -1; dy <= 1; dy++)
+        for (let dx = -1; dx <= 1; dx++) {
+          if (dx === 0 && dy === 0) continue;
+          if (inBounds(x + dx, y + dy)) out.push([x + dx, y + dy]);
+        }
+      return out;
+    }
+
+    function newGame() {
+      const d = DIFFS[diff];
+      N = d.n; MINES = d.mines;
+      cells = Array.from({ length: N * N }, () => ({ mine: false, revealed: false, flagged: false, n: 0 }));
+      flags = 0; revealedCount = 0; alive = true; started = false; seeded = false;
+      timer = 0; timerEl.textContent = 0; stopTimer();
+      minesLeft.textContent = MINES;
+      overlay.hidden = true;
+      render();
+    }
+
+    function render() {
+      boardEl.style.gridTemplateColumns = `repeat(${N}, 1fr)`;
+      boardEl.innerHTML = '';
+      for (let y = 0; y < N; y++) {
+        for (let x = 0; x < N; x++) {
+          const c = cells[idx(x, y)];
+          const el = document.createElement('div');
+          el.className = 'ms-cell';
+          el.dataset.x = x; el.dataset.y = y;
+          paint(el, c);
+          boardEl.appendChild(el);
+        }
+      }
+    }
+
+    function paint(el, c) {
+      el.className = 'ms-cell';
+      el.removeAttribute('data-n');
+      el.textContent = '';
+      if (c.flagged && !c.revealed) { el.classList.add('flag'); el.textContent = '🚩'; return; }
+      if (!c.revealed) return;
+      el.classList.add('revealed');
+      if (c.mine) { el.classList.add(c.boom ? 'boom' : 'mine'); el.textContent = '💣'; return; }
+      if (c.n > 0) { el.dataset.n = c.n; el.textContent = c.n; }
+    }
+
+    function cellEl(x, y) {
+      return boardEl.children[idx(x, y)];
+    }
+
+    // Seed mines AFTER the first dig so the first tap is always safe
+    // (no mine on the tapped cell or its neighbors).
+    function seed(safeX, safeY) {
+      const safe = new Set([idx(safeX, safeY)]);
+      neighbors(safeX, safeY).forEach(([nx, ny]) => safe.add(idx(nx, ny)));
+      let placed = 0;
+      while (placed < MINES) {
+        const i = (Math.random() * N * N) | 0;
+        if (safe.has(i) || cells[i].mine) continue;
+        cells[i].mine = true; placed++;
+      }
+      for (let y = 0; y < N; y++)
+        for (let x = 0; x < N; x++) {
+          if (cells[idx(x, y)].mine) continue;
+          cells[idx(x, y)].n = neighbors(x, y).filter(([nx, ny]) => cells[idx(nx, ny)].mine).length;
+        }
+      seeded = true;
+    }
+
+    function floodReveal(x, y) {
+      const stack = [[x, y]];
+      while (stack.length) {
+        const [cx, cy] = stack.pop();
+        const c = cells[idx(cx, cy)];
+        if (c.revealed || c.flagged) continue;
+        c.revealed = true; revealedCount++;
+        paint(cellEl(cx, cy), c);
+        if (c.n === 0 && !c.mine) {
+          neighbors(cx, cy).forEach(([nx, ny]) => {
+            if (!cells[idx(nx, ny)].revealed) stack.push([nx, ny]);
+          });
+        }
+      }
+    }
+
+    function dig(x, y) {
+      const c = cells[idx(x, y)];
+      if (c.revealed || c.flagged) return;
+      if (!started) { started = true; startTimer(); }
+      if (!seeded) seed(x, y);
+      if (c.mine) {
+        c.boom = true; alive = false; stopTimer();
+        revealAllMines();
+        return lose();
+      }
+      floodReveal(x, y);
+      if (revealedCount === N * N - MINES) win();
+    }
+
+    function toggleFlag(x, y) {
+      const c = cells[idx(x, y)];
+      if (c.revealed) return;
+      c.flagged = !c.flagged;
+      flags += c.flagged ? 1 : -1;
+      minesLeft.textContent = MINES - flags;
+      paint(cellEl(x, y), c);
+    }
+
+    function revealAllMines() {
+      for (let i = 0; i < cells.length; i++) {
+        if (cells[i].mine) { cells[i].revealed = true; paint(boardEl.children[i], cells[i]); }
+      }
+    }
+
+    function win() {
+      alive = false; stopTimer();
+      overlayTitle.textContent = '✨ Cleared!';
+      overlaySub.textContent = `All mines found in ${timer}s.`;
+      overlay.hidden = false;
+    }
+    function lose() {
+      overlayTitle.textContent = '💥 Boom!';
+      overlaySub.textContent = 'You hit a mine. Try again!';
+      overlay.hidden = false;
+    }
+
+    // ---- Input: tap = dig or flag depending on mode ----
+    boardEl.addEventListener('pointerup', (e) => {
+      const el = e.target.closest('.ms-cell');
+      if (!el || !alive) return;
+      const x = +el.dataset.x, y = +el.dataset.y;
+      if (flagMode) toggleFlag(x, y);
+      else dig(x, y);
+    });
+
+    modeBtn.addEventListener('click', () => {
+      flagMode = !flagMode;
+      modeBtn.dataset.mode = flagMode ? 'flag' : 'dig';
+      modeBtn.textContent = flagMode ? '🚩 Flag' : '⛏ Dig';
+    });
+
+    document.getElementById('restart').addEventListener('click', newGame);
+    document.getElementById('overlay-restart').addEventListener('click', newGame);
+    document.querySelector('.ms-diff').addEventListener('click', (e) => {
+      const btn = e.target.closest('button[data-diff]');
+      if (!btn) return;
+      diff = btn.dataset.diff;
+      document.querySelectorAll('.ms-diff button').forEach((b) =>
+        b.classList.toggle('primary', b === btn));
+      newGame();
+    });
+
+    newGame();
+  </script>
+</body>
+</html>
