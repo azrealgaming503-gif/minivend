@@ -217,14 +217,26 @@
     }
 
     async function upload(file) {
-      uploadStatus.textContent = `Uploading ${file.name} (${(file.size/1024/1024).toFixed(1)} MB)...`;
+      uploadStatus.textContent =
+        `Uploading ${file.name} (${(file.size/1024/1024).toFixed(1)} MB)… ` +
+        `videos may take a moment to optimize for the kiosk.`;
       const fd = new FormData();
       fd.append('file', file);
       try {
         const r = await fetch('/api/assets/idle', { method: 'POST', body: fd });
         const j = await r.json();
         if (j.ok) {
-          uploadStatus.textContent = `Uploaded ${j.file}, set as active.`;
+          if (j.convertError) {
+            uploadStatus.textContent =
+              `Uploaded ${j.file}, but it couldn't be optimized for the kiosk ` +
+              `(${j.convertError}). It may show a black screen — try a different file.`;
+          } else if (j.converted) {
+            uploadStatus.textContent =
+              `Uploaded and converted to a kiosk-friendly format ` +
+              `(was ${j.convertedFrom || 'incompatible'}). Set as active.`;
+          } else {
+            uploadStatus.textContent = `Uploaded ${j.file}, set as active.`;
+          }
           refresh();
         } else {
           uploadStatus.textContent = `Error: ${j.err}`;

@@ -111,6 +111,126 @@ function extractFirstFrame(videoPath, jpgPath) {
   });
 }
 
+// Probe a video's primary stream with ffprobe. Resolves to
+// { codec, pixFmt, width, height } or null if ffprobe fails (missing
+// binary, corrupt/non-video file, etc).
+function probeVideo(videoPath) {
+  return new Promise((resolve) => {
+    const args = [
+      '-v', 'error',
+      '-select_streams', 'v:0',
+      '-show_entries', 'stream=codec_name,pix_fmt,width,height',
+      '-of', 'json',
+      videoPath,
+    ];
+    let out = '';
+    let proc;
+    try {
+      proc = spawn('ffprobe', args, { stdio: ['ignore', 'pipe', 'ignore'] });
+    } catch (_) { return resolve(null); }
+    proc.stdout.on('data', (d) => { out += d.toString(); });
+    proc.on('error', () => resolve(null));
+    proc.on('close', () => {
+      try {
+        const j = JSON.parse(out);
+        const s = j && j.streams && j.streams[0];
+        if (!s) return resolve(null);
+        resolve({
+          codec: s.codec_name || null,
+          pixFmt: s.pix_fmt || null,
+          width: Number(s.width) || null,
+          height: Number(s.height) || null,
+        });
+      } catch (_) { resolve(null); }
+    });
+  });
+}
+
+// Decide whether a probed video is safe to hand straight to the Pi's
+// Chromium (software H.264 decode, no HW acceleration). We only accept
+// 8-bit H.264 (yuv420p) up to a 1920px longest edge; anything else —
+// HEVC/H.265 (the common iPhone default), 10-bit, VP9 in an mp4, 4K, or
+// an unprobeable file — gets normalized so it doesn't render as a black
+// screen on the kiosk.
+const MAX_EDGE = 1920;
+function videoNeedsNormalize(info) {
+  if (!info) return true; // couldn't probe — re-encode to be safe
+  if (info.codec !== 'h264') return true;
+  if (info.pixFmt && info.pixFmt !== 'yuv420p') return true;
+  if (info.width && info.height && Math.max(info.width, info.height) > MAX_EDGE) return true;
+  return false;
+}
+
+// Transcode any video to a kiosk-safe H.264 mp4: 8-bit yuv420p, longest
+// edge capped at MAX_EDGE (keeps Pi software decode smooth), faststart for
+// instant start, audio dropped (the kiosk is muted anyway). Resolves on
+// success, rejects on failure.
+function transcodeToKioskMp4(src, dst) {
+  return new Promise((resolve, reject) => {
+    const args = [
+      '-y',
+      '-loglevel', 'error',
+      '-i', src,
+      '-map', '0:v:0',
+      '-c:v', 'libx264',
+      '-profile:v', 'high',
+      '-pix_fmt', 'yuv420p',
+      '-preset', 'veryfast',
+      '-crf', '20',
+      '-vf', `scale=w=${MAX_EDGE}:h=${MAX_EDGE}:force_original_aspect_ratio=decrease:force_divisible_by=2`,
+      '-an',
+      '-movflags', '+faststart',
+      dst,
+    ];
+    let proc;
+    let stderr = '';
+    try {
+      proc = spawn('ffmpeg', args, { stdio: ['ignore', 'ignore', 'pipe'] });
+    } catch (e) { return reject(e); }
+    proc.stderr.on('data', (d) => { stderr += d.toString(); });
+    proc.on('error', (e) => reject(e));
+    proc.on('close', (code) => {
+      if (code === 0 && fs.existsSync(dst)) resolve();
+      else reject(new Error(`ffmpeg exit ${code}: ${stderr.trim().slice(0, 200)}`));
+    });
+  });
+}
+
+// Normalize a freshly-uploaded idle file if it's a video the kiosk can't
+// play directly. Images and already-compatible videos pass through
+// untouched. Returns the final on-disk name (may change extension to
+// .mp4) plus whether a conversion happened.
+async function normalizeIdleUpload(idleDir, name) {
+  const ext = path.extname(name).toLowerCase();
+  if (!VIDEO_EXTS.has(ext)) return { name, converted: false };
+
+  const src = path.join(idleDir, name);
+  const info = await probeVideo(src);
+  if (!videoNeedsNormalize(info)) return { name, converted: false };
+
+  const base = path.basename(name, ext);
+  const finalName = safeName(`${base}.mp4`);
+  const finalPath = path.join(idleDir, finalName);
+  const tmpPath = path.join(idleDir, `.transcode-${Date.now()}.mp4`);
+
+  try {
+    await transcodeToKioskMp4(src, tmpPath);
+  } catch (e) {
+    // Leave the original in place so the user at least has their file;
+    // the caller surfaces the reason so the UI can warn.
+    try { fs.unlinkSync(tmpPath); } catch (_) {}
+    console.warn(`[assets] idle transcode failed for ${name}: ${e.message}`);
+    return { name, converted: false, error: e.message };
+  }
+
+  // Drop the original upload if we changed container/extension, then move
+  // the transcode into place (overwriting a same-named prior .mp4).
+  if (src !== finalPath) { try { fs.unlinkSync(src); } catch (_) {} }
+  try { fs.unlinkSync(finalPath); } catch (_) {}
+  fs.renameSync(tmpPath, finalPath);
+  return { name: finalName, converted: true, from: (info && info.codec) || 'unknown' };
+}
+
 // For a cat-cycle pack, extract first-frame thumbnails of every clip
 // into the pack's `_frames/` dir so the UI can use them as cover images
 // during clip swaps. Returns a promise that resolves once every frame
@@ -389,13 +509,30 @@ function mount(app, { store, broadcast }) {
 
   app.post('/api/assets/idle',
     idleUpload.single('file'),
-    (req, res) => {
+    async (req, res) => {
       if (!req.file) return res.status(400).json({ ok: false, err: 'no_file' });
+      // Auto-convert videos the Pi's Chromium can't decode (HEVC/10-bit/4K)
+      // to a kiosk-safe H.264 mp4 so uploads never render as a black screen.
+      let filename = req.file.filename;
+      let normalized = { converted: false };
+      try {
+        normalized = await normalizeIdleUpload(store.idleDir, filename);
+        filename = normalized.name;
+      } catch (e) {
+        console.warn(`[assets] normalize error for ${filename}: ${e.message}`);
+      }
       const setActive = req.query.activate !== '0';
       let active = store.getActiveIdle();
-      if (setActive) active = store.setActiveIdle(req.file.filename);
+      if (setActive) active = store.setActiveIdle(filename);
       broadcast({ type: 'idle_changed', active });
-      res.json({ ok: true, file: req.file.filename, active });
+      res.json({
+        ok: true,
+        file: filename,
+        active,
+        converted: !!normalized.converted,
+        convertedFrom: normalized.from || null,
+        convertError: normalized.error || null,
+      });
     },
   );
 
