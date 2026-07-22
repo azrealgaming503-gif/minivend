@@ -17,10 +17,18 @@ RestartSec=3
 # /etc/udev/rules.d/99-minivend.rules can set the device group to "dialout".
 SupplementaryGroups=dialout
 
-# Light sandboxing — tighten further once you've verified it boots.
-NoNewPrivileges=true
-ProtectSystem=full
-ProtectHome=true
+# Sandboxing note:
+# This service intentionally runs privileged helpers via `sudo` — the OTA
+# updater, the kiosk restart endpoint, Wi-Fi provisioning, and the plymouth
+# splash teardown (see scripts/sudoers-minivend). That is fundamentally
+# incompatible with the following hardening, so it is deliberately NOT set:
+#   * NoNewPrivileges=true  — blocks sudo's setuid escalation entirely
+#                             ("sudo: The 'no new privileges' flag is set").
+#   * ProtectSystem=full    — makes /etc read-only, so the updater can't
+#                             install refreshed unit files to /etc/systemd.
+#   * ProtectHome=true       — hides /home/minivend, so `npm install` (run as
+#                             the minivend user, cache in ~/.npm) fails.
+# PrivateTmp gives a bit of isolation that doesn't get in the updater's way.
 PrivateTmp=true
 
 [Install]
