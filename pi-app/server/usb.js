@@ -8,6 +8,7 @@
 const fs = require('fs');
 const path = require('path');
 const express = require('express');
+const { normalizeIdleUpload } = require('./assets');
 
 const VIDEO_EXTS = new Set(['.mp4', '.webm', '.mov', '.m4v']);
 const IMAGE_EXTS = new Set(['.gif', '.webp', '.png', '.jpg', '.jpeg']);
@@ -300,6 +301,22 @@ function mount(app, { store, broadcast, uiImgDir }) {
         store,
         uiImgDir,
       });
+
+      // A USB-imported idle *video* is a raw copy off the drive, so it
+      // hits the same "black screen on the kiosk" problem as a raw web
+      // upload (HEVC/10-bit/4K/quirky exports). Run it through the same
+      // re-encode the web uploader uses so imports "just play" too.
+      if (target === 'idle' && imported.kind === 'file') {
+        try {
+          const norm = await normalizeIdleUpload(store.idleDir, imported.name);
+          imported.name = norm.name;
+          imported.converted = !!norm.converted;
+          imported.convertedFrom = norm.from || null;
+          imported.convertError = norm.error || null;
+        } catch (e) {
+          console.warn(`[usb] idle normalize failed for ${imported.name}: ${e.message}`);
+        }
+      }
 
       let active = null;
       if (target === 'idle' && activate) {

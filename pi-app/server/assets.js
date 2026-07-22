@@ -628,4 +628,4 @@ function mountGames(app, { gamesDir }) {
   });
 }
 
-module.exports = { AssetStore, mount, mountGames };
+module.exports = { AssetStore, mount, mountGames, normalizeIdleUpload };
