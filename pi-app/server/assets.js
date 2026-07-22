@@ -201,7 +201,7 @@ function transcodeToKioskMp4(src, dst) {
 // change extension to .mp4) plus whether a conversion happened.
 async function normalizeIdleUpload(idleDir, name) {
   const ext = path.extname(name).toLowerCase();
-  if (!VIDEO_EXTS.has(ext)) return { name, converted: false };
+  if (!VIDEO_EXTS.has(ext)) return { ok: true, name, converted: false };
 
   const src = path.join(idleDir, name);
   const info = await probeVideo(src);
@@ -214,11 +214,14 @@ async function normalizeIdleUpload(idleDir, name) {
   try {
     await transcodeToKioskMp4(src, tmpPath);
   } catch (e) {
-    // Leave the original in place so the user at least has their file;
-    // the caller surfaces the reason so the UI can warn.
     try { fs.unlinkSync(tmpPath); } catch (_) {}
-    console.warn(`[assets] idle transcode failed for ${name}: ${e.message}`);
-    return { name, converted: false, error: e.message };
+    // ffmpeg couldn't even decode the upload — it's corrupt, truncated
+    // (e.g. an interrupted upload), or a genuinely unsupported stream.
+    // Delete it so it never becomes a black "active" clip and report a
+    // hard failure so the caller rejects the upload with a clear error.
+    try { fs.unlinkSync(src); } catch (_) {}
+    console.warn(`[assets] idle upload rejected (unplayable) ${name}: ${e.message}`);
+    return { ok: false, name, converted: false, error: e.message };
   }
 
   // Drop the original upload if we changed container/extension, then move
@@ -226,7 +229,7 @@ async function normalizeIdleUpload(idleDir, name) {
   if (src !== finalPath) { try { fs.unlinkSync(src); } catch (_) {} }
   try { fs.unlinkSync(finalPath); } catch (_) {}
   fs.renameSync(tmpPath, finalPath);
-  return { name: finalName, converted: true, from: (info && info.codec) || 'unknown' };
+  return { ok: true, name: finalName, converted: true, from: (info && info.codec) || 'unknown' };
 }
 
 // For a cat-cycle pack, extract first-frame thumbnails of every clip
@@ -512,12 +515,21 @@ function mount(app, { store, broadcast }) {
       // Auto-convert videos the Pi's Chromium can't decode (HEVC/10-bit/4K)
       // to a kiosk-safe H.264 mp4 so uploads never render as a black screen.
       let filename = req.file.filename;
-      let normalized = { converted: false };
+      let normalized = { ok: true, converted: false };
       try {
         normalized = await normalizeIdleUpload(store.idleDir, filename);
         filename = normalized.name;
       } catch (e) {
         console.warn(`[assets] normalize error for ${filename}: ${e.message}`);
+        try { fs.unlinkSync(path.join(store.idleDir, filename)); } catch (_) {}
+        normalized = { ok: false, error: e.message };
+      }
+      // A corrupt/truncated/unsupported video was deleted by the normalizer;
+      // reject rather than activating an unplayable (black) clip.
+      if (normalized.ok === false) {
+        return res.status(400).json({
+          ok: false, err: 'unplayable_video', detail: normalized.error || null,
+        });
       }
       const setActive = req.query.activate !== '0';
       let active = store.getActiveIdle();
@@ -529,7 +541,6 @@ function mount(app, { store, broadcast }) {
         active,
         converted: !!normalized.converted,
         convertedFrom: normalized.from || null,
-        convertError: normalized.error || null,
       });
     },
   );

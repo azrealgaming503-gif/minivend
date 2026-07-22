@@ -307,15 +307,21 @@ function mount(app, { store, broadcast, uiImgDir }) {
       // upload (HEVC/10-bit/4K/quirky exports). Run it through the same
       // re-encode the web uploader uses so imports "just play" too.
       if (target === 'idle' && imported.kind === 'file') {
+        let norm = { ok: true, converted: false };
         try {
-          const norm = await normalizeIdleUpload(store.idleDir, imported.name);
-          imported.name = norm.name;
-          imported.converted = !!norm.converted;
-          imported.convertedFrom = norm.from || null;
-          imported.convertError = norm.error || null;
+          norm = await normalizeIdleUpload(store.idleDir, imported.name);
         } catch (e) {
           console.warn(`[usb] idle normalize failed for ${imported.name}: ${e.message}`);
+          norm = { ok: false, error: e.message };
         }
+        if (norm.ok === false) {
+          return res.status(400).json({
+            ok: false, err: 'unplayable_video', detail: norm.error || null,
+          });
+        }
+        imported.name = norm.name;
+        imported.converted = !!norm.converted;
+        imported.convertedFrom = norm.from || null;
       }
 
       let active = null;

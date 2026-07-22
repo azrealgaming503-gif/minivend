@@ -216,21 +216,24 @@
       }
     }
 
+    let uploading = false;
     async function upload(file) {
+      // Hold off the auto-return-to-idle timer for the whole upload+convert.
+      // A big file over Wi-Fi easily outlasts the idle timeout, and if the
+      // page navigated to '/' mid-transfer it would abort the upload and
+      // leave a truncated, unplayable (black) file on the server.
+      uploading = true;
+      bumpAutoReturn();
       uploadStatus.textContent =
         `Uploading ${file.name} (${(file.size/1024/1024).toFixed(1)} MB)… ` +
-        `videos may take a moment to optimize for the kiosk.`;
+        `keep this tab open; large videos take a moment to optimize for the kiosk.`;
       const fd = new FormData();
       fd.append('file', file);
       try {
         const r = await fetch('/api/assets/idle', { method: 'POST', body: fd });
         const j = await r.json();
         if (j.ok) {
-          if (j.convertError) {
-            uploadStatus.textContent =
-              `Uploaded ${j.file}, but it couldn't be optimized for the kiosk ` +
-              `(${j.convertError}). It may show a black screen — try a different file.`;
-          } else if (j.converted) {
+          if (j.converted) {
             uploadStatus.textContent =
               `Uploaded and converted to a kiosk-friendly format ` +
               `(was ${j.convertedFrom || 'incompatible'}). Set as active.`;
@@ -238,11 +241,21 @@
             uploadStatus.textContent = `Uploaded ${j.file}, set as active.`;
           }
           refresh();
+        } else if (j.err === 'unplayable_video') {
+          uploadStatus.textContent =
+            `That video couldn't be read — it was likely corrupted or cut off ` +
+            `during upload. Please try again and keep this tab open until it ` +
+            `finishes${j.detail ? ` (${j.detail})` : ''}.`;
         } else {
           uploadStatus.textContent = `Error: ${j.err}`;
         }
       } catch (e) {
-        uploadStatus.textContent = `Upload failed: ${e.message}`;
+        uploadStatus.textContent =
+          `Upload failed: ${e.message}. For large files, keep this tab open ` +
+          `and stay on Wi-Fi until it completes.`;
+      } finally {
+        uploading = false;
+        bumpAutoReturn();
       }
     }
     uploadZone.addEventListener('click', () => uploadInput.click());
@@ -274,6 +287,8 @@
     let autoReturnTimer = null;
     function bumpAutoReturn() {
       clearTimeout(autoReturnTimer);
+      // Never navigate away while an upload/convert is in flight.
+      if (uploading) return;
       autoReturnTimer = setTimeout(() => { location.href = '/'; }, kioskIdleTimeoutMs);
     }
     ['pointerdown', 'touchstart', 'keydown', 'mousemove'].forEach((evt) =>
