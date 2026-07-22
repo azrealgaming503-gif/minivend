@@ -59,28 +59,32 @@
       touch-action: manipulation; will-change: left, top;
     }
     .animal .body { position: relative; }
-    .animal .flip { display: block; }
-    .animal img, .animal .ph {
-      display: block; width: 100%; height: 100%;
-      image-rendering: -webkit-optimize-contrast;
-      filter: drop-shadow(0 5px 4px rgba(60,40,70,0.28));
+    /* Animated spritesheet cell — nearest-neighbor so pixel art stays crisp
+       when scaled up. Frame + direction are driven from JS via
+       background-image / background-size / background-position. */
+    .animal .spr {
+      display: block; background-repeat: no-repeat;
+      image-rendering: pixelated; image-rendering: crisp-edges;
       pointer-events: none;
     }
     .animal .ph {
-      border-radius: 44% 44% 46% 46%;
       display: flex; align-items: center; justify-content: center;
+      width: 100%; height: 100%;
+      border-radius: 44% 44% 46% 46%;
       font-weight: 800; color: rgba(255,255,255,0.9);
       border: 2px solid rgba(255,255,255,0.6);
       box-shadow: inset 0 -6px 10px rgba(0,0,0,0.12);
+      filter: drop-shadow(0 4px 3px rgba(60,40,70,0.28));
+      pointer-events: none;
     }
-    /* soft shadow blob under each animal */
+    /* soft shadow blob under each animal (art is exported without a shadow) */
     .animal .shadow {
-      position: absolute; left: 50%; bottom: -6px; transform: translateX(-50%);
-      width: 62%; height: 12%; background: rgba(60,40,70,0.22);
+      position: absolute; left: 50%; bottom: 6%; transform: translateX(-50%);
+      width: 48%; height: 9%; background: rgba(60,40,70,0.30);
       border-radius: 50%; filter: blur(2px); z-index: -1;
     }
-    .animal.walking .flip { animation: a-bob 0.5s ease-in-out infinite; }
-    @keyframes a-bob { 0%,100% { transform: translateY(0); } 50% { transform: translateY(-8%); } }
+    /* Static spritesheet frame for the shop / selection avatar. */
+    .spr-static { background-repeat: no-repeat; image-rendering: pixelated; image-rendering: crisp-edges; }
     .animal.sel .body { filter: drop-shadow(0 0 0 var(--accent)); }
     .animal.sel::before {
       content: ''; position: absolute; left: 50%; bottom: -10px; transform: translateX(-50%);
@@ -273,21 +277,27 @@
     };
 
     // ---------- Manifest (animal species) ----------
+    // Sprites are 32px pixel-art sheets: 4 rows = directions (down/up/left/
+    // right), columns = animation frames. Each species ships a _walk and an
+    // _idle sheet. See sprites/manifest.json + README.
+    const ROW_COUNT = 4;
+    const DEFAULT_ROWS = { down: 0, up: 1, left: 2, right: 3 };
+    const WALK_FPS = 10, IDLE_FPS = 4;
     const DEFAULT_MANIFEST = {
+      frame: 32,
+      rows: DEFAULT_ROWS,
       animals: [
-        { id: 'fox',     name: 'Fox',     price: 0,   rarity: 'common',   coinsPerMin: 2, color: '#f6894f' },
-        { id: 'cat',     name: 'Cat',     price: 60,  rarity: 'common',   coinsPerMin: 2, color: '#b0a0c8' },
-        { id: 'chicken', name: 'Chicken', price: 40,  rarity: 'common',   coinsPerMin: 1, color: '#f4d06a' },
-        { id: 'duck',    name: 'Duck',    price: 90,  rarity: 'common',   coinsPerMin: 2, color: '#f0e2b0' },
-        { id: 'rabbit',  name: 'Rabbit',  price: 80,  rarity: 'common',   coinsPerMin: 2, color: '#e8d5e8' },
-        { id: 'sheep',   name: 'Sheep',   price: 150, rarity: 'uncommon', coinsPerMin: 3, color: '#f3eee6' },
-        { id: 'pig',     name: 'Pig',     price: 150, rarity: 'uncommon', coinsPerMin: 3, color: '#f2b6c6' },
-        { id: 'cow',     name: 'Cow',     price: 300, rarity: 'uncommon', coinsPerMin: 5, color: '#d9cfc4' },
+        { id:'fox',    name:'Fox',          price:0,   rarity:'common',   coinsPerMin:2, color:'#c0563a', walkCols:6, idleCols:4 },
+        { id:'hare',   name:'Hare',         price:60,  rarity:'common',   coinsPerMin:2, color:'#a9855f', walkCols:5, idleCols:4 },
+        { id:'grouse', name:'Black grouse', price:90,  rarity:'common',   coinsPerMin:2, color:'#4a4550', walkCols:6, idleCols:4 },
+        { id:'deer',   name:'Deer',         price:220, rarity:'uncommon', coinsPerMin:4, color:'#6f4a34', walkCols:6, idleCols:4 },
+        { id:'boar',   name:'Boar',         price:260, rarity:'uncommon', coinsPerMin:4, color:'#5a4636', walkCols:6, idleCols:4 },
       ],
     };
     let SPECIES = [];               // loaded species list
+    let ROWS = DEFAULT_ROWS;        // direction -> row index
     const speciesById = new Map();
-    const spriteOK = new Map();     // id -> boolean (image loaded)
+    const spriteOK = new Map();     // id -> boolean (walk sheet loaded)
 
     async function loadSpecies() {
       let data = DEFAULT_MANIFEST;
@@ -298,35 +308,47 @@
           if (j && Array.isArray(j.animals) && j.animals.length) data = j;
         }
       } catch (_) { /* use default */ }
-      SPECIES = data.animals.map((a) => ({
-        id: String(a.id),
-        name: a.name || a.id,
-        price: Math.max(0, +a.price || 0),
-        rarity: a.rarity === 'uncommon' ? 'uncommon' : 'common',
-        coinsPerMin: Math.max(0, +a.coinsPerMin || 1),
-        color: a.color || '#b886e5',
-      }));
+      ROWS = Object.assign({}, DEFAULT_ROWS, data.rows || {});
+      SPECIES = data.animals.map((a) => {
+        const id = String(a.id);
+        return {
+          id,
+          name: a.name || id,
+          price: Math.max(0, +a.price || 0),
+          rarity: a.rarity === 'uncommon' ? 'uncommon' : 'common',
+          coinsPerMin: Math.max(0, +a.coinsPerMin || 1),
+          color: a.color || '#b886e5',
+          walkCols: Math.max(1, +a.walkCols || 4),
+          idleCols: Math.max(1, +a.idleCols || 4),
+          walkUrl: `sprites/${encodeURIComponent(id)}_walk.png`,
+          idleUrl: `sprites/${encodeURIComponent(id)}_idle.png`,
+        };
+      });
       speciesById.clear();
       SPECIES.forEach((sp) => speciesById.set(sp.id, sp));
       await Promise.all(SPECIES.map(probeSprite));
     }
 
-    function spriteUrl(id) { return `sprites/${encodeURIComponent(id)}.png`; }
     function probeSprite(sp) {
       return new Promise((resolve) => {
         const img = new Image();
         img.onload = () => { spriteOK.set(sp.id, true); resolve(); };
         img.onerror = () => { spriteOK.set(sp.id, false); resolve(); };
-        img.src = spriteUrl(sp.id);
+        img.src = sp.walkUrl;
       });
     }
 
-    // Build the visual for a species (real sprite or colored placeholder).
-    function speciesVisual(id, sizePx) {
+    // Static frame (idle sheet, facing down, frame 0) for shop tiles and the
+    // selection avatar. Falls back to a colored placeholder if art is missing.
+    function staticVisual(id, sizePx) {
       const sp = speciesById.get(id);
       const color = sp ? sp.color : '#b886e5';
-      if (spriteOK.get(id)) {
-        return `<img src="${spriteUrl(id)}" alt="${sp ? sp.name : id}" style="width:${sizePx}px;height:${sizePx}px;object-fit:contain;" />`;
+      if (sp && spriteOK.get(id)) {
+        const bgW = sp.idleCols * sizePx, bgH = ROW_COUNT * sizePx;
+        const posY = -(ROWS.down * sizePx);
+        return `<div class="spr-static" style="width:${sizePx}px;height:${sizePx}px;` +
+               `background-image:url('${sp.idleUrl}');background-size:${bgW}px ${bgH}px;` +
+               `background-position:0px ${posY}px;"></div>`;
       }
       const letter = (sp ? sp.name : id).charAt(0).toUpperCase();
       return `<div class="ph" style="width:${sizePx}px;height:${sizePx}px;background:${color};font-size:${Math.round(sizePx*0.42)}px;">${letter}</div>`;
@@ -410,7 +432,6 @@
       act.tx = rand(FIELD_MARGIN, 100 - FIELD_MARGIN);
       act.ty = rand(Y_MIN, Y_MAX);
       act.speed = rand(2.2, 4.5);   // percent per second
-      act.pauseUntil = 0;
     }
 
     function animalSizePx() {
@@ -426,18 +447,24 @@
       el.dataset.uid = a.uid;
       const sp = speciesById.get(a.type);
       const glowColor = sp ? sp.color : '#b886e5';
+      const hasSprite = !!(sp && spriteOK.get(a.type));
+      const inner = hasSprite
+        ? `<div class="spr" style="width:${size}px;height:${size}px;"></div>`
+        : staticVisual(a.type, size);
       el.innerHTML = `
         <div class="glow" style="background:${glowColor}"></div>
         <div class="need-bubble"></div>
-        <div class="body"><div class="flip">${speciesVisual(a.type, size)}</div><div class="shadow"></div></div>`;
+        <div class="body">${inner}<div class="shadow"></div></div>`;
       el.style.width = size + 'px';
       el.style.height = size + 'px';
       field.appendChild(el);
       const act = {
         el, needBubble: el.querySelector('.need-bubble'),
-        body: el.querySelector('.body'), flip: el.querySelector('.flip'),
+        body: el.querySelector('.body'), spr: el.querySelector('.spr'),
+        sp, hasSprite, box: size,
+        anim: 'idle', frame: 0, frameT: 0, dirRow: ROWS.down, curSheet: '',
         x: rand(FIELD_MARGIN, 100 - FIELD_MARGIN), y: rand(Y_MIN, Y_MAX),
-        tx: 0, ty: 0, speed: 3, dir: 1, pauseUntil: 0,
+        tx: 0, ty: 0, speed: 3, pauseUntil: 0,
         wild: !!wild, wildLeaveAt: wild ? Date.now() + rand(28000, 45000) : 0,
         type: a.type,
       };
@@ -445,17 +472,34 @@
       actors.set(a.uid, act);
       el.addEventListener('click', () => onAnimalTap(a.uid));
       positionActor(act);
+      applySprite(act);
       return act;
+    }
+
+    // Point an actor's sprite cell at the current anim/frame/direction.
+    function applySprite(act) {
+      if (!act.hasSprite || !act.spr) return;
+      const sp = act.sp, box = act.box;
+      const walk = act.anim === 'walk';
+      const url = walk ? sp.walkUrl : sp.idleUrl;
+      const cols = walk ? sp.walkCols : sp.idleCols;
+      if (act.curSheet !== act.anim) {
+        act.spr.style.backgroundImage = `url('${url}')`;
+        act.spr.style.backgroundSize = `${cols * box}px ${ROW_COUNT * box}px`;
+        act.curSheet = act.anim;
+      }
+      const fx = -(act.frame % cols) * box;
+      const fy = -(act.dirRow) * box;
+      act.spr.style.backgroundPosition = `${fx}px ${fy}px`;
     }
 
     function positionActor(act) {
       act.el.style.left = act.x + '%';
       act.el.style.top = act.y + '%';
-      // Depth: lower on screen = bigger + drawn on top. Flip + depth go on
-      // .body so the inner .flip is free for the walking bob animation
-      // (otherwise the two transforms fight each other).
+      // Depth: lower on screen = a touch bigger + drawn on top. Facing is
+      // handled by the spritesheet direction rows, so no horizontal flip here.
       const depth = 0.82 + (act.y / 100) * 0.34;
-      act.body.style.transform = `scaleX(${act.dir}) scale(${depth})`;
+      act.body.style.transform = `scale(${depth})`;
       act.el.style.zIndex = 2 + Math.round(act.y);
     }
 
@@ -501,11 +545,11 @@
         fullness: 75, happy: 80, clean: 75, bornTs: Date.now(),
       };
       st.animals.push(a);
-      // Convert the wild actor into an owned one at the same spot.
-      const x = act.x, y = act.y, dir = act.dir;
+      // Convert the wild actor into an owned one at the same spot/facing.
+      const x = act.x, y = act.y, dirRow = act.dirRow;
       removeActor(wildUid);
       const na = makeActor(a, false);
-      na.x = x; na.y = y; na.dir = dir; positionActor(na);
+      na.x = x; na.y = y; na.dirRow = dirRow; positionActor(na); applySprite(na);
       save();
       floatText(x, y, '+ new friend!', '#ff7aa8');
       selectAnimal(a.uid, true);
@@ -578,7 +622,7 @@
       for (const [id, act] of actors) act.el.classList.toggle('sel', id === uid);
       const a = st.animals.find((x) => x.uid === uid); if (!a) return;
       const sp = speciesById.get(a.type);
-      sheetAvatar.innerHTML = speciesVisual(a.type, 46);
+      sheetAvatar.innerHTML = staticVisual(a.type, 46);
       sheetSpecies.textContent = sp ? sp.name : a.type;
       nameInput.value = a.name;
       updateSheetBars(a);
@@ -654,7 +698,7 @@
         const full = countOwned() >= MAX_ANIMALS;
         const label = full ? 'Farm full' : (sp.price === 0 ? 'Adopt free' : `${sp.price} coins`);
         return `<div class="shop-item">
-          <div class="pic">${speciesVisual(sp.id, 64)}</div>
+          <div class="pic">${staticVisual(sp.id, 64)}</div>
           <div class="nm">${sp.name}</div>
           <div class="rt">${sp.coinsPerMin} coins/min · ${sp.rarity}</div>
           <button class="primary" data-buy="${sp.id}" ${(!canAfford || full) ? 'disabled' : ''}>${label}</button>
@@ -681,22 +725,36 @@
     let lastFrame = performance.now();
     function frame(now) {
       const dt = Math.min(0.1, (now - lastFrame) / 1000); lastFrame = now;
-      for (const [uid, act] of actors) {
-        if (now < act.pauseUntil) { act.el.classList.remove('walking'); continue; }
-        const dx = act.tx - act.x, dy = act.ty - act.y;
-        const dist = Math.hypot(dx, dy);
-        if (dist < 0.6) {
-          // Arrived: pause a bit, then pick a new target.
-          act.el.classList.remove('walking');
-          act.pauseUntil = now + rand(400, 2600);
-          pickTarget(act);
+      for (const [, act] of actors) {
+        if (now < act.pauseUntil) {
+          act.anim = 'idle';                 // stand + idle-animate while paused
         } else {
-          const step = act.speed * dt;
-          act.x += (dx / dist) * step;
-          act.y += (dy / dist) * step;
-          act.dir = dx >= 0 ? 1 : -1;
-          act.el.classList.add('walking');
-          positionActor(act);
+          const dx = act.tx - act.x, dy = act.ty - act.y;
+          const dist = Math.hypot(dx, dy);
+          if (dist < 0.6) {
+            // Arrived: pause a beat, then wander somewhere new.
+            pickTarget(act);
+            act.pauseUntil = now + rand(500, 2800);
+            act.anim = 'idle';
+          } else {
+            const step = act.speed * dt;
+            act.x += (dx / dist) * step;
+            act.y += (dy / dist) * step;
+            // Direction = dominant axis of travel (y grows downward).
+            if (Math.abs(dx) >= Math.abs(dy)) act.dirRow = dx < 0 ? ROWS.left : ROWS.right;
+            else                              act.dirRow = dy < 0 ? ROWS.up   : ROWS.down;
+            act.anim = 'walk';
+            positionActor(act);
+          }
+        }
+        // Step the sprite animation.
+        const fps = act.anim === 'walk' ? WALK_FPS : IDLE_FPS;
+        act.frameT += dt;
+        if (act.frameT >= 1 / fps) {
+          act.frameT = 0; act.frame++;
+          applySprite(act);
+        } else if (act.hasSprite && act.curSheet !== act.anim) {
+          applySprite(act);                  // walk<->idle sheet swap, refresh now
         }
       }
       requestAnimationFrame(frame);
@@ -740,14 +798,20 @@
       clearTimeout(resizeT);
       resizeT = setTimeout(() => {
         const size = animalSizePx();
-        for (const act of actors) {
-          const [, a] = act;
-          a.el.style.width = size + 'px'; a.el.style.height = size + 'px';
-          const vis = a.el.querySelector('.flip');
-          if (vis) vis.innerHTML = speciesVisual(a.type, size);
-          a.x = Math.min(100 - FIELD_MARGIN, Math.max(FIELD_MARGIN, a.x));
-          a.y = Math.min(Y_MAX, Math.max(Y_MIN, a.y));
-          positionActor(a);
+        for (const [, act] of actors) {
+          act.el.style.width = size + 'px'; act.el.style.height = size + 'px';
+          act.box = size;
+          if (act.hasSprite && act.spr) {
+            act.spr.style.width = size + 'px'; act.spr.style.height = size + 'px';
+            act.curSheet = '';                 // force background-size refresh
+            applySprite(act);
+          } else {
+            const ph = act.el.querySelector('.ph');
+            if (ph) { ph.style.width = size + 'px'; ph.style.height = size + 'px'; ph.style.fontSize = Math.round(size * 0.42) + 'px'; }
+          }
+          act.x = Math.min(100 - FIELD_MARGIN, Math.max(FIELD_MARGIN, act.x));
+          act.y = Math.min(Y_MAX, Math.max(Y_MIN, act.y));
+          positionActor(act);
         }
       }, 250);
     });

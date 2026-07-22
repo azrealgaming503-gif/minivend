@@ -1,43 +1,40 @@
 # Farm animal sprites
 
-Drop your animal art in this folder. The game (`../index.html`) loads them
-automatically — no code changes needed.
+Animated top-down pixel sprites (CraftPix "Top-Down Hunt Animals" pack).
+The game (`../index.html`) loads them automatically from `manifest.json`.
 
-## Naming
+## Format
 
-For each animal listed in `manifest.json`, add a file named `<id>.png`:
+Each animal has two spritesheets:
 
 ```
 sprites/
-  fox.png
-  cat.png
-  chicken.png
-  duck.png
-  rabbit.png
-  sheep.png
-  pig.png
-  cow.png
+  fox_walk.png   fox_idle.png
+  hare_walk.png  hare_idle.png
+  ...
 ```
 
-- **Top-down view** looks best (it's a top-down farm), facing right or
-  downward. The game flips the sprite horizontally as the animal walks.
-- **~128×128 px**, **transparent background** (PNG). Bigger is fine; it's
-  scaled down.
-- If a sprite file is missing, that animal shows a soft colored placeholder
-  (using the `color` in the manifest) with its first letter, so the game
-  still works before all the art is in.
+- Each sheet is a **grid of 32×32 frames**.
+- **Rows = directions**, in this order (top to bottom):
+  `0 = down (front)`, `1 = up (back)`, `2 = left`, `3 = right`.
+- **Columns = animation frames.** Set the count per animal in the manifest
+  (`walkCols`, `idleCols`).
+- Sheets are drawn with nearest-neighbor scaling (crisp pixels) and a soft
+  drop shadow blob is added by the game, so use the **Without_shadow** art.
 
-## Adding / changing animals
+## manifest.json fields
 
-Edit `manifest.json`:
+- `frame` — pixel size of one cell (32).
+- `rows` — which row index is which direction (leave as-is unless your art
+  uses a different order).
+- `id` — matches the file prefix (`fox` → `fox_walk.png` / `fox_idle.png`).
+- `name` — shown in the shop / as the default pet name.
+- `price` — coins to buy in the shop (`0` = free starter).
+- `rarity` — `common` (shows up ~3× as often as a wild critter) or `uncommon`.
+- `coinsPerMin` — coins a well-cared animal earns per minute.
+- `color` — placeholder tint + soft glow behind the sprite.
+- `walkCols` / `idleCols` — number of animation frames in each sheet.
 
-- `id` — must match the PNG filename (`fox` → `fox.png`).
-- `name` — shown in the shop and as the default pet name.
-- `price` — coins to buy one in the shop (`0` = free/starter).
-- `rarity` — `common` or `uncommon`; affects how often it appears as a
-  random wild critter (`common` shows up more).
-- `coinsPerMin` — how many coins a well-cared animal earns per minute.
-- `color` — placeholder tint (also used for a soft glow behind the sprite).
-
-Use real `.png` files. (For animated sprites / spritesheets, let me know and
-I'll add frame-based animation support.)
+If a sheet is missing, that animal shows a colored placeholder with its first
+letter, so the game still runs. To add a brand-new animal, drop its two PNGs
+in and add a matching entry here.
