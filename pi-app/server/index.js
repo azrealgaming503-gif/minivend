@@ -258,6 +258,40 @@ app.post('/api/kiosk-ready', (_req, res) => {
   }
 });
 
+// ---------- Kiosk display control ----------
+// Some changes (settings, uploaded CSS/JS, the video fit mode) apply to
+// the on-screen kiosk live over WebSocket, but a few only take effect on
+// a fresh page load. These two endpoints let the settings UI push the
+// kiosk to catch up on demand:
+//
+//   /api/kiosk/reload   soft — broadcast a reload; the physical kiosk
+//                       (served on localhost) re-fetches HTML/CSS/JS +
+//                       /api/state. Fast, no black screen. Remote phone
+//                       tabs ignore it (they gate on being the kiosk).
+//   /api/kiosk/restart  hard — bounce the Chromium kiosk service. Use
+//                       when a soft reload isn't enough (GPU/decoder
+//                       state, a wedged page). Screen goes blank a few
+//                       seconds while Chromium relaunches.
+app.post('/api/kiosk/reload', (_req, res) => {
+  broadcast({ type: 'kiosk_reload' });
+  res.json({ ok: true });
+});
+
+app.post('/api/kiosk/restart', (_req, res) => {
+  try {
+    const p = spawn('sudo', ['-n', '/bin/systemctl', 'restart', 'minivend-kiosk.service'], {
+      stdio: 'ignore',
+      detached: true,
+    });
+    p.on('error', (e) => console.warn('[kiosk-restart] failed:', e.message));
+    p.unref();
+    res.json({ ok: true });
+  } catch (e) {
+    console.warn('[kiosk-restart] could not spawn systemctl:', e.message);
+    res.status(500).json({ ok: false, err: e.message });
+  }
+});
+
 // ---------- Emergency stop ----------
 app.post('/api/stop', express.json({ limit: '4kb' }), (req, res) => {
   const id = req.body && req.body.motor ? parseInt(req.body.motor, 10) : 0;

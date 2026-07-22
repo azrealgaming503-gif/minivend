@@ -139,9 +139,11 @@ a { color: var(--accent); text-decoration: none; }
   inset: 0;
   width: 100%;
   height: 100%;
-  /* Stretch to fill the whole portrait surface (Blu's preference). Author
-     the source clips at 600x1024 for the cleanest look. */
-  object-fit: fill;
+  /* Auto-fit: scale the clip to cover the whole portrait surface while
+     keeping its aspect ratio, cropping any overflow. This avoids the
+     stretched/squished look that `fill` gave to clips that aren't
+     authored at the exact panel ratio. Author at 600x1024 for zero crop. */
+  object-fit: cover;
   background: var(--bg);
   z-index: 1;
   /* Force these <video>s into the GPU compositor path (off the dedicated
@@ -164,7 +166,7 @@ a { color: var(--accent); text-decoration: none; }
   inset: 0;
   width: 100%;
   height: 100%;
-  object-fit: fill;
+  object-fit: cover;
   background: var(--bg);
   z-index: 4;
   pointer-events: none;
@@ -174,7 +176,7 @@ a { color: var(--accent); text-decoration: none; }
   inset: 0;
   width: 100%;
   height: 100%;
-  object-fit: fill;
+  object-fit: cover;
   background: var(--bg);
   z-index: 5;
 }

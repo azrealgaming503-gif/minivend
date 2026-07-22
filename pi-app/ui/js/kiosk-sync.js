@@ -46,3 +46,18 @@ onMessage('_open', () => {
 window.addEventListener('pageshow', (e) => {
   if (e.persisted) resync('restore');
 });
+
+// Hard catch-up: a full page reload, triggered from the settings UI via
+// POST /api/kiosk/reload. This re-fetches HTML/CSS/JS + /api/state, so it
+// applies changes that live broadcasts can't (e.g. new CSS like the video
+// fit mode, or JS added in an update). Only the physical kiosk reloads —
+// it's the client served on localhost. Remote phone/laptop tabs (opened
+// on the LAN IP / mDNS name) ignore it so they don't reload out from
+// under whoever is editing settings.
+export function isKiosk() {
+  const h = location.hostname;
+  return h === 'localhost' || h === '127.0.0.1' || h === '::1';
+}
+onMessage('kiosk_reload', () => {
+  if (isKiosk()) location.reload();
+});
