@@ -166,7 +166,12 @@ function transcodeToKioskMp4(src, dst) {
       '-pix_fmt', 'yuv420p',
       '-preset', 'veryfast',
       '-crf', '20',
-      '-vf', `scale=w=${MAX_EDGE}:h=${MAX_EDGE}:force_original_aspect_ratio=decrease:force_divisible_by=2`,
+      // Cap the longest edge at MAX_EDGE (keeps aspect) and force even
+      // dimensions (libx264/yuv420p require width & height divisible by 2).
+      // The second scale does the even-rounding via trunc() instead of the
+      // newer `force_divisible_by` option so this also works on the older
+      // ffmpeg (4.3) that ships on Raspberry Pi OS Bullseye.
+      '-vf', `scale=w=${MAX_EDGE}:h=${MAX_EDGE}:force_original_aspect_ratio=decrease,scale=trunc(iw/2)*2:trunc(ih/2)*2`,
       '-an',
       '-movflags', '+faststart',
       dst,
