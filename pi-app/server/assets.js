@@ -146,20 +146,9 @@ function probeVideo(videoPath) {
   });
 }
 
-// Decide whether a probed video is safe to hand straight to the Pi's
-// Chromium (software H.264 decode, no HW acceleration). We only accept
-// 8-bit H.264 (yuv420p) up to a 1920px longest edge; anything else —
-// HEVC/H.265 (the common iPhone default), 10-bit, VP9 in an mp4, 4K, or
-// an unprobeable file — gets normalized so it doesn't render as a black
-// screen on the kiosk.
+// Longest edge we re-scale down to, to keep the Pi's software H.264 decode
+// smooth (4K software-decodes poorly and can render black).
 const MAX_EDGE = 1920;
-function videoNeedsNormalize(info) {
-  if (!info) return true; // couldn't probe — re-encode to be safe
-  if (info.codec !== 'h264') return true;
-  if (info.pixFmt && info.pixFmt !== 'yuv420p') return true;
-  if (info.width && info.height && Math.max(info.width, info.height) > MAX_EDGE) return true;
-  return false;
-}
 
 // Transcode any video to a kiosk-safe H.264 mp4: 8-bit yuv420p, longest
 // edge capped at MAX_EDGE (keeps Pi software decode smooth), faststart for
@@ -196,17 +185,21 @@ function transcodeToKioskMp4(src, dst) {
   });
 }
 
-// Normalize a freshly-uploaded idle file if it's a video the kiosk can't
-// play directly. Images and already-compatible videos pass through
-// untouched. Returns the final on-disk name (may change extension to
-// .mp4) plus whether a conversion happened.
+// Normalize a freshly-uploaded idle file. Images pass through untouched.
+// EVERY video is re-encoded to a clean, standard, faststart H.264 baseline
+// rather than trusting the uploaded stream: files that merely *probe* as
+// "h264" can still refuse to render in Chromium (odd profiles/levels, edit
+// lists, VFR, missing faststart, non-yuv420p that probes as yuv420p, etc.)
+// and show as a black screen. ffmpeg decodes far more than the browser
+// does, so a full re-encode reliably produces something the kiosk (and a
+// remote browser) can actually play. Returns the final on-disk name (may
+// change extension to .mp4) plus whether a conversion happened.
 async function normalizeIdleUpload(idleDir, name) {
   const ext = path.extname(name).toLowerCase();
   if (!VIDEO_EXTS.has(ext)) return { name, converted: false };
 
   const src = path.join(idleDir, name);
   const info = await probeVideo(src);
-  if (!videoNeedsNormalize(info)) return { name, converted: false };
 
   const base = path.basename(name, ext);
   const finalName = safeName(`${base}.mp4`);
