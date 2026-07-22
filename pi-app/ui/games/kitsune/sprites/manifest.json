@@ -1,0 +1,13 @@
+{
+  "note": "Edit this file to add/rename animals or tweak prices. Drop a top-down PNG named <id>.png (e.g. fox.png) into this same folder for each animal. ~128x128, transparent background works best. Missing sprites fall back to a colored placeholder automatically.",
+  "animals": [
+    { "id": "fox",     "name": "Fox",     "price": 0,   "rarity": "common",   "coinsPerMin": 2, "color": "#f6894f" },
+    { "id": "cat",     "name": "Cat",     "price": 60,  "rarity": "common",   "coinsPerMin": 2, "color": "#b0a0c8" },
+    { "id": "chicken", "name": "Chicken", "price": 40,  "rarity": "common",   "coinsPerMin": 1, "color": "#f4d06a" },
+    { "id": "duck",    "name": "Duck",    "price": 90,  "rarity": "common",   "coinsPerMin": 2, "color": "#f0e2b0" },
+    { "id": "rabbit",  "name": "Rabbit",  "price": 80,  "rarity": "common",   "coinsPerMin": 2, "color": "#e8d5e8" },
+    { "id": "sheep",   "name": "Sheep",   "price": 150, "rarity": "uncommon", "coinsPerMin": 3, "color": "#f3eee6" },
+    { "id": "pig",     "name": "Pig",     "price": 150, "rarity": "uncommon", "coinsPerMin": 3, "color": "#f2b6c6" },
+    { "id": "cow",     "name": "Cow",     "price": 300, "rarity": "uncommon", "coinsPerMin": 5, "color": "#d9cfc4" }
+  ]
+}
