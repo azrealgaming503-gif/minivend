@@ -63,6 +63,22 @@
       content: ''; position: absolute; left: 22%; top: 28%; width: 26%; height: 16%;
       background: rgba(255,255,255,0.6); border-radius: 50%; filter: blur(1px); z-index: 1;
     }
+    /* A fish that occasionally leaps + splashes in the pond. */
+    .f-fish {
+      position: absolute; transform: translate(-50%, -50%);
+      background-image: url('sprites/fish_splash.png'); background-repeat: no-repeat;
+      image-rendering: pixelated; image-rendering: crisp-edges;
+      pointer-events: none; opacity: 0; z-index: 2;
+    }
+
+    /* ---- Decorative terrain (trees, bushes, grass tufts) ---- */
+    .f-decor-item {
+      position: absolute; transform: translate(-50%, -100%);
+      image-rendering: pixelated; image-rendering: crisp-edges;
+      pointer-events: none; z-index: 1;
+      filter: drop-shadow(0 4px 3px rgba(60,40,70,0.22));
+    }
+    .f-decor-item img { display: block; width: 100%; height: auto; image-rendering: pixelated; }
 
     /* ---- Farm structures (barn / troughs) ---- */
     .f-structure {
@@ -255,6 +271,8 @@
     <main class="f-field" id="field">
       <div class="f-sakura" id="sakura"></div>
       <div class="f-pond"></div>
+      <div class="f-fish" id="fish"></div>
+      <div id="decor"></div>
       <div id="structures"></div>
       <div class="f-hint" id="hint">Tap an animal to care for it · wild critters wander in — tap the “!” to adopt</div>
 
@@ -857,6 +875,71 @@
       flashHint(`Watered all ${need.length} animals!`);
       save(); render();
     }
+
+    // ---------- Decorative terrain (trees / bushes / grass tufts) ----------
+    // Fixed, curated placements (% of field, anchor = bottom-centre) so the
+    // scenery frames the play area without covering the troughs, barn or pond.
+    const decorLayer = document.getElementById('decor');
+    const DECOR = [
+      { img: 'tree1.png', left: 7,  top: 45, size: 'tree' },
+      { img: 'tree2.png', left: 93, top: 42, size: 'tree' },
+      { img: 'bush.png',  left: 15, top: 60, size: 'bush' },
+      { img: 'bush.png',  left: 90, top: 58, size: 'bush' },
+      { img: 'bush.png',  left: 5,  top: 78, size: 'bush' },
+      { img: 'tuft.png',  left: 26, top: 58, size: 'tuft' },
+      { img: 'tuft.png',  left: 45, top: 42, size: 'tuft' },
+      { img: 'tuft.png',  left: 60, top: 52, size: 'tuft' },
+      { img: 'tuft.png',  left: 80, top: 42, size: 'tuft' },
+      { img: 'tuft.png',  left: 16, top: 86, size: 'tuft' },
+      { img: 'tuft.png',  left: 40, top: 90, size: 'tuft' },
+      { img: 'tuft.png',  left: 62, top: 92, size: 'tuft' },
+      { img: 'tuft.png',  left: 52, top: 72, size: 'tuft' },
+    ];
+    const DECOR_SIZE = {
+      tree: { wf: 0.15, min: 90, max: 150 },
+      bush: { wf: 0.06, min: 42, max: 72 },
+      tuft: { wf: 0.035, min: 22, max: 38 },
+    };
+    function renderDecor() {
+      decorLayer.innerHTML = '';
+      const fw = field.clientWidth;
+      for (const d of DECOR) {
+        const s = DECOR_SIZE[d.size];
+        const w = Math.round(Math.max(s.min, Math.min(s.max, fw * s.wf)));
+        const el = document.createElement('div');
+        el.className = 'f-decor-item';
+        el.style.left = d.left + '%'; el.style.top = d.top + '%'; el.style.width = w + 'px';
+        el.innerHTML = `<img src="sprites/${d.img}" alt="">`;
+        decorLayer.appendChild(el);
+      }
+    }
+
+    // ---------- Pond fish (occasional leap + splash) ----------
+    const fishEl = document.getElementById('fish');
+    const FISH_FRAMES = 9, FISH_FPS = 11;
+    let fishAnim = null, fishTimer = null;
+    function playFish() {
+      const size = Math.round(Math.max(34, Math.min(58, field.clientWidth * 0.05)));
+      fishEl.style.width = size + 'px'; fishEl.style.height = size + 'px';
+      fishEl.style.backgroundSize = `${FISH_FRAMES * size}px ${size}px`;
+      fishEl.style.left = rand(72, 88) + '%';    // stay within the pond
+      fishEl.style.top = rand(82, 91) + '%';
+      fishEl.style.backgroundPosition = '0px 0px';
+      fishEl.style.opacity = '1';
+      let f = 0;
+      clearInterval(fishAnim);
+      fishAnim = setInterval(() => {
+        f++;
+        if (f >= FISH_FRAMES) {
+          clearInterval(fishAnim); fishEl.style.opacity = '0'; scheduleFish(); return;
+        }
+        fishEl.style.backgroundPosition = `${-f * size}px 0px`;
+      }, 1000 / FISH_FPS);
+    }
+    function scheduleFish() {
+      clearTimeout(fishTimer);
+      fishTimer = setTimeout(playFish, rand(6000, 15000));
+    }
     shopGrid.addEventListener('click', (e) => {
       const btn = e.target.closest('[data-buy]'); if (!btn) return;
       const sp = speciesById.get(btn.dataset.buy); if (!sp) return;
@@ -941,8 +1024,10 @@
       const earned = advance(away);
       st.lastTs = Date.now();
       save();
+      renderDecor();
       renderStructures();
       render();
+      scheduleFish();
       if (earned > 0) flashHint(`Welcome back! Your animals earned ${earned} coins while you were away.`);
       setInterval(tick, 4000);
     })();
@@ -968,6 +1053,7 @@
           act.y = Math.min(Y_MAX, Math.max(Y_MIN, act.y));
           positionActor(act);
         }
+        renderDecor();        // rescale trees/bushes/tufts
         renderStructures();   // rescale barn/troughs to the new field size
       }, 250);
     });

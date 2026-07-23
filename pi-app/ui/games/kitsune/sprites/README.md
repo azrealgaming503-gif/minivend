@@ -54,6 +54,11 @@ These are referenced directly by the game, not the manifest:
 
 - `grass.png` — 32×32 tile used as the field background (tiled at 2×).
 - `pond_ripple.png` — 64×64 ripple overlay that drifts across the pond.
+- `fish_splash.png` — 9-frame (32px) leap/splash strip; a fish occasionally
+  jumps in the pond.
 - `barn.png`, `feed_trough.png`, `water_trough.png` — purchasable structures.
   The barn adds animal capacity; tapping the feed/water troughs feeds/waters
   every animal at once.
+- `tree1.png`, `tree2.png`, `bush.png`, `tuft.png` — decorative terrain
+  (trees, bushes, grass tufts) scattered around the field edges. Placement is
+  the `DECOR` list in `../index.html`.
