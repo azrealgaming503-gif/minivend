@@ -34,10 +34,14 @@
     /* ---- Farm field ---- */
     .f-field {
       flex: 1; position: relative; min-height: 0; overflow: hidden;
+      /* Tiled pixel-art grass (sprites/grass.png, 32px scaled 2x). A soft
+         highlight on top adds depth without hiding the tile. */
       background:
-        radial-gradient(circle at 30% 18%, rgba(255,255,255,0.5), transparent 40%),
-        repeating-linear-gradient(135deg, rgba(126,208,154,0.10) 0 18px, rgba(126,208,154,0.16) 18px 36px),
-        linear-gradient(180deg, #cdeccf 0%, #bfe6c6 55%, #a9dcb8 100%);
+        radial-gradient(circle at 32% 16%, rgba(255,255,255,0.35), transparent 45%),
+        url('sprites/grass.png');
+      background-size: auto, 64px 64px;
+      background-repeat: no-repeat, repeat;
+      image-rendering: pixelated; image-rendering: crisp-edges;
     }
     /* Decorative pond (bathing spot vibe). */
     .f-pond {
@@ -45,11 +49,34 @@
       width: 30%; max-width: 260px; aspect-ratio: 3/2;
       background: radial-gradient(ellipse at 40% 35%, #bfe6ff 0%, #8fd0f0 60%, #5bb6e0 100%);
       border-radius: 50%; border: 3px solid rgba(255,255,255,0.55);
-      box-shadow: inset 0 6px 18px rgba(0,80,120,0.18); z-index: 1;
+      box-shadow: inset 0 6px 18px rgba(0,80,120,0.18); z-index: 1; overflow: hidden;
     }
+    /* Pixel water ripple overlay drifting slowly across the pond. */
+    .f-pond::before {
+      content: ''; position: absolute; inset: -20%;
+      background: url('sprites/pond_ripple.png'); background-size: 96px 96px;
+      image-rendering: pixelated; opacity: 0.5; mix-blend-mode: screen;
+      animation: pond-drift 9s linear infinite;
+    }
+    @keyframes pond-drift { from { transform: translate(0,0); } to { transform: translate(-96px,-96px); } }
     .f-pond::after {
       content: ''; position: absolute; left: 22%; top: 28%; width: 26%; height: 16%;
-      background: rgba(255,255,255,0.6); border-radius: 50%; filter: blur(1px);
+      background: rgba(255,255,255,0.6); border-radius: 50%; filter: blur(1px); z-index: 1;
+    }
+
+    /* ---- Farm structures (barn / troughs) ---- */
+    .f-structure {
+      position: absolute; z-index: 1; transform: translate(-50%, -100%);
+      image-rendering: pixelated; image-rendering: crisp-edges;
+      pointer-events: none; filter: drop-shadow(0 6px 5px rgba(60,40,70,0.30));
+    }
+    .f-structure img { display: block; width: 100%; height: auto; image-rendering: pixelated; }
+    .f-structure.tappable { pointer-events: auto; cursor: pointer; z-index: 2; }
+    .f-structure.tappable:active { transform: translate(-50%, -100%) scale(0.94); }
+    .f-structure .tag {
+      position: absolute; left: 50%; bottom: -16px; transform: translateX(-50%);
+      font-size: 11px; font-weight: 700; color: var(--text-2); white-space: nowrap;
+      background: rgba(255,255,255,0.82); border-radius: 999px; padding: 1px 8px;
     }
 
     /* An animal on the farm. */
@@ -182,6 +209,8 @@
     }
     .modal h2 { margin: 0 0 4px; }
     .modal .sub { color: var(--text-2); font-size: 13px; margin: 0 0 12px; }
+    .shop-section-title { font-weight: 800; font-size: 15px; margin: 16px 0 8px; color: var(--text); }
+    .shop-section-title:first-of-type { margin-top: 4px; }
     .shop-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 10px; }
     .shop-item {
       border: 1px solid var(--stroke); border-radius: 14px; padding: 10px;
@@ -226,6 +255,7 @@
     <main class="f-field" id="field">
       <div class="f-sakura" id="sakura"></div>
       <div class="f-pond"></div>
+      <div id="structures"></div>
       <div class="f-hint" id="hint">Tap an animal to care for it · wild critters wander in — tap the “!” to adopt</div>
 
       <!-- Selected-animal bottom sheet -->
@@ -248,9 +278,12 @@
   <!-- Shop modal -->
   <div class="modal-back" id="shop-back">
     <div class="modal">
-      <h2>Critter Shop</h2>
-      <p class="sub">Buy a new friend for your farm. They'll earn coins while you care for them.</p>
+      <h2>Farm Shop</h2>
+      <p class="sub">Buy new friends and farm gear. Animals earn coins while you keep them fed, watered, clean and happy.</p>
+      <div class="shop-section-title">Critters</div>
       <div class="shop-grid" id="shop-grid"></div>
+      <div class="shop-section-title">Farm gear</div>
+      <div class="shop-grid" id="shop-struct-grid"></div>
       <button class="ghost modal-close" id="shop-close">Close</button>
     </div>
   </div>
@@ -269,6 +302,7 @@
       love:  S('<path d="M12 20s-6.5-4.2-9-8.3A4.6 4.6 0 0 1 12 6.5 4.6 4.6 0 0 1 21 11.7C18.5 15.8 12 20 12 20z"/>', true),
       shop:  S('<path d="M3 9l1.5-5h15L21 9M4 9h16v11H4zM9 13h6"/>'),
       feed:  S('<path d="M3 11h18a9 9 0 0 1-18 0z"/><path d="M12 11V6"/><path d="M9.5 6.5a2.5 2.5 0 0 1 5 0"/>'),
+      water: S('<path d="M12 3s6 6.5 6 11a6 6 0 0 1-12 0c0-4.5 6-11 6-11z"/>', true),
       bath:  S('<path d="M4 12h16v3a4 4 0 0 1-4 4H8a4 4 0 0 1-4-4z"/><path d="M7 12V6a2 2 0 0 1 4 0"/><path d="M6 21l-1 1M18 21l1 1"/>'),
       play:  S('<circle cx="12" cy="12" r="8"/><path d="M12 4a8 8 0 0 0 0 16M4 12a8 8 0 0 0 16 0"/>'),
       full:  S('<path d="M3 11h18a9 9 0 0 1-18 0z"/>'),
@@ -287,11 +321,14 @@
       frame: 32,
       rows: DEFAULT_ROWS,
       animals: [
-        { id:'fox',    name:'Fox',          price:0,   rarity:'common',   coinsPerMin:2, color:'#c0563a', walkCols:6, idleCols:4 },
-        { id:'hare',   name:'Hare',         price:60,  rarity:'common',   coinsPerMin:2, color:'#a9855f', walkCols:5, idleCols:4 },
-        { id:'grouse', name:'Black grouse', price:90,  rarity:'common',   coinsPerMin:2, color:'#4a4550', walkCols:6, idleCols:4 },
-        { id:'deer',   name:'Deer',         price:220, rarity:'uncommon', coinsPerMin:4, color:'#6f4a34', walkCols:6, idleCols:4 },
-        { id:'boar',   name:'Boar',         price:260, rarity:'uncommon', coinsPerMin:4, color:'#5a4636', walkCols:6, idleCols:4 },
+        { id:'fox',     name:'Fox',          price:0,   rarity:'common',   coinsPerMin:2, color:'#c0563a', walkCols:6, idleCols:4 },
+        { id:'chicken', name:'Chicken',      price:40,  rarity:'common',   coinsPerMin:2, color:'#e6d3ac', walkCols:6, idleCols:6 },
+        { id:'hare',    name:'Hare',         price:60,  rarity:'common',   coinsPerMin:2, color:'#a9855f', walkCols:5, idleCols:4 },
+        { id:'grouse',  name:'Black grouse', price:90,  rarity:'common',   coinsPerMin:2, color:'#4a4550', walkCols:6, idleCols:4 },
+        { id:'pig',     name:'Pig',          price:140, rarity:'common',   coinsPerMin:3, color:'#d98c99', walkCols:6, idleCols:4 },
+        { id:'deer',    name:'Deer',         price:220, rarity:'uncommon', coinsPerMin:4, color:'#6f4a34', walkCols:6, idleCols:4 },
+        { id:'boar',    name:'Boar',         price:260, rarity:'uncommon', coinsPerMin:4, color:'#5a4636', walkCols:6, idleCols:4 },
+        { id:'cow',     name:'Cow',          price:360, rarity:'uncommon', coinsPerMin:5, color:'#c3cad2', walkCols:6, idleCols:4 },
       ],
     };
     let SPECIES = [];               // loaded species list
@@ -354,16 +391,30 @@
       return `<div class="ph" style="width:${sizePx}px;height:${sizePx}px;background:${color};font-size:${Math.round(sizePx*0.42)}px;">${letter}</div>`;
     }
 
+    // ---------- Purchasable farm structures ----------
+    const BASE_MAX_ANIMALS = 12;
+    const BARN_BONUS = 8;                 // extra animal space the barn unlocks
+    const STRUCTURES = [
+      { id:'feed',  name:'Feed trough',  price:150, img:'sprites/feed_trough.png',  desc:'Tap it to feed every animal' },
+      { id:'water', name:'Water trough', price:150, img:'sprites/water_trough.png', desc:'Tap it to water every animal' },
+      { id:'barn',  name:'Barn',         price:600, img:'sprites/barn.png',         desc:`Room for ${BARN_BONUS} more animals` },
+    ];
+    const structById = new Map(STRUCTURES.map((s) => [s.id, s]));
+
     // ---------- Persistent state ----------
     const KEY = 'minivend.kitsunefarm.v1';
     const HR = 3600000;
-    const MAX_ANIMALS = 12;
     const OFFLINE_CAP_HR = 8;         // cap idle earnings when away
+    const SPAWN_INTERVAL_MS = 6 * HR; // active stream time between spawn rolls
+    const SPAWN_CHANCE = 0.5;         // 50% chance a wild appears each interval
+    const ACTIVE_STEP_CAP_MS = 15000; // gaps bigger than this = offline, don't count
     const clamp = (v) => Math.max(0, Math.min(100, v));
-    const NEED_DECAY = { fullness: -6, happy: -5, clean: -4 }; // per hour
+    const NEED_DECAY = { fullness: -6, water: -7, happy: -5, clean: -4 }; // per hour
 
     let st = loadState();
     let uidSeq = st.animals.reduce((m, a) => Math.max(m, a.uid), 0) + 1;
+
+    function maxAnimals() { return BASE_MAX_ANIMALS + (st.structures.barn ? BARN_BONUS : 0); }
 
     function loadState() {
       try {
@@ -372,8 +423,9 @@
       } catch (_) {}
       // First run: 50 coins and one starter fox.
       return {
-        version: 1, coins: 50, love: 0, lastTs: Date.now(), nextWildAt: Date.now() + 15000,
-        animals: [{ uid: 1, type: 'fox', name: 'Kit', fullness: 85, happy: 85, clean: 85, bornTs: Date.now() }],
+        version: 1, coins: 50, love: 0, lastTs: Date.now(), spawnAccumMs: 0,
+        structures: { feed: false, water: false, barn: false },
+        animals: [{ uid: 1, type: 'fox', name: 'Kit', fullness: 85, water: 85, happy: 85, clean: 85, bornTs: Date.now() }],
       };
     }
     function normalizeState(r) {
@@ -381,21 +433,24 @@
         uid: +a.uid || (i + 1),
         type: String(a.type || 'fox'),
         name: typeof a.name === 'string' ? a.name.slice(0, 16) : 'Friend',
-        fullness: clamp(+a.fullness ?? 80), happy: clamp(+a.happy ?? 80), clean: clamp(+a.clean ?? 80),
+        fullness: clamp(+a.fullness ?? 80), water: clamp(+a.water ?? 80),
+        happy: clamp(+a.happy ?? 80), clean: clamp(+a.clean ?? 80),
         bornTs: +a.bornTs || Date.now(),
       })) : [];
+      const s = r.structures || {};
       return {
         version: 1,
         coins: Math.max(0, Math.round(+r.coins || 0)),
         love: Math.max(0, Math.round(+r.love || 0)),
         lastTs: +r.lastTs || Date.now(),
-        nextWildAt: +r.nextWildAt || (Date.now() + 15000),
+        spawnAccumMs: Math.max(0, +r.spawnAccumMs || 0),
+        structures: { feed: !!s.feed, water: !!s.water, barn: !!s.barn },
         animals,
       };
     }
     function save() { try { localStorage.setItem(KEY, JSON.stringify(st)); } catch (_) {} }
 
-    const careFactor = (a) => (a.fullness + a.happy + a.clean) / 300; // 0..1
+    const careFactor = (a) => (a.fullness + a.water + a.happy + a.clean) / 400; // 0..1
 
     // Apply need decay + coin earnings for an elapsed span (hours).
     function advance(dtHr) {
@@ -407,6 +462,7 @@
         const rate = sp ? sp.coinsPerMin : 1;
         earned += rate * 60 * dtHr * careFactor(a);
         a.fullness = clamp(a.fullness + NEED_DECAY.fullness * dtHr);
+        a.water    = clamp(a.water    + NEED_DECAY.water    * dtHr);
         a.happy    = clamp(a.happy    + NEED_DECAY.happy    * dtHr);
         a.clean    = clamp(a.clean    + NEED_DECAY.clean    * dtHr);
       }
@@ -465,7 +521,7 @@
         anim: 'idle', frame: 0, frameT: 0, dirRow: ROWS.down, curSheet: '',
         x: rand(FIELD_MARGIN, 100 - FIELD_MARGIN), y: rand(Y_MIN, Y_MAX),
         tx: 0, ty: 0, speed: 3, pauseUntil: 0,
-        wild: !!wild, wildLeaveAt: wild ? Date.now() + rand(28000, 45000) : 0,
+        wild: !!wild, wildLeaveAt: wild ? Date.now() + rand(300000, 600000) : 0,
         type: a.type,
       };
       pickTarget(act);
@@ -505,14 +561,14 @@
 
     // ---------- Wild critters ----------
     function spawnWild() {
-      if (countOwned() + countWild() >= MAX_ANIMALS) return;
+      if (countOwned() + countWild() >= maxAnimals()) return;
       // Weighted pick: commons appear ~3x as often as uncommons.
       const pool = [];
       for (const sp of SPECIES) { const w = sp.rarity === 'uncommon' ? 1 : 3; for (let i = 0; i < w; i++) pool.push(sp.id); }
       if (!pool.length) return;
       const type = pool[Math.floor(Math.random() * pool.length)];
       const wildUid = -(uidSeq++);   // negative uid = transient wild actor
-      const a = { uid: wildUid, type, name: '', fullness: 70, happy: 70, clean: 70 };
+      const a = { uid: wildUid, type, name: '', fullness: 70, water: 70, happy: 70, clean: 70 };
       const act = makeActor(a, true);
       act.wildType = type;
       flashHint(`A wild ${speciesById.get(type)?.name || type} wandered in! Tap the “!” to adopt`);
@@ -537,12 +593,12 @@
     function adoptWild(wildUid) {
       const act = actors.get(wildUid);
       if (!act) return;
-      if (countOwned() >= MAX_ANIMALS) { flashHint('Your farm is full! Sell or release one first.'); return; }
+      if (countOwned() >= maxAnimals()) { flashHint('Your farm is full! Buy a barn or release one first.'); return; }
       const sp = speciesById.get(act.wildType);
       const a = {
         uid: uidSeq++, type: act.wildType,
         name: defaultName(act.wildType),
-        fullness: 75, happy: 80, clean: 75, bornTs: Date.now(),
+        fullness: 75, water: 80, happy: 80, clean: 75, bornTs: Date.now(),
       };
       st.animals.push(a);
       // Convert the wild actor into an owned one at the same spot/facing.
@@ -572,6 +628,7 @@
 
     const BAR_DEFS = [
       { k: 'fullness', label: 'Fullness', icon: ICONS.full },
+      { k: 'water',    label: 'Water',    icon: ICONS.water },
       { k: 'happy',    label: 'Happy',    icon: ICONS.happy },
       { k: 'clean',    label: 'Clean',    icon: ICONS.clean },
     ];
@@ -586,6 +643,11 @@
           if (a.fullness > 96) return flashHint(`${a.name} is full!`);
           st.coins -= FEED_COST; a.fullness = clamp(a.fullness + 30); addLove(2, act);
           floatText(act.x, act.y, `-${FEED_COST}`, '#eab308'); commit();
+      } },
+      { id: 'water', label: 'Water', icon: ICONS.water, run(a, act) {
+          if (a.water > 96) return flashHint(`${a.name} isn't thirsty right now.`);
+          a.water = clamp(a.water + 45); addLove(1, act);
+          floatText(act.x, act.y, '+water', '#5bb6e0'); commit();
       } },
       { id: 'bath', label: 'Bathe', icon: ICONS.bath, run(a, act) {
           if (a.clean > 96) return flashHint(`${a.name} is squeaky clean!`);
@@ -615,6 +677,12 @@
     function addLove(n, act) {
       st.love += n;
       if (act) floatText(act.x, act.y, `+${n} ♥`, '#ff7aa8');
+    }
+    // Persist + refresh chips/bars after a care action.
+    function commit() {
+      save(); render();
+      const a = st.animals.find((x) => x.uid === selectedUid);
+      if (a) updateSheetBars(a);
     }
 
     function selectAnimal(uid, focusName) {
@@ -671,11 +739,16 @@
       // Need bubbles + selected bars.
       for (const a of st.animals) {
         const act = actors.get(a.uid); if (!act) continue;
-        const low = Math.min(a.fullness, a.happy, a.clean);
-        if (low < 30) {
-          const icon = a.fullness <= a.happy && a.fullness <= a.clean ? ICONS.feed
-                     : a.clean <= a.happy ? ICONS.bath : ICONS.play;
-          act.needBubble.innerHTML = icon; act.needBubble.classList.add('show');
+        const stats = [
+          { v: a.fullness, icon: ICONS.feed },
+          { v: a.water,    icon: ICONS.water },
+          { v: a.clean,    icon: ICONS.bath },
+          { v: a.happy,    icon: ICONS.play },
+        ];
+        let lowest = stats[0];
+        for (const s of stats) if (s.v < lowest.v) lowest = s;
+        if (lowest.v < 30) {
+          act.needBubble.innerHTML = lowest.icon; act.needBubble.classList.add('show');
         } else act.needBubble.classList.remove('show');
       }
       if (selectedUid != null) {
@@ -687,6 +760,7 @@
     // ---------- Shop ----------
     const shopBack = document.getElementById('shop-back');
     const shopGrid = document.getElementById('shop-grid');
+    const shopStructGrid = document.getElementById('shop-struct-grid');
     document.getElementById('shop-open').innerHTML = `${ICONS.shop}Shop`;
     document.getElementById('shop-open').addEventListener('click', openShop);
     document.getElementById('shop-close').addEventListener('click', () => shopBack.classList.remove('open'));
@@ -695,7 +769,7 @@
     function openShop() {
       shopGrid.innerHTML = SPECIES.map((sp) => {
         const canAfford = st.coins >= sp.price;
-        const full = countOwned() >= MAX_ANIMALS;
+        const full = countOwned() >= maxAnimals();
         const label = full ? 'Farm full' : (sp.price === 0 ? 'Adopt free' : `${sp.price} coins`);
         return `<div class="shop-item">
           <div class="pic">${staticVisual(sp.id, 64)}</div>
@@ -704,16 +778,93 @@
           <button class="primary" data-buy="${sp.id}" ${(!canAfford || full) ? 'disabled' : ''}>${label}</button>
         </div>`;
       }).join('');
+      shopStructGrid.innerHTML = STRUCTURES.map((it) => {
+        const owned = !!st.structures[it.id];
+        const canAfford = st.coins >= it.price;
+        const label = owned ? 'Owned' : `${it.price} coins`;
+        return `<div class="shop-item">
+          <div class="pic"><img src="${it.img}" alt="${it.name}" style="image-rendering:pixelated"></div>
+          <div class="nm">${it.name}</div>
+          <div class="rt">${it.desc}</div>
+          <button class="primary" data-struct="${it.id}" ${(owned || !canAfford) ? 'disabled' : ''}>${label}</button>
+        </div>`;
+      }).join('');
       shopBack.classList.add('open');
+    }
+    shopStructGrid.addEventListener('click', (e) => {
+      const btn = e.target.closest('[data-struct]'); if (!btn) return;
+      const it = structById.get(btn.dataset.struct); if (!it) return;
+      if (st.structures[it.id]) return;
+      if (st.coins < it.price) return flashHint('Not enough coins yet.');
+      st.coins -= it.price;
+      st.structures[it.id] = true;
+      save(); renderStructures(); render(); openShop();
+      flashHint(`${it.name} added to your farm!`);
+    });
+
+    // ---------- Placed structures (barn + troughs) ----------
+    const structuresLayer = document.getElementById('structures');
+    // left/top are % of the field (anchor = bottom-centre of the art);
+    // wf = width as a fraction of field width, clamped to [min,max] px.
+    const STRUCT_LAYOUT = {
+      barn:  { left: 50, top: 32, wf: 0.24, min: 118, max: 210 },
+      feed:  { left: 30, top: 66, wf: 0.10, min: 54,  max: 96 },
+      water: { left: 68, top: 64, wf: 0.10, min: 54,  max: 96 },
+    };
+    function renderStructures() {
+      structuresLayer.innerHTML = '';
+      const fw = field.clientWidth;
+      for (const it of STRUCTURES) {
+        if (!st.structures[it.id]) continue;
+        const lay = STRUCT_LAYOUT[it.id];
+        const w = Math.round(Math.max(lay.min, Math.min(lay.max, fw * lay.wf)));
+        const tappable = it.id === 'feed' || it.id === 'water';
+        const el = document.createElement('div');
+        el.className = 'f-structure' + (tappable ? ' tappable' : '');
+        el.style.left = lay.left + '%';
+        el.style.top = lay.top + '%';
+        el.style.width = w + 'px';
+        el.style.zIndex = tappable ? (2 + Math.round(lay.top)) : 1;
+        el.innerHTML = `<img src="${it.img}" alt="${it.name}">` +
+          (tappable ? `<span class="tag">Tap to ${it.id === 'feed' ? 'feed' : 'water'} all</span>` : '');
+        if (tappable) el.addEventListener('click', () => (it.id === 'feed' ? feedAll(el) : waterAll(el)));
+        structuresLayer.appendChild(el);
+      }
+    }
+    function structFloat(el, text, color) {
+      floatText(parseFloat(el.style.left), parseFloat(el.style.top) - 6, text, color);
+    }
+    function feedAll(originEl) {
+      const need = st.animals.filter((a) => a.fullness <= 96).sort((x, y) => x.fullness - y.fullness);
+      if (!need.length) return flashHint('Everyone is full!');
+      let fed = 0;
+      for (const a of need) {
+        if (st.coins < FEED_COST) break;
+        st.coins -= FEED_COST; a.fullness = clamp(a.fullness + 30); fed++;
+      }
+      if (!fed) return flashHint('Not enough coins to feed anyone.');
+      addLove(fed, null);
+      structFloat(originEl, `-${fed * FEED_COST}`, '#eab308');
+      flashHint(fed < need.length ? `Fed ${fed} of ${need.length} — ran low on coins.` : `Fed all ${fed} animals!`);
+      save(); render();
+    }
+    function waterAll(originEl) {
+      const need = st.animals.filter((a) => a.water <= 96);
+      if (!need.length) return flashHint('No one is thirsty!');
+      for (const a of need) a.water = clamp(a.water + 45);
+      addLove(need.length, null);
+      structFloat(originEl, '+water', '#5bb6e0');
+      flashHint(`Watered all ${need.length} animals!`);
+      save(); render();
     }
     shopGrid.addEventListener('click', (e) => {
       const btn = e.target.closest('[data-buy]'); if (!btn) return;
       const sp = speciesById.get(btn.dataset.buy); if (!sp) return;
-      if (countOwned() >= MAX_ANIMALS) return flashHint('Your farm is full!');
+      if (countOwned() >= maxAnimals()) return flashHint('Your farm is full!');
       if (st.coins < sp.price) return flashHint('Not enough coins yet.');
       st.coins -= sp.price;
       const a = { uid: uidSeq++, type: sp.id, name: defaultName(sp.id),
-                  fullness: 80, happy: 85, clean: 80, bornTs: Date.now() };
+                  fullness: 80, water: 85, happy: 85, clean: 80, bornTs: Date.now() };
       st.animals.push(a); makeActor(a, false);
       save(); render(); shopBack.classList.remove('open');
       const act = actors.get(a.uid);
@@ -764,13 +915,16 @@
     // ---------- Tick: decay, earnings, wild spawns ----------
     function tick() {
       const now = Date.now();
-      const dtHr = Math.max(0, now - st.lastTs) / HR;
+      const rawDelta = Math.max(0, now - st.lastTs);
       st.lastTs = now;
-      advance(dtHr);
-      // Wild critter spawns on a randomized schedule.
-      if (now >= st.nextWildAt) {
-        spawnWild();
-        st.nextWildAt = now + rand(35000, 75000);
+      advance(rawDelta / HR);
+      // Wild critters are rare: accumulate *active* stream time (ignoring big
+      // gaps that mean the tab was hidden/offline), and every 6h of active
+      // time roll a 50% chance for a critter to wander in.
+      st.spawnAccumMs += Math.min(rawDelta, ACTIVE_STEP_CAP_MS);
+      while (st.spawnAccumMs >= SPAWN_INTERVAL_MS) {
+        st.spawnAccumMs -= SPAWN_INTERVAL_MS;
+        if (Math.random() < SPAWN_CHANCE) spawnWild();
       }
       // Despawn wild critters that lingered too long.
       for (const [uid, act] of actors) {
@@ -787,6 +941,7 @@
       const earned = advance(away);
       st.lastTs = Date.now();
       save();
+      renderStructures();
       render();
       if (earned > 0) flashHint(`Welcome back! Your animals earned ${earned} coins while you were away.`);
       setInterval(tick, 4000);
@@ -813,6 +968,7 @@
           act.y = Math.min(Y_MAX, Math.max(Y_MIN, act.y));
           positionActor(act);
         }
+        renderStructures();   // rescale barn/troughs to the new field size
       }, 250);
     });
 

@@ -1,12 +1,15 @@
 {
-  "note": "Animated 32x32 pixel spritesheets (CraftPix 'Top-Down Hunt Animals'). Each animal has <id>_walk.png and <id>_idle.png. Sheets are a grid: 4 rows = directions (see 'rows'), columns = animation frames (walkCols / idleCols). Drop-in replacements must match the same grid. Missing sheets fall back to a colored placeholder.",
+  "note": "Animated pixel spritesheets. Hunt animals (CraftPix 'Top-Down Hunt Animals') are 32px; farm animals (CraftPix 'Top-Down Farm with Animals') were repacked to the same grid (cow art is 64px but scales the same). Each animal has <id>_walk.png and <id>_idle.png. Sheets are a grid: 4 rows = directions (see 'rows'), columns = animation frames (walkCols / idleCols). Cell size can differ per animal (square) since the engine scales the whole sheet. Drop-in replacements must match the same 4-row grid. Missing sheets fall back to a colored placeholder.",
   "frame": 32,
   "rows": { "down": 0, "up": 1, "left": 2, "right": 3 },
   "animals": [
-    { "id": "fox",    "name": "Fox",          "price": 0,   "rarity": "common",   "coinsPerMin": 2, "color": "#c0563a", "walkCols": 6, "idleCols": 4 },
-    { "id": "hare",   "name": "Hare",         "price": 60,  "rarity": "common",   "coinsPerMin": 2, "color": "#a9855f", "walkCols": 5, "idleCols": 4 },
-    { "id": "grouse", "name": "Black grouse", "price": 90,  "rarity": "common",   "coinsPerMin": 2, "color": "#4a4550", "walkCols": 6, "idleCols": 4 },
-    { "id": "deer",   "name": "Deer",         "price": 220, "rarity": "uncommon", "coinsPerMin": 4, "color": "#6f4a34", "walkCols": 6, "idleCols": 4 },
-    { "id": "boar",   "name": "Boar",         "price": 260, "rarity": "uncommon", "coinsPerMin": 4, "color": "#5a4636", "walkCols": 6, "idleCols": 4 }
+    { "id": "fox",     "name": "Fox",          "price": 0,   "rarity": "common",   "coinsPerMin": 2, "color": "#c0563a", "walkCols": 6, "idleCols": 4 },
+    { "id": "chicken", "name": "Chicken",      "price": 40,  "rarity": "common",   "coinsPerMin": 2, "color": "#e6d3ac", "walkCols": 6, "idleCols": 6 },
+    { "id": "hare",    "name": "Hare",         "price": 60,  "rarity": "common",   "coinsPerMin": 2, "color": "#a9855f", "walkCols": 5, "idleCols": 4 },
+    { "id": "grouse",  "name": "Black grouse", "price": 90,  "rarity": "common",   "coinsPerMin": 2, "color": "#4a4550", "walkCols": 6, "idleCols": 4 },
+    { "id": "pig",     "name": "Pig",          "price": 140, "rarity": "common",   "coinsPerMin": 3, "color": "#d98c99", "walkCols": 6, "idleCols": 4 },
+    { "id": "deer",    "name": "Deer",         "price": 220, "rarity": "uncommon", "coinsPerMin": 4, "color": "#6f4a34", "walkCols": 6, "idleCols": 4 },
+    { "id": "boar",    "name": "Boar",         "price": 260, "rarity": "uncommon", "coinsPerMin": 4, "color": "#5a4636", "walkCols": 6, "idleCols": 4 },
+    { "id": "cow",     "name": "Cow",          "price": 360, "rarity": "uncommon", "coinsPerMin": 5, "color": "#c3cad2", "walkCols": 6, "idleCols": 4 }
   ]
 }
