@@ -93,6 +93,19 @@
       font-size: 11px; font-weight: 700; color: var(--text-2); white-space: nowrap;
       background: rgba(255,255,255,0.82); border-radius: 999px; padding: 1px 8px;
     }
+    /* "New critter ready" sign bobbing above the barn. */
+    .f-structure.ready { cursor: pointer; }
+    .f-structure .barn-badge {
+      position: absolute; left: 50%; top: -20px; transform: translateX(-50%);
+      background: linear-gradient(135deg, var(--accent), var(--accent-2));
+      color: #fff; font-size: 12px; font-weight: 800; white-space: nowrap;
+      padding: 4px 12px; border-radius: 999px; box-shadow: 0 3px 8px rgba(0,0,0,0.25);
+      animation: wild-bounce 0.9s ease-in-out infinite;
+    }
+    .f-structure .barn-badge::after {
+      content: ''; position: absolute; left: 50%; bottom: -4px; transform: translateX(-50%) rotate(45deg);
+      width: 9px; height: 9px; background: var(--accent-2);
+    }
 
     /* An animal on the farm. */
     .animal {
@@ -277,7 +290,7 @@
       <div class="f-fish" id="fish"></div>
       <div id="decor"></div>
       <div id="structures"></div>
-      <div class="f-hint" id="hint">Tap an animal to care for it · wild critters wander in — tap the “!” to adopt</div>
+      <div class="f-hint" id="hint">Tap an animal to care for it · build a barn in the shop to attract new critters</div>
 
       <!-- Selected-animal bottom sheet -->
       <div class="sheet" id="sheet">
@@ -418,7 +431,7 @@
     const STRUCTURES = [
       { id:'feed',  name:'Feed trough',  price:150, img:'sprites/feed_trough.png',  desc:'Tap it to feed every animal' },
       { id:'water', name:'Water trough', price:150, img:'sprites/water_trough.png', desc:'Tap it to water every animal' },
-      { id:'barn',  name:'Barn',         price:600, img:'sprites/barn.png',         desc:`Room for ${BARN_BONUS} more animals` },
+      { id:'barn',  name:'Barn',         price:600, img:'sprites/barn.png',         desc:`+${BARN_BONUS} space · attracts new critters` },
     ];
     const structById = new Map(STRUCTURES.map((s) => [s.id, s]));
 
@@ -444,7 +457,7 @@
       } catch (_) {}
       // First run: 50 coins and one starter fox.
       return {
-        version: 1, coins: 50, love: 0, lastTs: Date.now(), spawnAccumMs: 0,
+        version: 1, coins: 50, love: 0, lastTs: Date.now(), spawnAccumMs: 0, pendingTypes: [],
         structures: { feed: false, water: false, barn: false },
         animals: [{ uid: 1, type: 'fox', name: 'Kit', fullness: 85, water: 85, happy: 85, clean: 85, bornTs: Date.now() }],
       };
@@ -465,6 +478,9 @@
         love: Math.max(0, Math.round(+r.love || 0)),
         lastTs: +r.lastTs || Date.now(),
         spawnAccumMs: Math.max(0, +r.spawnAccumMs || 0),
+        pendingTypes: Array.isArray(r.pendingTypes)
+          ? r.pendingTypes.filter((t) => typeof t === 'string').slice(0, 24)
+          : [],
         structures: { feed: !!s.feed, water: !!s.water, barn: !!s.barn },
         animals,
       };
@@ -580,22 +596,36 @@
       act.el.style.zIndex = 2 + Math.round(act.y);
     }
 
-    // ---------- Wild critters ----------
-    function spawnWild() {
-      if (countOwned() + countWild() >= maxAnimals()) return;
+    // ---------- Barn: attract new critters ----------
+    // Random spawns only run once a barn is built. A spawn parks a critter
+    // "at the barn"; a sign appears above the barn and the player taps it to
+    // name the animal and add it to the herd.
+    function triggerBarnSpawn() {
+      if (!st.structures.barn) return;
+      if (countOwned() + st.pendingTypes.length >= maxAnimals()) return; // no room yet
       // Weighted pick: commons appear ~3x as often as uncommons.
       const pool = [];
       for (const sp of SPECIES) { const w = sp.rarity === 'uncommon' ? 1 : 3; for (let i = 0; i < w; i++) pool.push(sp.id); }
       if (!pool.length) return;
-      const type = pool[Math.floor(Math.random() * pool.length)];
-      const wildUid = -(uidSeq++);   // negative uid = transient wild actor
-      const a = { uid: wildUid, type, name: '', fullness: 70, water: 70, happy: 70, clean: 70 };
-      const act = makeActor(a, true);
-      act.wildType = type;
-      flashHint(`A wild ${speciesById.get(type)?.name || type} wandered in! Tap the “!” to adopt`);
+      st.pendingTypes.push(pool[Math.floor(Math.random() * pool.length)]);
+      save(); renderStructures();
+      flashHint('A new critter is waiting at the barn! Tap the barn to welcome it.');
+    }
+    // Welcome the next critter waiting at the barn.
+    function adoptFromBarn() {
+      if (!st.pendingTypes.length) return;
+      if (countOwned() >= maxAnimals()) { flashHint('Your farm is full! Release one first.'); return; }
+      const type = st.pendingTypes.shift();
+      const a = { uid: uidSeq++, type, name: defaultName(type),
+                  fullness: 75, water: 80, happy: 80, clean: 75, bornTs: Date.now() };
+      st.animals.push(a);
+      const na = makeActor(a, false);
+      na.x = rand(44, 56); na.y = 42; positionActor(na); applySprite(na);
+      save(); renderStructures(); render();
+      floatText(na.x, na.y, '+ new friend!', '#ff7aa8');
+      selectAnimal(a.uid, true);
     }
     function countOwned() { return st.animals.length; }
-    function countWild() { let n = 0; for (const act of actors.values()) if (act.wild) n++; return n; }
 
     function removeActor(uid) {
       const act = actors.get(uid);
@@ -819,8 +849,11 @@
       if (st.coins < it.price) return flashHint('Not enough coins yet.');
       st.coins -= it.price;
       st.structures[it.id] = true;
+      if (it.id === 'barn') st.spawnAccumMs = 0;   // start the spawn timer fresh
       save(); renderStructures(); render(); openShop();
-      flashHint(`${it.name} added to your farm!`);
+      flashHint(it.id === 'barn'
+        ? 'Barn built! New critters will start arriving over time — watch for the sign above it.'
+        : `${it.name} added to your farm!`);
     });
 
     // ---------- Placed structures (barn + troughs) ----------
@@ -839,16 +872,23 @@
         if (!st.structures[it.id]) continue;
         const lay = STRUCT_LAYOUT[it.id];
         const w = Math.round(Math.max(lay.min, Math.min(lay.max, fw * lay.wf)));
-        const tappable = it.id === 'feed' || it.id === 'water';
+        const pending = st.pendingTypes.length;
+        const barnReady = it.id === 'barn' && pending > 0;
+        const tappable = it.id === 'feed' || it.id === 'water' || barnReady;
         const el = document.createElement('div');
-        el.className = 'f-structure' + (tappable ? ' tappable' : '');
+        el.className = 'f-structure' + (tappable ? ' tappable' : '') + (barnReady ? ' ready' : '');
         el.style.left = lay.left + '%';
         el.style.top = lay.top + '%';
         el.style.width = w + 'px';
         el.style.zIndex = tappable ? (2 + Math.round(lay.top)) : 1;
-        el.innerHTML = `<img src="${it.img}" alt="${it.name}">` +
-          (tappable ? `<span class="tag">Tap to ${it.id === 'feed' ? 'feed' : 'water'} all</span>` : '');
-        if (tappable) el.addEventListener('click', () => (it.id === 'feed' ? feedAll(el) : waterAll(el)));
+        let overlay = '';
+        if (it.id === 'feed') overlay = `<span class="tag">Tap to feed all</span>`;
+        else if (it.id === 'water') overlay = `<span class="tag">Tap to water all</span>`;
+        else if (barnReady) overlay = `<span class="barn-badge">${pending > 1 ? pending + ' ready!' : 'New critter!'}</span>`;
+        el.innerHTML = `<img src="${it.img}" alt="${it.name}">` + overlay;
+        if (it.id === 'feed') el.addEventListener('click', () => feedAll(el));
+        else if (it.id === 'water') el.addEventListener('click', () => waterAll(el));
+        else if (barnReady) el.addEventListener('click', adoptFromBarn);
         structuresLayer.appendChild(el);
       }
     }
@@ -1004,17 +1044,16 @@
       const rawDelta = Math.max(0, now - st.lastTs);
       st.lastTs = now;
       advance(rawDelta / HR);
-      // Wild critters are rare: accumulate *active* stream time (ignoring big
-      // gaps that mean the tab was hidden/offline), and every 6h of active
-      // time roll a 50% chance for a critter to wander in.
-      st.spawnAccumMs += Math.min(rawDelta, ACTIVE_STEP_CAP_MS);
-      while (st.spawnAccumMs >= SPAWN_INTERVAL_MS) {
-        st.spawnAccumMs -= SPAWN_INTERVAL_MS;
-        if (Math.random() < SPAWN_CHANCE) spawnWild();
-      }
-      // Despawn wild critters that lingered too long.
-      for (const [uid, act] of actors) {
-        if (act.wild && now >= act.wildLeaveAt) removeActor(uid);
+      // New critters only start arriving once a barn is built. Accumulate
+      // *active* stream time (ignoring big gaps that mean the tab was
+      // hidden/offline); every 6h of active time roll a 50% chance for a
+      // critter to appear at the barn.
+      if (st.structures.barn) {
+        st.spawnAccumMs += Math.min(rawDelta, ACTIVE_STEP_CAP_MS);
+        while (st.spawnAccumMs >= SPAWN_INTERVAL_MS) {
+          st.spawnAccumMs -= SPAWN_INTERVAL_MS;
+          if (Math.random() < SPAWN_CHANCE) triggerBarnSpawn();
+        }
       }
       render(); save();
     }
