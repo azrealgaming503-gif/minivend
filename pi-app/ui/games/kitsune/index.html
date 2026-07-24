@@ -55,7 +55,7 @@
     .f-pond::before {
       content: ''; position: absolute; inset: -20%;
       background: url('sprites/pond_ripple.png'); background-size: 96px 96px;
-      image-rendering: pixelated; opacity: 0.5; mix-blend-mode: screen;
+      image-rendering: pixelated; opacity: 0.4;
       animation: pond-drift 9s linear infinite;
     }
     @keyframes pond-drift { from { transform: translate(0,0); } to { transform: translate(-96px,-96px); } }
@@ -76,7 +76,6 @@
       position: absolute; transform: translate(-50%, -100%);
       image-rendering: pixelated; image-rendering: crisp-edges;
       pointer-events: none; z-index: 1;
-      filter: drop-shadow(0 4px 3px rgba(60,40,70,0.22));
     }
     .f-decor-item img { display: block; width: 100%; height: auto; image-rendering: pixelated; }
 
@@ -99,7 +98,7 @@
     .animal {
       position: absolute; z-index: 2; transform: translate(-50%, -50%);
       cursor: pointer; user-select: none; -webkit-user-select: none;
-      touch-action: manipulation; will-change: left, top;
+      touch-action: manipulation;
     }
     .animal .body { position: relative; }
     /* Animated spritesheet cell — nearest-neighbor so pixel art stays crisp
@@ -120,11 +119,13 @@
       filter: drop-shadow(0 4px 3px rgba(60,40,70,0.28));
       pointer-events: none;
     }
-    /* soft shadow blob under each animal (art is exported without a shadow) */
+    /* soft shadow blob under each animal (art is exported without a shadow).
+       Uses a radial-gradient instead of filter:blur so the Pi's GPU doesn't
+       have to allocate a blur layer per animal (that caused flickering). */
     .animal .shadow {
-      position: absolute; left: 50%; bottom: 6%; transform: translateX(-50%);
-      width: 48%; height: 9%; background: rgba(60,40,70,0.30);
-      border-radius: 50%; filter: blur(2px); z-index: -1;
+      position: absolute; left: 50%; bottom: 4%; transform: translateX(-50%);
+      width: 54%; height: 12%; z-index: -1;
+      background: radial-gradient(ellipse at center, rgba(60,40,70,0.34) 0%, rgba(60,40,70,0) 70%);
     }
     /* Static spritesheet frame for the shop / selection avatar. */
     .spr-static { background-repeat: no-repeat; image-rendering: pixelated; image-rendering: crisp-edges; }
@@ -135,10 +136,12 @@
       box-shadow: 0 0 14px rgba(184,134,229,0.7); animation: sel-pulse 1.2s ease-in-out infinite;
     }
     @keyframes sel-pulse { 0%,100% { opacity: 0.55; } 50% { opacity: 1; } }
+    /* Soft colour halo. Built from a radial-gradient (set inline in JS) rather
+       than filter:blur to avoid a per-animal GPU blur layer. */
     .animal .glow {
       position: absolute; left: 50%; top: 50%; transform: translate(-50%,-50%);
-      width: 120%; height: 120%; border-radius: 50%; z-index: -2;
-      opacity: 0.28; filter: blur(10px);
+      width: 130%; height: 130%; border-radius: 50%; z-index: -2;
+      opacity: 0.5;
     }
 
     /* Wild critter — pulsing "!" to invite adoption. */
@@ -526,7 +529,7 @@
         ? `<div class="spr" style="width:${size}px;height:${size}px;"></div>`
         : staticVisual(a.type, size);
       el.innerHTML = `
-        <div class="glow" style="background:${glowColor}"></div>
+        <div class="glow" style="background:radial-gradient(circle, ${glowColor} 0%, ${glowColor}00 68%)"></div>
         <div class="need-bubble"></div>
         <div class="body">${inner}<div class="shadow"></div></div>`;
       el.style.width = size + 'px';
