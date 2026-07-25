@@ -60,7 +60,13 @@ These are referenced directly by the game, not the manifest:
   jumps in the pond.
 - `barn.png`, `feed_trough.png`, `water_trough.png` — purchasable structures.
   The barn adds animal capacity; tapping the feed/water troughs feeds/waters
-  every animal at once.
-- `tree1.png`, `tree2.png`, `bush.png`, `tuft.png` — decorative terrain
-  (trees, bushes, grass tufts) scattered around the field edges. Placement is
-  the `DECOR` list in `../index.html`.
+  every animal at once. The troughs sit to either side of the barn
+  (`STRUCT_LAYOUT` in `../index.html`).
+- `dirt.png` — 48×48 soil fill tile. Tiled inside a soft-edged ellipse to
+  form the dirt "farmyard" the barn + troughs stand on (`.f-yard`).
+- `tree1.png`, `tree2.png`, `bush.png` — larger scenery scattered around the
+  field edges (`DECOR` list in `../index.html`).
+- `tuft.png`, `tuft2.png`, `pebble.png` — small ground detail (grass tufts,
+  grass blades, dirt/pebble clumps) scattered over the grass to add terrain
+  texture. Placement is the `GROUND` list in `../index.html`; they render in
+  the `#ground` layer beneath everything else.

@@ -71,6 +71,27 @@
       pointer-events: none; opacity: 0; z-index: 2;
     }
 
+    /* ---- Ground detail layer (dirt yard + scattered pebbles/tufts) ---- */
+    /* Sits just above the grass tile, below everything else, so the flat
+       field reads as textured terrain. */
+    #ground { position: absolute; inset: 0; z-index: 0; pointer-events: none; }
+    /* A soft-edged dirt "farmyard" the barn + troughs stand on. */
+    .f-yard {
+      position: absolute; left: 50%; top: 30%; width: 62%; height: 34%;
+      transform: translate(-50%, -50%);
+      background: url('sprites/dirt.png'); background-size: 56px 56px;
+      image-rendering: pixelated; image-rendering: crisp-edges;
+      border-radius: 50%;
+      box-shadow: inset 0 0 26px rgba(80,52,26,0.35);
+      -webkit-mask-image: radial-gradient(ellipse at center, #000 50%, rgba(0,0,0,0.55) 70%, transparent 84%);
+      mask-image: radial-gradient(ellipse at center, #000 50%, rgba(0,0,0,0.55) 70%, transparent 84%);
+    }
+    .f-ground-item {
+      position: absolute; transform: translate(-50%, -50%);
+      image-rendering: pixelated; image-rendering: crisp-edges;
+    }
+    .f-ground-item img { display: block; width: 100%; height: auto; image-rendering: pixelated; }
+
     /* ---- Decorative terrain (trees, bushes, grass tufts) ---- */
     .f-decor-item {
       position: absolute; transform: translate(-50%, -100%);
@@ -285,6 +306,7 @@
     </header>
 
     <main class="f-field" id="field">
+      <div id="ground"></div>
       <div class="f-sakura" id="sakura"></div>
       <div class="f-pond"></div>
       <div class="f-fish" id="fish"></div>
@@ -865,8 +887,8 @@
     // wf = width as a fraction of field width, clamped to [min,max] px.
     const STRUCT_LAYOUT = {
       barn:  { left: 50, top: 32, wf: 0.24, min: 118, max: 210 },
-      feed:  { left: 30, top: 66, wf: 0.10, min: 54,  max: 96 },
-      water: { left: 68, top: 64, wf: 0.10, min: 54,  max: 96 },
+      feed:  { left: 29, top: 41, wf: 0.10, min: 54,  max: 96 },
+      water: { left: 71, top: 41, wf: 0.10, min: 54,  max: 96 },
     };
     function renderStructures() {
       structuresLayer.innerHTML = '';
@@ -932,19 +954,10 @@
       { img: 'bush.png',  left: 15, top: 60, size: 'bush' },
       { img: 'bush.png',  left: 90, top: 58, size: 'bush' },
       { img: 'bush.png',  left: 5,  top: 78, size: 'bush' },
-      { img: 'tuft.png',  left: 26, top: 58, size: 'tuft' },
-      { img: 'tuft.png',  left: 45, top: 42, size: 'tuft' },
-      { img: 'tuft.png',  left: 60, top: 52, size: 'tuft' },
-      { img: 'tuft.png',  left: 80, top: 42, size: 'tuft' },
-      { img: 'tuft.png',  left: 16, top: 86, size: 'tuft' },
-      { img: 'tuft.png',  left: 40, top: 90, size: 'tuft' },
-      { img: 'tuft.png',  left: 62, top: 92, size: 'tuft' },
-      { img: 'tuft.png',  left: 52, top: 72, size: 'tuft' },
     ];
     const DECOR_SIZE = {
       tree: { wf: 0.15, min: 90, max: 150 },
       bush: { wf: 0.06, min: 42, max: 72 },
-      tuft: { wf: 0.035, min: 22, max: 38 },
     };
     function renderDecor() {
       decorLayer.innerHTML = '';
@@ -957,6 +970,55 @@
         el.style.left = d.left + '%'; el.style.top = d.top + '%'; el.style.width = w + 'px';
         el.innerHTML = `<img src="sprites/${d.img}" alt="">`;
         decorLayer.appendChild(el);
+      }
+    }
+
+    // ---------- Ground terrain (dirt farmyard + scattered detail) ----------
+    // A dirt patch grounds the barn/troughs, and small pebble + grass-blade
+    // decals break up the flat grass. Positions are fixed so the field is
+    // stable across reloads; centre (barn/pond) is kept clear.
+    const groundLayer = document.getElementById('ground');
+    const GROUND = [
+      { img: 'pebble.png', left: 18, top: 34, size: 'peb' },
+      { img: 'pebble.png', left: 84, top: 30, size: 'peb' },
+      { img: 'pebble.png', left: 12, top: 70, size: 'peb' },
+      { img: 'pebble.png', left: 46, top: 84, size: 'peb' },
+      { img: 'pebble.png', left: 30, top: 24, size: 'peb' },
+      { img: 'tuft.png',   left: 26, top: 58, size: 'tuft' },
+      { img: 'tuft.png',   left: 44, top: 20, size: 'tuft' },
+      { img: 'tuft.png',   left: 62, top: 24, size: 'tuft' },
+      { img: 'tuft.png',   left: 82, top: 54, size: 'tuft' },
+      { img: 'tuft.png',   left: 16, top: 88, size: 'tuft' },
+      { img: 'tuft.png',   left: 38, top: 90, size: 'tuft' },
+      { img: 'tuft.png',   left: 55, top: 88, size: 'tuft' },
+      { img: 'tuft.png',   left: 94, top: 58, size: 'tuft' },
+      { img: 'tuft2.png',  left: 22, top: 46, size: 'blade' },
+      { img: 'tuft2.png',  left: 74, top: 46, size: 'blade' },
+      { img: 'tuft2.png',  left: 8,  top: 54, size: 'blade' },
+      { img: 'tuft2.png',  left: 92, top: 44, size: 'blade' },
+      { img: 'tuft2.png',  left: 58, top: 58, size: 'blade' },
+      { img: 'tuft2.png',  left: 34, top: 72, size: 'blade' },
+      { img: 'tuft2.png',  left: 24, top: 78, size: 'blade' },
+    ];
+    const GROUND_SIZE = {
+      peb:   { wf: 0.05,  min: 26, max: 52 },
+      tuft:  { wf: 0.035, min: 22, max: 38 },
+      blade: { wf: 0.04,  min: 24, max: 42 },
+    };
+    function renderGround() {
+      groundLayer.innerHTML = '';
+      const fw = field.clientWidth;
+      const yard = document.createElement('div');
+      yard.className = 'f-yard';
+      groundLayer.appendChild(yard);
+      for (const d of GROUND) {
+        const s = GROUND_SIZE[d.size];
+        const w = Math.round(Math.max(s.min, Math.min(s.max, fw * s.wf)));
+        const el = document.createElement('div');
+        el.className = 'f-ground-item';
+        el.style.left = d.left + '%'; el.style.top = d.top + '%'; el.style.width = w + 'px';
+        el.innerHTML = `<img src="sprites/${d.img}" alt="">`;
+        groundLayer.appendChild(el);
       }
     }
 
@@ -1069,6 +1131,7 @@
       const earned = advance(away);
       st.lastTs = Date.now();
       save();
+      renderGround();
       renderDecor();
       renderStructures();
       render();
@@ -1098,7 +1161,8 @@
           act.y = Math.min(Y_MAX, Math.max(Y_MIN, act.y));
           positionActor(act);
         }
-        renderDecor();        // rescale trees/bushes/tufts
+        renderGround();       // rescale dirt yard + pebbles/tufts
+        renderDecor();        // rescale trees/bushes
         renderStructures();   // rescale barn/troughs to the new field size
       }, 250);
     });
