@@ -358,11 +358,11 @@
         { id:'fox',     name:'Fox',          price:0,   rarity:'common',   coinsPerMin:2, color:'#c0563a', walkCols:6, idleCols:4 },
         { id:'chicken', name:'Chicken',      price:40,  rarity:'common',   coinsPerMin:2, color:'#e6d3ac', walkCols:6, idleCols:6 },
         { id:'hare',    name:'Hare',         price:60,  rarity:'common',   coinsPerMin:2, color:'#a9855f', walkCols:5, idleCols:4 },
-        { id:'grouse',  name:'Black grouse', price:90,  rarity:'common',   coinsPerMin:2, color:'#4a4550', walkCols:6, idleCols:4 },
+        { id:'grouse',  name:'Black grouse', price:90,  rarity:'common',   coinsPerMin:2, color:'#4a4550', walkCols:6, idleCols:4, scale:0.7 },
         { id:'pig',     name:'Pig',          price:140, rarity:'common',   coinsPerMin:3, color:'#d98c99', walkCols:6, idleCols:4 },
         { id:'deer',    name:'Deer',         price:220, rarity:'uncommon', coinsPerMin:4, color:'#6f4a34', walkCols:6, idleCols:4 },
         { id:'boar',    name:'Boar',         price:260, rarity:'uncommon', coinsPerMin:4, color:'#5a4636', walkCols:6, idleCols:4 },
-        { id:'cow',     name:'Cow',          price:360, rarity:'uncommon', coinsPerMin:5, color:'#c3cad2', walkCols:6, idleCols:4 },
+        { id:'cow',     name:'Cow',          price:360, rarity:'uncommon', coinsPerMin:5, color:'#c3cad2', walkCols:6, idleCols:4, scale:2 },
       ],
     };
     let SPECIES = [];               // loaded species list
@@ -391,6 +391,7 @@
           color: a.color || '#b886e5',
           walkCols: Math.max(1, +a.walkCols || 4),
           idleCols: Math.max(1, +a.idleCols || 4),
+          scale: Math.max(0.3, Math.min(3, +a.scale || 1)),   // per-species size multiplier
           walkUrl: `sprites/${encodeURIComponent(id)}_walk.png`,
           idleUrl: `sprites/${encodeURIComponent(id)}_idle.png`,
         };
@@ -532,13 +533,15 @@
       const base = Math.min(field.clientWidth, field.clientHeight);
       return Math.round(Math.max(56, Math.min(104, base * 0.16)));
     }
+    // Per-actor display size: base size times the species' size multiplier.
+    function sizeFor(sp) { return Math.round(animalSizePx() * ((sp && sp.scale) || 1)); }
 
     function makeActor(a, wild) {
-      const size = animalSizePx();
       const el = document.createElement('div');
       el.className = 'animal' + (wild ? ' wild' : '');
       el.dataset.uid = a.uid;
       const sp = speciesById.get(a.type);
+      const size = sizeFor(sp);
       const glowColor = sp ? sp.color : '#b886e5';
       const hasSprite = !!(sp && spriteOK.get(a.type));
       const inner = hasSprite
@@ -1079,8 +1082,8 @@
     window.addEventListener('resize', () => {
       clearTimeout(resizeT);
       resizeT = setTimeout(() => {
-        const size = animalSizePx();
         for (const [, act] of actors) {
+          const size = sizeFor(act.sp);   // honour per-species size multiplier
           act.el.style.width = size + 'px'; act.el.style.height = size + 'px';
           act.box = size;
           if (act.hasSprite && act.spr) {

@@ -6,10 +6,10 @@
     { "id": "fox",     "name": "Fox",          "price": 0,   "rarity": "common",   "coinsPerMin": 2, "color": "#c0563a", "walkCols": 6, "idleCols": 4 },
     { "id": "chicken", "name": "Chicken",      "price": 40,  "rarity": "common",   "coinsPerMin": 2, "color": "#e6d3ac", "walkCols": 6, "idleCols": 6 },
     { "id": "hare",    "name": "Hare",         "price": 60,  "rarity": "common",   "coinsPerMin": 2, "color": "#a9855f", "walkCols": 5, "idleCols": 4 },
-    { "id": "grouse",  "name": "Black grouse", "price": 90,  "rarity": "common",   "coinsPerMin": 2, "color": "#4a4550", "walkCols": 6, "idleCols": 4 },
+    { "id": "grouse",  "name": "Black grouse", "price": 90,  "rarity": "common",   "coinsPerMin": 2, "color": "#4a4550", "walkCols": 6, "idleCols": 4, "scale": 0.7 },
     { "id": "pig",     "name": "Pig",          "price": 140, "rarity": "common",   "coinsPerMin": 3, "color": "#d98c99", "walkCols": 6, "idleCols": 4 },
     { "id": "deer",    "name": "Deer",         "price": 220, "rarity": "uncommon", "coinsPerMin": 4, "color": "#6f4a34", "walkCols": 6, "idleCols": 4 },
     { "id": "boar",    "name": "Boar",         "price": 260, "rarity": "uncommon", "coinsPerMin": 4, "color": "#5a4636", "walkCols": 6, "idleCols": 4 },
-    { "id": "cow",     "name": "Cow",          "price": 360, "rarity": "uncommon", "coinsPerMin": 5, "color": "#c3cad2", "walkCols": 6, "idleCols": 4 }
+    { "id": "cow",     "name": "Cow",          "price": 360, "rarity": "uncommon", "coinsPerMin": 5, "color": "#c3cad2", "walkCols": 6, "idleCols": 4, "scale": 2 }
   ]
 }

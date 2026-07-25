@@ -43,6 +43,8 @@ direction, rows = frames) into this row = direction layout with
 - `coinsPerMin` — coins a well-cared animal earns per minute.
 - `color` — placeholder tint + soft glow behind the sprite.
 - `walkCols` / `idleCols` — number of animation frames in each sheet.
+- `scale` — optional on-field size multiplier (default `1`; e.g. `0.7` = 70%,
+  `2` = 200%). Only affects the animal roaming the farm, not the shop tile.
 
 If a sheet is missing, that animal shows a colored placeholder with its first
 letter, so the game still runs. To add a brand-new animal, drop its two PNGs
