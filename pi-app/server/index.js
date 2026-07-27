@@ -65,16 +65,13 @@ motor.on('ready', (fw) => {
 });
 motor.on('warn', (msg) => console.warn(`[motor] ${msg}`));
 motor.on('reply', (line) => {
-  // Forward replies (OK / ERR / STATUS / SENSOR / PONG) to UI for debugging.
+  // Forward replies (OK / ERR / STATUS / PONG) to UI for debugging.
   broadcast({ type: 'motor_reply', line });
 });
 motor.on('dispense_result', (info) => {
   console.log(`[motor] dispense_result motor=${info.motor} kind=${info.kind}` +
               (info.ms !== undefined ? ` ms=${info.ms}` : ''));
   broadcast({ type: 'dispense_done', ...info });
-});
-motor.on('sensor', (info) => {
-  broadcast({ type: 'sensor', ...info });
 });
 
 // ---------- Asset store ----------

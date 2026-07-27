@@ -17,7 +17,6 @@ StreamElements / Ko-fi webhooks ─┤
                                  |
                                  v
                           ESP32 motor controller  ─►  2× stepper drivers ─► motors
-                                                  ◄─  2× drop sensors
 ```
 
 The kiosk can pull live tips from StreamElements two ways:
@@ -31,8 +30,8 @@ The kiosk can pull live tips from StreamElements two ways:
 
 The Pi never generates step pulses. It sends high-level commands like
 `DISPENSE 1 +1 1200 3000` to the ESP32, which handles the timing-critical
-step generation and the drop-sensor edge detection. See
-`../esp32-motor/README.md` for the wire protocol.
+step generation. Drops are measured by rotations (run time), not a sensor.
+See `../esp32-motor/README.md` for the wire protocol.
 
 ## Local development (Linux / macOS / Windows)
 

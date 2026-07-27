@@ -155,7 +155,7 @@
       <section class="section">
         <h2>Recent firmware log</h2>
         <div class="meta" style="color: var(--text-2); font-size: 12px; margin-bottom: 8px;">
-          Live tail of replies from the ESP32 (OK / SENSOR / STATUS / ERR).
+          Live tail of replies from the ESP32 (OK / DONE / STATUS / ERR).
         </div>
         <pre id="motor-log" style="margin: 0; max-height: 220px; overflow:auto;
                                     background: var(--bg); color: var(--text-2);
@@ -348,9 +348,7 @@
     onMessage('motor_ready',  (m) => setMotorStatus(true, m.fw));
     onMessage('motor_reply',  (m) => appendLog(m.line));
     onMessage('dispense_done', (m) => {
-      const detail = m.kind === 'dropped' ? `dropped in ${m.ms}ms`
-                   : m.kind === 'jam'     ? 'JAM — no drop detected'
-                   : 'done';
+      const detail = (m.ms != null) ? `done in ${m.ms}ms` : 'done';
       result.textContent = `Chamber ${m.motor}: ${detail}`;
     });
 

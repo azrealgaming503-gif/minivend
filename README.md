@@ -14,7 +14,6 @@ StreamElements / Ko-fi webhooks
             |  USB-serial
             v
    ESP32 motor controller  ─►  2× TMC2208 ─► 2× steppers
-                           ◄─  2× drop sensors
 ```
 
 Two pieces, one wire protocol:
@@ -24,8 +23,8 @@ Two pieces, one wire protocol:
    serves the games (Snake, 2048, ...), and sends high-level motor
    commands to the ESP32 over USB-serial.
 2. **`esp32-motor/`** — Tiny Arduino firmware whose only job is
-   real-time step pulse generation, drop-sensor edge detection, and an
-   ASCII line protocol over USB-serial. See its README for the protocol.
+   real-time step pulse generation and an ASCII line protocol over
+   USB-serial. See its README for the protocol.
 
 ## Quick start
 
@@ -72,7 +71,7 @@ You can drive the whole flow with no provider configured by hitting
 | File                       | What it covers                                    |
 |----------------------------|---------------------------------------------------|
 | `pi-app/README.md`         | Pi server, UI, endpoints, deployment, OTA, Wi-Fi  |
-| `esp32-motor/README.md`    | ESP32 motor/sensor firmware + USB-serial protocol |
+| `esp32-motor/README.md`    | ESP32 motor firmware + USB-serial protocol |
 
 ## License
 

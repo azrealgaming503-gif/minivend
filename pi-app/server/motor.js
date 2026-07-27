@@ -104,20 +104,14 @@ class MotorBridge extends EventEmitter {
     if (head === 'READY') {
       this.lastFw = parts.slice(1).join(' ');
       this.emit('ready', this.lastFw);
-    } else if (head === 'DROPPED') {
-      const motor = parseInt(parts[1], 10);
-      const ms = parseInt(parts[2], 10);
-      this.emit('dispense_result', { motor, kind: 'dropped', ms });
-    } else if (head === 'JAM') {
-      const motor = parseInt(parts[1], 10);
-      this.emit('dispense_result', { motor, kind: 'jam' });
     } else if (head === 'DONE') {
+      // A dispense finished its rotation-based run (or was stopped). The
+      // firmware includes elapsed ms on run completion; a manual STOP omits it.
       const motor = parseInt(parts[1], 10);
-      this.emit('dispense_result', { motor, kind: 'done' });
-    } else if (head === 'EVT' && parts[1] === 'SENSOR') {
-      this.emit('sensor', { motor: parseInt(parts[2], 10), value: parseInt(parts[3], 10) });
+      const ms = parts[2] !== undefined ? parseInt(parts[2], 10) : undefined;
+      this.emit('dispense_result', { motor, kind: 'done', ms });
     } else {
-      // Pass-through: OK, ERR, PONG, STATUS, SENSOR, etc.
+      // Pass-through: OK, ERR, PONG, STATUS, etc.
       this.emit('reply', line);
     }
   }
