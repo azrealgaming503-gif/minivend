@@ -34,11 +34,18 @@
 //     after the last motion, to reduce heat build-up (no holding torque
 //     between drops). ENABLE <id> 1 also powers the drivers immediately
 //     so there is settle time before the following DISPENSE/JOG/RUNFOR.
+//   - Every motion command (JOG/RUNFOR/DISPENSE) self-enables, and every
+//     stop (run complete, STOP, stopAll) clears the motor's enable flag,
+//     so once both motors are idle the EN line is always released. A motor
+//     is never left holding current after an operation. NOTE: this only
+//     works if each driver's EN pin is actually wired to EN_PIN (GPIO27);
+//     if a driver's EN is tied to GND it is always on and firmware cannot
+//     disable it.
 
 #include <Arduino.h>
 
 // ---------------- Configuration ----------------
-static const char* FW_VERSION = "minivend-motor-1.0";
+static const char* FW_VERSION = "minivend-motor-1.1";
 
 // Stepper pins
 static const int M1_STEP_PIN = 25;
@@ -134,11 +141,16 @@ static void setJog(Motor& m, int dir, uint32_t speedStepsPerS) {
   m.lastStepUs = micros();
 }
 
+// Fully stop a motor AND mark it disabled. Clearing enabledRequested here
+// guarantees the motor is no longer "active", so serviceDriverPower() cuts
+// the shared EN line once both motors are stopped — no lingering holding
+// current (and no heat) after a dispense/jog/runfor.
 static void stopMotor(Motor& m) {
   m.speedStepsPerS = 0;
   m.intervalUs = 0;
   m.timedActive = false;
   m.dispenseActive = false;
+  m.enabledRequested = false;
 }
 
 static void stopAll() {
@@ -287,6 +299,7 @@ static void handleCommand(const String& line) {
     }
     Motor* m = motorById((int)id);
     if (!m) { replyErr("BAD_MOTOR", "id must be 1 or 2"); return; }
+    m->enabledRequested = true;   // motion commands self-enable
     m->timedActive = false;
     m->dispenseActive = false;
     setJog(*m, (dir >= 0) ? +1 : -1, (uint32_t)spd);
@@ -302,6 +315,7 @@ static void handleCommand(const String& line) {
     Motor* m = motorById((int)id);
     if (!m) { replyErr("BAD_MOTOR", "id must be 1 or 2"); return; }
     if (ms <= 0) { replyErr("BAD_ARG", "ms must be > 0"); return; }
+    m->enabledRequested = true;   // motion commands self-enable
     setJog(*m, (dir >= 0) ? +1 : -1, (uint32_t)spd);
     m->timedActive = true;
     m->dispenseActive = false;
@@ -318,6 +332,7 @@ static void handleCommand(const String& line) {
     Motor* m = motorById((int)id);
     if (!m) { replyErr("BAD_MOTOR", "id must be 1 or 2"); return; }
     if (ms <= 0) { replyErr("BAD_ARG", "run_ms must be > 0"); return; }
+    m->enabledRequested = true;   // motion commands self-enable
     setJog(*m, (dir >= 0) ? +1 : -1, (uint32_t)spd);
     m->timedActive = true;
     m->dispenseActive = true;
