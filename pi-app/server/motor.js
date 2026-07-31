@@ -142,9 +142,8 @@ class MotorBridge extends EventEmitter {
   jog(id, dir, speed)          { return this._send(`JOG ${id} ${dir} ${speed}`); }
   runFor(id, dir, speed, ms)   { return this._send(`RUNFOR ${id} ${dir} ${speed} ${ms}`); }
   dispense(id, dir, speed, maxMs) {
-    // Brief ENABLE settle, then DISPENSE (firmware self-enables too).
-    // DONE/JAM handlers send ENABLE 0 so coils are never left energized.
-    this.enable(id, true);
+    // Firmware powers coils only for the motion command — do not ENABLE
+    // first (that left holding torque if disable was missed).
     return this._send(`DISPENSE ${id} ${dir} ${speed} ${maxMs}`);
   }
 }

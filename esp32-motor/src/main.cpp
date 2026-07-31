@@ -47,7 +47,7 @@
 #include <TMCStepper.h>
 
 // ---------------- Configuration ----------------
-static const char* FW_VERSION = "minivend-motor-1.7";
+static const char* FW_VERSION = "minivend-motor-1.8";
 
 // Stepper pins
 static const int M1_STEP_PIN = 25;
@@ -55,14 +55,15 @@ static const int M1_DIR_PIN  = 26;
 static const int M2_STEP_PIN = 32;
 static const int M2_DIR_PIN  = 33;
 
-// Shared driver enable (LOW = enabled on most A4988/TMC2208/2209 carriers).
-// Tie both drivers' EN pins together to this pin.
+// Shared driver enable. Standard TMC SilentStepStick: ENN active LOW
+// (LOW=coils on, HIGH=coils off). If shafts stay locked after fw 1.8 with
+// UART ok, your EN pin may be tied to GND — remove that strap; UART
+// toff=0 should still release hold, reinforced every idle tick below.
 static const int EN_PIN = 27;
 static const bool EN_ACTIVE_LOW = true;
 
-// Auto-release the drivers this many ms after the last motor motion.
-// 0 = release immediately when nothing is stepping.
-static const uint32_t IDLE_RELEASE_MS = 0;
+// How often to re-send toff=0 while idle (UART can miss a write).
+static const uint32_t IDLE_COIL_KILL_MS = 200;
 
 // Step pulse width (HIGH duration).
 static const uint32_t STEP_PULSE_US = 2;
@@ -152,20 +153,17 @@ static void tmcCoilsOff();
 
 static void setDriverPower(bool on) {
   if (on) {
-    if (!g_driverPowered) {
-      driverEnabled(true);
-      g_driverPowered = true;
-    }
+    driverEnabled(true);
+    g_driverPowered = true;
     return;
   }
-  if (!g_driverPowered) return;
-  // Kill coil current over UART (toff=0), then raise EN.
-  // Removes holding torque even if a driver's EN pin is tied to GND.
-  driverEnabled(true);   // ensure UART can reach the chips
-  delay(1);
+  // Always run coil-kill (do not early-return). A failed first UART write
+  // used to leave g_driverPowered=false while chopper still ran → forever hold.
+  driverEnabled(true);   // EN low so UART works on boards that gate PDN/logic
+  delay(2);
   tmcCoilsOff();
-  delay(1);
-  driverEnabled(false);
+  delay(2);
+  driverEnabled(false);  // EN high = disabled on standard ENN wiring
   g_driverPowered = false;
 }
 
@@ -228,11 +226,19 @@ static void serviceDriverPower() {
     setDriverPower(true);
     return;
   }
-  // Nothing stepping — release after a short grace (or immediately if 0).
-  if (!g_driverPowered) return;
-  if (IDLE_RELEASE_MS == 0 ||
-      (uint32_t)(millis() - g_lastActiveMs) >= IDLE_RELEASE_MS) {
+  // Transition to idle once.
+  if (g_driverPowered) {
     setDriverPower(false);
+    return;
+  }
+  // Stay idle: re-send toff=0 over UART without toggling EN (toggling EN
+  // every tick would briefly re-enable coils). Needed when EN is hard-tied
+  // to GND so the pin never actually disables the driver.
+  static uint32_t lastKillMs = 0;
+  uint32_t now = millis();
+  if ((uint32_t)(now - lastKillMs) >= IDLE_COIL_KILL_MS) {
+    lastKillMs = now;
+    tmcCoilsOff();
   }
 }
 
@@ -310,11 +316,14 @@ static TMC2209Stepper* tmcById(int id) {
 }
 
 // toff=0 disables the power stage (no holding torque). Works even when EN
-// is strapped always-on.
+// is strapped always-on — IF UART reaches the driver.
 static void tmcCoilsOff() {
   auto kill = [](TMC2209Stepper* d) {
     if (!d) return;
+    // Zero hold current, freewheel, then disable chopper entirely.
+    d->rms_current(TMC_RMS_CURRENT_MA, 0.0f);
     d->ihold(0);
+    d->irun(0);
     d->freewheel(1);
     d->toff(0);
   };
@@ -459,7 +468,11 @@ static void handleCommand(const String& line) {
     Serial.print(" TMC1=");
     Serial.print(g_tmc1Ok ? "ok" : "fail");
     Serial.print(" TMC2=");
-    Serial.println(g_tmc2Ok ? "ok" : "fail");
+    Serial.print(g_tmc2Ok ? "ok" : "fail");
+    // toff readback: should be 0 when idle (coils off).
+    if (tmc1) { Serial.print(" TOFF1="); Serial.print(tmc1->toff()); }
+    if (tmc2) { Serial.print(" TOFF2="); Serial.print(tmc2->toff()); }
+    Serial.println();
     return;
   }
   if (cmd == "ENABLE") {
