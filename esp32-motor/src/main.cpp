@@ -47,7 +47,7 @@
 #include <TMCStepper.h>
 
 // ---------------- Configuration ----------------
-static const char* FW_VERSION = "minivend-motor-1.10";
+static const char* FW_VERSION = "minivend-motor-1.11";
 
 // Stepper pins
 static const int M1_STEP_PIN = 25;
@@ -67,9 +67,7 @@ static const uint32_t STEP_PULSE_US = 2;
 
 // Safety: ignore step rates above this. At 16 microsteps, ~19200 steps/s
 // matches the old full-step feel of 1200 steps/s (200 steps/rev).
-// Headroom above 19200 lets RPM compensation work when a driver is stuck
-// at 32 µsteps (needs ~2× pulse rate for the same shaft RPM).
-static const uint32_t MAX_STEPS_PER_SEC = 50000;
+static const uint32_t MAX_STEPS_PER_SEC = 25000;
 
 // ---- TMC2209 UART + StallGuard ----
 // Serial2 on GPIO16/17 — NOT UART0 (GPIO3/1), which the Pi uses over USB.
@@ -137,10 +135,6 @@ static TMC2209Stepper* tmc1 = nullptr;
 static TMC2209Stepper* tmc2 = nullptr;
 static bool g_tmc1Ok = false;
 static bool g_tmc2Ok = false;
-// Last verified microstep setting per motor (for RPM compensation if UART
-// leaves a driver at OTP / pin defaults — e.g. M2 at 32 while M1 is at 16).
-static uint16_t g_m1Microsteps = TMC_MICROSTEPS;
-static uint16_t g_m2Microsteps = TMC_MICROSTEPS;
 
 // ---------------- Helpers ----------------
 static bool g_driverPowered = false;
@@ -164,32 +158,21 @@ static Motor* motorById(int id) {
   return nullptr;
 }
 
-// Same shaft RPM when drivers disagree on microsteps: pulse rate scales with
-// actual_µsteps / target_µsteps (32 vs 16 → 2× step rate for equal RPM).
-static uint32_t speedForActualMicrosteps(uint32_t speedStepsPerS, uint16_t actualMs) {
-  if (actualMs == 0 || actualMs == TMC_MICROSTEPS) return speedStepsPerS;
-  uint64_t adj = (uint64_t)speedStepsPerS * (uint64_t)actualMs / (uint64_t)TMC_MICROSTEPS;
-  if (adj < 1) adj = 1;
-  if (adj > MAX_STEPS_PER_SEC) adj = MAX_STEPS_PER_SEC;
-  return (uint32_t)adj;
-}
-
-static uint16_t actualMicrostepsFor(const Motor& m) {
-  return (m.id == 2) ? g_m2Microsteps : g_m1Microsteps;
+static void recomputeInterval(Motor& m) {
+  if (m.speedStepsPerS == 0) {
+    m.intervalUs = 0; // disabled
+  } else {
+    uint32_t spd = m.speedStepsPerS;
+    if (spd > MAX_STEPS_PER_SEC) spd = MAX_STEPS_PER_SEC;
+    m.intervalUs = 1000000UL / spd;
+  }
 }
 
 static void setJog(Motor& m, int dir, uint32_t speedStepsPerS) {
   m.direction = (dir >= 0) ? +1 : -1;
   digitalWrite(m.dirPin, (m.direction > 0) ? HIGH : LOW);
-  // Store the *commanded* (Pi-facing) speed; interval uses compensated rate.
   m.speedStepsPerS = speedStepsPerS;
-  uint32_t pulseRate = speedForActualMicrosteps(speedStepsPerS, actualMicrostepsFor(m));
-  if (pulseRate == 0) {
-    m.intervalUs = 0;
-  } else {
-    if (pulseRate > MAX_STEPS_PER_SEC) pulseRate = MAX_STEPS_PER_SEC;
-    m.intervalUs = 1000000UL / pulseRate;
-  }
+  recomputeInterval(m);
   m.lastStepUs = micros();
 }
 
@@ -302,18 +285,24 @@ static TMC2209Stepper* tmcById(int id) {
   return tmc1;
 }
 
-static uint16_t* microstepsSlotFor(int id) {
-  return (id == 2) ? &g_m2Microsteps : &g_m1Microsteps;
+static void tmcCoilsOnFor(int id) {
+  TMC2209Stepper* d = tmcById(id);
+  if (!d) return;
+  d->pdn_disable(true);
+  d->mstep_reg_select(true);
+  d->I_scale_analog(false);
+  d->toff(4);
+  d->rms_current(TMC_RMS_CURRENT_MA);
+  d->microsteps(TMC_MICROSTEPS);
+  d->en_spreadCycle(true);
+  d->TCOOLTHRS(TMC_TCOOLTHRS);
+  d->SGTHRS(TMC_SGTHRS);
 }
 
-static bool* tmcOkSlotFor(int id) {
-  return (id == 2) ? &g_tmc2Ok : &g_tmc1Ok;
-}
-
-// Push full UART config for one driver (no verify).
-static void tmcWriteSettings(TMC2209Stepper& d) {
+static bool configureTmc(TMC2209Stepper& d) {
+  d.begin();
   d.pdn_disable(true);
-  d.mstep_reg_select(true);   // microsteps from UART, not MS1/MS2 pins
+  d.mstep_reg_select(true);
   d.I_scale_analog(false);
   d.rms_current(TMC_RMS_CURRENT_MA);
   d.microsteps(TMC_MICROSTEPS);
@@ -321,62 +310,15 @@ static void tmcWriteSettings(TMC2209Stepper& d) {
   d.TCOOLTHRS(TMC_TCOOLTHRS);
   d.SGTHRS(TMC_SGTHRS);
   d.toff(4);
+  uint8_t ver = d.version();
+  return ver == 0x21;
 }
 
-// Write + read back version and microsteps. Retries — M2 on a shared UART
-// bus often needs a second pass before MRES sticks.
-static bool configureTmcVerified(TMC2209Stepper& d, uint16_t* outMs) {
-  d.begin();
-  for (int attempt = 0; attempt < 6; attempt++) {
-    tmcWriteSettings(d);
-    delay(3);
-    uint8_t ver = d.version();
-    uint16_t ms = d.microsteps();
-    if (outMs) *outMs = ms;
-    if (ver == 0x21 && ms == TMC_MICROSTEPS) return true;
-    delay(5);
-  }
-  if (outMs) *outMs = d.microsteps();
-  return d.version() == 0x21;
-}
-
-// EN on, push UART settings, verify microsteps; keep actual for RPM scale.
+// EN on, then push UART settings for this move.
 static void applyTmcBeforeMotion(int id) {
   setDriverPower(true);
-  delay(10);  // some TMC boards need settle after EN before UART works
-
-  TMC2209Stepper* d = tmcById(id);
-  uint16_t* slot = microstepsSlotFor(id);
-  bool* okSlot = tmcOkSlotFor(id);
-  if (!d) return;
-
-  uint16_t ms = 0;
-  bool ok = false;
-  for (int attempt = 0; attempt < 6; attempt++) {
-    tmcWriteSettings(*d);
-    delay(3);
-    uint8_t ver = d->version();
-    ms = d->microsteps();
-    if (ver == 0x21 && ms == TMC_MICROSTEPS) {
-      ok = true;
-      break;
-    }
-    delay(5);
-  }
-  if (!ok) ms = d->microsteps();
-  if (ms == 0) ms = TMC_MICROSTEPS;  // read failed — avoid wild scale
-  *slot = ms;
-  *okSlot = ok || (d->version() == 0x21);
-
-  if (ms != TMC_MICROSTEPS) {
-    Serial.print("WARN TMC M");
-    Serial.print(id);
-    Serial.print(" microsteps=");
-    Serial.print(ms);
-    Serial.print(" (want ");
-    Serial.print(TMC_MICROSTEPS);
-    Serial.println(") — scaling step rate");
-  }
+  delay(2);
+  tmcCoilsOnFor(id);
 }
 
 static void initTmcDrivers() {
@@ -387,39 +329,25 @@ static void initTmcDrivers() {
   tmc2 = new TMC2209Stepper(&Serial2, TMC_R_SENSE, TMC_ADDR_M2);
 
   setDriverPower(true);
-  delay(50);
+  delay(20);
 
-  g_tmc1Ok = configureTmcVerified(*tmc1, &g_m1Microsteps);
-  delay(10);
-  g_tmc2Ok = configureTmcVerified(*tmc2, &g_m2Microsteps);
+  g_tmc1Ok = configureTmc(*tmc1);
+  delay(5);
+  g_tmc2Ok = configureTmc(*tmc2);
 
-  // If addr 1 never answers, MS1 may not be at 3.3V — probe 2 and 3.
-  if (!g_tmc2Ok || g_m2Microsteps != TMC_MICROSTEPS) {
-    for (uint8_t tryAddr = 2; tryAddr <= 3; tryAddr++) {
-      TMC2209Stepper probe(&Serial2, TMC_R_SENSE, tryAddr);
-      uint16_t ms = 0;
-      bool ok = configureTmcVerified(probe, &ms);
-      if (ok && ms == TMC_MICROSTEPS) {
-        delete tmc2;
-        tmc2 = new TMC2209Stepper(&Serial2, TMC_R_SENSE, tryAddr);
-        g_tmc2Ok = configureTmcVerified(*tmc2, &g_m2Microsteps);
-        Serial.print("TMC M2 remapped to UART addr ");
-        Serial.println(tryAddr);
-        break;
-      }
-    }
-  }
+  uint16_t ms1 = tmc1->microsteps();
+  uint16_t ms2 = tmc2->microsteps();
 
   setDriverPower(false);   // EN high — idle, no hold
 
   Serial.print("TMC M1=");
   Serial.print(g_tmc1Ok ? "ok" : "fail");
   Serial.print(" ms=");
-  Serial.print(g_m1Microsteps);
+  Serial.print(ms1);
   Serial.print(" M2=");
   Serial.print(g_tmc2Ok ? "ok" : "fail");
   Serial.print(" ms=");
-  Serial.println(g_m2Microsteps);
+  Serial.println(ms2);
 }
 
 // ---------------- Command parser ----------------
@@ -477,14 +405,10 @@ static void handleCommand(const String& line) {
     Serial.print(m1.enabledRequested ? 1 : 0);
     Serial.print(" M1_SPD=");
     Serial.print(m1.speedStepsPerS);
-    Serial.print(" M1_MS=");
-    Serial.print(g_m1Microsteps);
     Serial.print(" M2_EN=");
     Serial.print(m2.enabledRequested ? 1 : 0);
     Serial.print(" M2_SPD=");
     Serial.print(m2.speedStepsPerS);
-    Serial.print(" M2_MS=");
-    Serial.print(g_m2Microsteps);
     Serial.print(" DRV=");
     Serial.print(g_driverPowered ? 1 : 0);
     Serial.print(" TMC1=");
