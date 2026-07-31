@@ -109,11 +109,14 @@ class MotorBridge extends EventEmitter {
       // firmware includes elapsed ms on run completion; a manual STOP omits it.
       const motor = parseInt(parts[1], 10);
       const ms = parts[2] !== undefined ? parseInt(parts[2], 10) : undefined;
+      // Explicitly drop ENABLE so drivers never sit holding current / heat.
+      this.enable(motor, false);
       this.emit('dispense_result', { motor, kind: 'done', ms });
     } else if (head === 'JAM') {
       // StallGuard DIAG trip during a DISPENSE.
       const motor = parseInt(parts[1], 10);
       const ms = parts[2] !== undefined ? parseInt(parts[2], 10) : undefined;
+      this.enable(motor, false);
       this.emit('dispense_result', { motor, kind: 'jam', ms });
     } else {
       // Pass-through: OK, ERR, PONG, STATUS, TMC, etc.
@@ -139,8 +142,8 @@ class MotorBridge extends EventEmitter {
   jog(id, dir, speed)          { return this._send(`JOG ${id} ${dir} ${speed}`); }
   runFor(id, dir, speed, ms)   { return this._send(`RUNFOR ${id} ${dir} ${speed} ${ms}`); }
   dispense(id, dir, speed, maxMs) {
-    // ENABLE first so the motor will actually move; the firmware tracks
-    // it as a sticky request, so sending repeatedly is harmless.
+    // Brief ENABLE settle, then DISPENSE (firmware self-enables too).
+    // DONE/JAM handlers send ENABLE 0 so coils are never left energized.
     this.enable(id, true);
     return this._send(`DISPENSE ${id} ${dir} ${speed} ${maxMs}`);
   }

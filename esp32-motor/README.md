@@ -14,8 +14,11 @@ pio device monitor
 ```
 
 After flashing, the board prints `TMC M1=ok M2=ok` then
-`READY minivend-motor-1.2\n` on the USB serial port. The Pi opens that
+`READY minivend-motor-1.3\n` on the USB serial port. The Pi opens that
 port at 115200 baud (8N1) and exchanges line-delimited ASCII.
+
+Drivers are only enabled while a move is in progress; EN goes high
+(disabled) as soon as motion stops so coils do not sit holding current.
 
 If you see `TMC M1=fail` / `M2=fail`, UART wiring or address straps are
 wrong — see Wiring below. **Do not put the TMC UART on RX0/TX0** (GPIO
@@ -31,7 +34,7 @@ wrong — see Wiring below. **Do not put the TMC UART on RX0/TX0** (GPIO
 | M2 STEP | GPIO 32 | To STEP on driver 2 |
 | M2 DIR | GPIO 33 | To DIR on driver 2 |
 | M2 DIAG | GPIO 19 | StallGuard output from driver 2 |
-| EN (shared) | GPIO 27 | To EN on **both** drivers; LOW = enable |
+| EN (shared) | GPIO 27 | To EN on **both** drivers; LOW = enable. Must **not** be tied to GND — firmware disables drivers when idle to prevent heat. |
 | UART RX | GPIO 16 | Serial2 RX — bus node (direct) |
 | UART TX | GPIO 17 | Serial2 TX — **1 kΩ** → bus node |
 

@@ -47,7 +47,7 @@
 #include <TMCStepper.h>
 
 // ---------------- Configuration ----------------
-static const char* FW_VERSION = "minivend-motor-1.2";
+static const char* FW_VERSION = "minivend-motor-1.3";
 
 // Stepper pins
 static const int M1_STEP_PIN = 25;
@@ -61,7 +61,10 @@ static const int EN_PIN = 27;
 static const bool EN_ACTIVE_LOW = true;
 
 // Auto-release the drivers this many ms after the last motor motion.
-static const uint32_t IDLE_RELEASE_MS = 750;
+// Keep this short — holding current is what makes TMC2209s + motors hot.
+// (UART idle-high on PDN_UART also disables the chip's own standstill
+// current cut, so EN must go HIGH whenever nothing is moving.)
+static const uint32_t IDLE_RELEASE_MS = 50;
 
 // Step pulse width (HIGH duration).
 static const uint32_t STEP_PULSE_US = 2;
@@ -171,10 +174,18 @@ static void setJog(Motor& m, int dir, uint32_t speedStepsPerS) {
   m.lastStepUs = micros();
 }
 
-// Fully stop a motor AND mark it disabled. Clearing enabledRequested here
-// guarantees the motor is no longer "active", so serviceDriverPower() cuts
-// the shared EN line once both motors are stopped — no lingering holding
-// current (and no heat) after a dispense/jog/runfor/jam.
+static bool motorActive(const Motor& m) {
+  return m.enabledRequested && m.intervalUs != 0;
+}
+
+// Cut EN as soon as nothing is stepping. Call after every stop / ENABLE 0.
+static void releaseDriversIfIdle() {
+  if (motorActive(m1) || motorActive(m2)) return;
+  setDriverPower(false);
+}
+
+// Fully stop a motor AND mark it disabled, then drop EN if both are idle
+// so coils never sit holding current after a dispense/jog/runfor/jam.
 static void stopMotor(Motor& m) {
   m.speedStepsPerS = 0;
   m.intervalUs = 0;
@@ -182,15 +193,13 @@ static void stopMotor(Motor& m) {
   m.dispenseActive = false;
   m.enabledRequested = false;
   m.diagAssertedSinceMs = 0;
+  releaseDriversIfIdle();
 }
 
 static void stopAll() {
   stopMotor(m1);
   stopMotor(m2);
-}
-
-static bool motorActive(const Motor& m) {
-  return m.enabledRequested && m.intervalUs != 0;
+  releaseDriversIfIdle();
 }
 
 static void serviceDriverPower() {
@@ -199,8 +208,10 @@ static void serviceDriverPower() {
     setDriverPower(true);
     return;
   }
-  if (IDLE_RELEASE_MS == 0) return;
-  if (g_driverPowered && (uint32_t)(millis() - g_lastActiveMs) >= IDLE_RELEASE_MS) {
+  // Nothing stepping — release after a short grace (or immediately if 0).
+  if (!g_driverPowered) return;
+  if (IDLE_RELEASE_MS == 0 ||
+      (uint32_t)(millis() - g_lastActiveMs) >= IDLE_RELEASE_MS) {
     setDriverPower(false);
   }
 }
@@ -374,9 +385,13 @@ static void handleCommand(const String& line) {
     Motor* m = motorById((int)id);
     if (!m) { replyErr("BAD_MOTOR", "id must be 1 or 2"); return; }
     m->enabledRequested = (en != 0);
+    // ENABLE 1: power drivers for a short settle before motion.
+    // ENABLE 0 / both off: cut EN immediately — no holding current / heat.
     if (m1.enabledRequested || m2.enabledRequested) {
       setDriverPower(true);
       g_lastActiveMs = millis();
+    } else {
+      setDriverPower(false);
     }
     Serial.println("OK");
     return;

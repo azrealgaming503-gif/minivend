@@ -61,6 +61,10 @@ motor.on('disconnected', () => {
 });
 motor.on('ready', (fw) => {
   console.log(`[motor] firmware: ${fw}`);
+  // Ensure drivers start cold: stop any leftover motion and drop ENABLE.
+  motor.stop();
+  motor.enable(1, false);
+  motor.enable(2, false);
   broadcast({ type: 'motor_ready', fw });
 });
 motor.on('warn', (msg) => console.warn(`[motor] ${msg}`));
