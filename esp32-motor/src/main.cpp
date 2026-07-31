@@ -47,7 +47,7 @@
 #include <TMCStepper.h>
 
 // ---------------- Configuration ----------------
-static const char* FW_VERSION = "minivend-motor-1.3";
+static const char* FW_VERSION = "minivend-motor-1.4";
 
 // Stepper pins
 static const int M1_STEP_PIN = 25;
@@ -93,15 +93,17 @@ static const uint16_t TMC_RMS_CURRENT_MA = 1000;
 // Match "Steps per revolution" on the Motor page (200 * microsteps).
 static const uint16_t TMC_MICROSTEPS = 16;
 // StallGuard threshold 0–255. Higher = more sensitive (trips sooner).
-// Start conservative and lower if false jams; raise if real jams miss.
-static const uint8_t TMC_SGTHRS = 15;
+// Low values avoid false JAM at dispense start (no accel ramp yet).
+// Raise slowly if real hard jams are missed.
+static const uint8_t TMC_SGTHRS = 5;
 // Velocity below which StallGuard is armed (TSTEP units). 0xFFFFF ≈ always on
 // while moving at typical dispense speeds.
 static const uint32_t TMC_TCOOLTHRS = 0xFFFFF;
 // Ignore DIAG for this long after a dispense starts (startup / accel noise).
-static const uint32_t DIAG_ARM_MS = 80;
+// False "JAM in ~105ms" was arm(80)+debounce(25) with DIAG already high.
+static const uint32_t DIAG_ARM_MS = 400;
 // DIAG must stay asserted this long before we call it a jam (EMI debounce).
-static const uint32_t DIAG_DEBOUNCE_MS = 25;
+static const uint32_t DIAG_DEBOUNCE_MS = 80;
 
 // ---------------- Internal state ----------------
 struct Motor {
@@ -120,13 +122,14 @@ struct Motor {
   uint32_t dispenseStartMs;
   // DIAG debounce while dispensing
   uint32_t diagAssertedSinceMs; // 0 = not currently asserted
+  bool diagSeenLow;             // must see DIAG low after arm before a jam counts
   // Step generation
   uint32_t intervalUs;     // computed from speedStepsPerS
   uint32_t lastStepUs;
 };
 
-static Motor m1 { 1, M1_STEP_PIN, M1_DIR_PIN, M1_DIAG_PIN, false, +1, 0, false, 0, false, 0, 0, 0, 0 };
-static Motor m2 { 2, M2_STEP_PIN, M2_DIR_PIN, M2_DIAG_PIN, false, +1, 0, false, 0, false, 0, 0, 0, 0 };
+static Motor m1 { 1, M1_STEP_PIN, M1_DIR_PIN, M1_DIAG_PIN, false, +1, 0, false, 0, false, 0, 0, false, 0, 0 };
+static Motor m2 { 2, M2_STEP_PIN, M2_DIR_PIN, M2_DIAG_PIN, false, +1, 0, false, 0, false, 0, 0, false, 0, 0 };
 
 static String lineBuf;
 
@@ -193,6 +196,7 @@ static void stopMotor(Motor& m) {
   m.dispenseActive = false;
   m.enabledRequested = false;
   m.diagAssertedSinceMs = 0;
+  m.diagSeenLow = false;
   releaseDriversIfIdle();
 }
 
@@ -244,18 +248,28 @@ static void serviceTimedStop(Motor& m) {
 }
 
 // StallGuard DIAG: only during DISPENSE, after arm delay, with debounce.
+// Require DIAG to go low once after arm so a stuck-high / startup-asserted
+// DIAG cannot immediately fire "JAM in ~105ms".
 static void serviceJam(Motor& m) {
   if (!m.dispenseActive) {
     m.diagAssertedSinceMs = 0;
+    m.diagSeenLow = false;
     return;
   }
   uint32_t now = millis();
   if ((uint32_t)(now - m.dispenseStartMs) < DIAG_ARM_MS) {
     m.diagAssertedSinceMs = 0;
+    m.diagSeenLow = false;
     return;
   }
   const bool diagHigh = digitalRead(m.diagPin) == HIGH;
   if (!diagHigh) {
+    m.diagSeenLow = true;
+    m.diagAssertedSinceMs = 0;
+    return;
+  }
+  // DIAG high but never saw a clean low after arm -> ignore (stuck / noise).
+  if (!m.diagSeenLow) {
     m.diagAssertedSinceMs = 0;
     return;
   }
@@ -408,6 +422,7 @@ static void handleCommand(const String& line) {
     m->timedActive = false;
     m->dispenseActive = false;
     m->diagAssertedSinceMs = 0;
+    m->diagSeenLow = false;
     setJog(*m, (dir >= 0) ? +1 : -1, (uint32_t)spd);
     Serial.println("OK");
     return;
@@ -426,6 +441,7 @@ static void handleCommand(const String& line) {
     m->timedActive = true;
     m->dispenseActive = false;
     m->diagAssertedSinceMs = 0;
+    m->diagSeenLow = false;
     m->runUntilMs = millis() + (uint32_t)ms;
     Serial.println("OK");
     return;
@@ -444,6 +460,7 @@ static void handleCommand(const String& line) {
     m->timedActive = true;
     m->dispenseActive = true;
     m->diagAssertedSinceMs = 0;
+    m->diagSeenLow = false;
     m->runUntilMs = millis() + (uint32_t)ms;
     m->dispenseStartMs = millis();
     Serial.println("OK");
@@ -486,8 +503,8 @@ void setup() {
   pinMode(M2_STEP_PIN, OUTPUT);
   pinMode(M2_DIR_PIN,  OUTPUT);
   pinMode(EN_PIN,      OUTPUT);
-  pinMode(M1_DIAG_PIN, INPUT);
-  pinMode(M2_DIAG_PIN, INPUT);
+  pinMode(M1_DIAG_PIN, INPUT_PULLDOWN);
+  pinMode(M2_DIAG_PIN, INPUT_PULLDOWN);
   driverEnabled(false);
 
   initTmcDrivers();
