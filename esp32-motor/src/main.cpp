@@ -47,7 +47,7 @@
 #include <TMCStepper.h>
 
 // ---------------- Configuration ----------------
-static const char* FW_VERSION = "minivend-motor-1.6";
+static const char* FW_VERSION = "minivend-motor-1.7";
 
 // Stepper pins
 static const int M1_STEP_PIN = 25;
@@ -61,10 +61,8 @@ static const int EN_PIN = 27;
 static const bool EN_ACTIVE_LOW = true;
 
 // Auto-release the drivers this many ms after the last motor motion.
-// Keep this short — holding current is what makes TMC2209s + motors hot.
-// (UART idle-high on PDN_UART also disables the chip's own standstill
-// current cut, so EN must go HIGH whenever nothing is moving.)
-static const uint32_t IDLE_RELEASE_MS = 50;
+// 0 = release immediately when nothing is stepping.
+static const uint32_t IDLE_RELEASE_MS = 0;
 
 // Step pulse width (HIGH duration).
 static const uint32_t STEP_PULSE_US = 2;
@@ -149,10 +147,26 @@ static void driverEnabled(bool en) {
   else               digitalWrite(EN_PIN, en ? HIGH : LOW);
 }
 
+// Forward decl — defined after TMC objects exist.
+static void tmcCoilsOff();
+
 static void setDriverPower(bool on) {
-  if (on == g_driverPowered) return;
-  driverEnabled(on);
-  g_driverPowered = on;
+  if (on) {
+    if (!g_driverPowered) {
+      driverEnabled(true);
+      g_driverPowered = true;
+    }
+    return;
+  }
+  if (!g_driverPowered) return;
+  // Kill coil current over UART (toff=0), then raise EN.
+  // Removes holding torque even if a driver's EN pin is tied to GND.
+  driverEnabled(true);   // ensure UART can reach the chips
+  delay(1);
+  tmcCoilsOff();
+  delay(1);
+  driverEnabled(false);
+  g_driverPowered = false;
 }
 
 static Motor* motorById(int id) {
@@ -295,6 +309,34 @@ static TMC2209Stepper* tmcById(int id) {
   return tmc1;
 }
 
+// toff=0 disables the power stage (no holding torque). Works even when EN
+// is strapped always-on.
+static void tmcCoilsOff() {
+  auto kill = [](TMC2209Stepper* d) {
+    if (!d) return;
+    d->ihold(0);
+    d->freewheel(1);
+    d->toff(0);
+  };
+  kill(tmc1);
+  kill(tmc2);
+}
+
+static void tmcCoilsOnFor(int id) {
+  TMC2209Stepper* d = tmcById(id);
+  if (!d) return;
+  d->pdn_disable(true);
+  d->mstep_reg_select(true);
+  d->I_scale_analog(false);
+  d->freewheel(0);
+  d->toff(4);
+  d->rms_current(TMC_RMS_CURRENT_MA);
+  d->microsteps(TMC_MICROSTEPS);
+  d->en_spreadCycle(true);
+  d->TCOOLTHRS(TMC_TCOOLTHRS);
+  d->SGTHRS(TMC_SGTHRS);
+}
+
 static bool configureTmc(TMC2209Stepper& d) {
   d.begin();
   d.pdn_disable(true);          // PDN_UART is UART, not auto power-down
@@ -305,7 +347,9 @@ static bool configureTmc(TMC2209Stepper& d) {
   d.en_spreadCycle(true);       // stronger under load; StallGuard reliable
   d.TCOOLTHRS(TMC_TCOOLTHRS);
   d.SGTHRS(TMC_SGTHRS);
-  d.toff(4);
+  d.ihold(0);
+  d.freewheel(1);
+  d.toff(0);                    // boot with coils off — no idle hold
   // Version register should read 0x21 for TMC2209.
   uint8_t ver = d.version();
   return ver == 0x21;
@@ -315,18 +359,9 @@ static bool configureTmc(TMC2209Stepper& d) {
 // config it stays on pin-strap microsteps (often 1/32 with MS1=VIO) and
 // runs much slower than chamber 1 at the same step rate.
 static void applyTmcBeforeMotion(int id) {
-  TMC2209Stepper* d = tmcById(id);
-  if (!d) return;
   setDriverPower(true);
   delay(2);
-  d->pdn_disable(true);
-  d->mstep_reg_select(true);
-  d->I_scale_analog(false);
-  d->rms_current(TMC_RMS_CURRENT_MA);
-  d->microsteps(TMC_MICROSTEPS);
-  d->en_spreadCycle(true);
-  d->TCOOLTHRS(TMC_TCOOLTHRS);
-  d->SGTHRS(TMC_SGTHRS);
+  tmcCoilsOnFor(id);
 }
 
 static void initTmcDrivers() {
@@ -434,12 +469,10 @@ static void handleCommand(const String& line) {
     Motor* m = motorById((int)id);
     if (!m) { replyErr("BAD_MOTOR", "id must be 1 or 2"); return; }
     m->enabledRequested = (en != 0);
-    // ENABLE 1: power drivers for a short settle before motion.
-    // ENABLE 0 / both off: cut EN immediately — no holding current / heat.
-    if (m1.enabledRequested || m2.enabledRequested) {
-      setDriverPower(true);
-      g_lastActiveMs = millis();
-    } else {
+    // Never energize coils for ENABLE alone — that caused idle holding
+    // torque. Motion commands (JOG/RUNFOR/DISPENSE) power the drivers.
+    // ENABLE 0 / both off: force coils off immediately.
+    if (!m1.enabledRequested && !m2.enabledRequested) {
       setDriverPower(false);
     }
     Serial.println("OK");
