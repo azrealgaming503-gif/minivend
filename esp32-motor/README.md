@@ -34,7 +34,7 @@ wrong — see Wiring below. **Do not put the TMC UART on RX0/TX0** (GPIO
 | M2 STEP | GPIO 32 | To STEP on driver 2 |
 | M2 DIR | GPIO 33 | To DIR on driver 2 |
 | M2 DIAG | GPIO 19 | StallGuard output from driver 2 |
-| EN (shared) | GPIO 27 | To EN on **both** drivers; LOW = enable. Must **not** be tied to GND — firmware disables drivers when idle to prevent heat. |
+| EN (shared) | GPIO 27 | To EN on **both** drivers. LOW = on, HIGH = off. Must **not** be tied to GND — idle = EN high so coils release. |
 | UART RX | GPIO 16 | Serial2 RX — bus node (direct) |
 | UART TX | GPIO 17 | Serial2 TX — **1 kΩ** → bus node |
 
