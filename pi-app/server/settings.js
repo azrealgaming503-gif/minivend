@@ -114,6 +114,10 @@ const DEFAULTS = Object.freeze({
     1: { dir: 1, rotations: 1 },
     2: { dir: 1, rotations: 1 },
   },
+  // Multiplies step rate and step count for a chamber (shaft RPM + travel).
+  // Chamber 2 defaults to 2× to compensate when that driver is stuck at
+  // 32 microsteps while chamber 1 runs at 16 (half angle per pulse).
+  chamberStepScale: { 1: 1, 2: 2 },
 
   // Per-chamber minimum seconds between dispenses. A tip that arrives for
   // a chamber still within its cooldown window is skipped entirely — no
@@ -289,6 +293,18 @@ class SettingsStore {
     };
     out.chamberDispense = { 1: sanitizeChamber(1), 2: sanitizeChamber(2) };
 
+    const scaleIn = (out.chamberStepScale && typeof out.chamberStepScale === 'object')
+      ? out.chamberStepScale : {};
+    const sanitizeScale = (id) => {
+      let s = Number(scaleIn[id] != null ? scaleIn[id] : scaleIn[String(id)]);
+      if (!Number.isFinite(s)) s = DEFAULTS.chamberStepScale[id];
+      if (s < 0.25) s = 0.25;
+      if (s > 8) s = 8;
+      // Keep a few decimals so 1.5 / 2.5 are usable; snap lightly.
+      return Math.round(s * 100) / 100;
+    };
+    out.chamberStepScale = { 1: sanitizeScale(1), 2: sanitizeScale(2) };
+
     if (!Array.isArray(out.dispenseTiers)) {
       out.dispenseTiers = DEFAULTS.dispenseTiers.map((t) => ({ ...t }));
     }
@@ -359,16 +375,28 @@ class SettingsStore {
     return exact != null ? exact : pick;
   }
 
+  // Multiplier for step rate + travel distance for a chamber (see chamberStepScale).
+  stepScaleFor(motorId) {
+    const id = (parseInt(motorId, 10) === 2) ? 2 : 1;
+    const scales = this._values.chamberStepScale || DEFAULTS.chamberStepScale;
+    let s = Number(scales[id] != null ? scales[id] : scales[String(id)]);
+    if (!Number.isFinite(s) || s <= 0) s = 1;
+    return s;
+  }
+
   // Concrete DISPENSE parameters for a chamber, derived from the
   // configured direction + revolutions. `maxMs` is the run-time
   // equivalent of `rotations` full turns at `dispenseSpeed`.
+  // chamberStepScale multiplies both pulse rate and pulse count so shaft
+  // RPM and travel stay matched when a driver uses finer microsteps.
   dispenseParamsFor(motorId) {
     const id = (parseInt(motorId, 10) === 2) ? 2 : 1;
     const cd = this._values.chamberDispense[id] || { dir: 1, rotations: 1 };
-    const speed = this._values.dispenseSpeed;
-    const steps = cd.rotations * this._values.stepsPerRev;
+    const scale = this.stepScaleFor(id);
+    const speed = Math.max(1, Math.round(this._values.dispenseSpeed * scale));
+    const steps = cd.rotations * this._values.stepsPerRev * scale;
     const maxMs = Math.max(50, Math.round((steps / speed) * 1000));
-    return { dir: cd.dir, speed, maxMs, rotations: cd.rotations };
+    return { dir: cd.dir, speed, maxMs, rotations: cd.rotations, scale };
   }
 
   getAll() { return { ...this._values }; }

@@ -89,10 +89,15 @@
             <input id="steps-rev" type="number" min="1" max="100000" step="1" value="3200"
                    data-numpad-title="Steps per revolution" style="width: 140px;" />
           </label>
+          <label class="col" style="gap: 4px;">
+            <span class="meta" style="color: var(--text-2); font-size: 13px;">Chamber 2 step scale</span>
+            <input id="scale-2" type="number" min="0.25" max="8" step="0.25" value="2"
+                   data-numpad-title="Chamber 2 step scale" style="width: 100px;" />
+          </label>
           <div class="meta" style="color: var(--text-2); font-size: 12px; max-width: 320px;">
-            With TMC UART at 1/16 microstep: use 3200 steps/rev
-            (200×16) and ~19200 steps/sec to match the old full-step
-            speed of 1200. Same step rate at 16× microsteps is 16× slower.
+            Chamber 2 scale multiplies pulse rate and travel (default 2)
+            so it matches chamber 1 when that driver runs at finer
+            microsteps. Chamber 1 is always 1×.
           </div>
         </div>
 
@@ -224,6 +229,7 @@
     // ===== Dispense motion (direction + rotations per chamber) =====
     const dispSpeed   = document.getElementById('disp-speed');
     const stepsRev    = document.getElementById('steps-rev');
+    const scale2Input = document.getElementById('scale-2');
     const dispSave    = document.getElementById('disp-save');
     const dispStatus  = document.getElementById('disp-save-status');
     const rotInputs   = { 1: document.getElementById('rot-1'), 2: document.getElementById('rot-2') };
@@ -246,6 +252,9 @@
       if (!s) return;
       if (Number.isFinite(s.dispenseSpeed)) dispSpeed.value = s.dispenseSpeed;
       if (Number.isFinite(s.stepsPerRev))   stepsRev.value  = s.stepsPerRev;
+      const scales = s.chamberStepScale || {};
+      const s2 = Number(scales[2] != null ? scales[2] : scales['2']);
+      if (Number.isFinite(s2)) scale2Input.value = s2;
       const cd = s.chamberDispense || {};
       for (const id of [1, 2]) {
         const row = cd[id] || cd[String(id)] || {};
@@ -267,6 +276,10 @@
       const payload = {
         dispenseSpeed: parseInt(dispSpeed.value, 10) || 19200,
         stepsPerRev:   parseInt(stepsRev.value, 10) || 3200,
+        chamberStepScale: {
+          1: 1,
+          2: parseFloat(scale2Input.value) || 2,
+        },
         chamberDispense: {
           1: { dir: parseInt(dirToggles[1].dataset.dir, 10), rotations: parseFloat(rotInputs[1].value) || 1 },
           2: { dir: parseInt(dirToggles[2].dataset.dir, 10), rotations: parseFloat(rotInputs[2].value) || 1 },

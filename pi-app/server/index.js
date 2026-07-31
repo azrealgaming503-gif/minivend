@@ -185,7 +185,15 @@ app.post('/api/dispense', express.json({ limit: '4kb' }), (req, res) => {
   // its own dir/speed/max_ms.
   const cfg = settings.dispenseParamsFor(id);
   const dir = body.dir === -1 ? -1 : (body.dir === 1 ? 1 : cfg.dir);
-  const speed = parseInt(body.speed, 10) || cfg.speed;
+  // Explicit jog/test speed is the UI "base" rate — apply chamberStepScale
+  // so chamber 2 can run 2× pulses for the same shaft RPM.
+  const scale = settings.stepScaleFor(id);
+  let speed = parseInt(body.speed, 10);
+  if (!Number.isFinite(speed) || speed <= 0) {
+    speed = cfg.speed;
+  } else {
+    speed = Math.max(1, Math.round(speed * scale));
+  }
   const maxMs = parseInt(body.max_ms, 10) || cfg.maxMs;
   const ok = motor.dispense(id, dir, speed, maxMs);
   if (!ok) return res.status(503).json({ ok: false, err: 'motor_not_connected' });
