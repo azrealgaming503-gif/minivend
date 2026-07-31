@@ -13,9 +13,15 @@ pio run -t upload
 pio device monitor
 ```
 
-After flashing, the board prints `TMC M1=ok M2=ok` then
-`READY minivend-motor-1.3\n` on the USB serial port. The Pi opens that
+After flashing, the board prints `TMC M1=ok ms=16 M2=ok ms=16` then
+`READY minivend-motor-1.10` on the USB serial port. The Pi opens that
 port at 115200 baud (8N1) and exchanges line-delimited ASCII.
+
+If chamber 2 spins much slower than chamber 1, check that boot line:
+`M2 ms=` should be `16` (same as M1). A higher value (32/64/256) means
+UART did not set microsteps on driver 2 — usually MS1 not at 3.3 V (addr)
+or a flaky UART bus. Firmware retries and scales step rate to match RPM
+when it can read the actual setting.
 
 Drivers are only enabled while a move is in progress; EN goes high
 (disabled) as soon as motion stops so coils do not sit holding current.
@@ -69,7 +75,7 @@ trigger asynchronous event lines later.
 | Command | Response / events |
 |---------|-------------------|
 | `PING` | `PONG <fw>` |
-| `STATUS` | `STATUS M1_EN=.. ... DRV=.. TMC=ok\|fail` |
+| `STATUS` | `STATUS M1_EN=.. M1_MS=.. M2_EN=.. M2_MS=.. DRV=.. TMC1=.. TMC2=..` |
 | `ENABLE <id> <0\|1>` | `OK` |
 | `JOG <id> <dir> <speed>` | `OK` |
 | `RUNFOR <id> <dir> <speed> <ms>` | `OK` |
