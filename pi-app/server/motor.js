@@ -110,8 +110,13 @@ class MotorBridge extends EventEmitter {
       const motor = parseInt(parts[1], 10);
       const ms = parts[2] !== undefined ? parseInt(parts[2], 10) : undefined;
       this.emit('dispense_result', { motor, kind: 'done', ms });
+    } else if (head === 'JAM') {
+      // StallGuard DIAG trip during a DISPENSE.
+      const motor = parseInt(parts[1], 10);
+      const ms = parts[2] !== undefined ? parseInt(parts[2], 10) : undefined;
+      this.emit('dispense_result', { motor, kind: 'jam', ms });
     } else {
-      // Pass-through: OK, ERR, PONG, STATUS, etc.
+      // Pass-through: OK, ERR, PONG, STATUS, TMC, etc.
       this.emit('reply', line);
     }
   }

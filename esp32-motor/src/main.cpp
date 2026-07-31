@@ -1,32 +1,35 @@
 // MiniVend motor controller (ESP32)
 //
-// Owns the two stepper drivers. Talks to the Raspberry Pi over
+// Owns the two TMC2209 stepper drivers. Talks to the Raspberry Pi over
 // USB-serial at 115200 baud, one ASCII line per command, '\n' terminated.
 //
 // Protocol (Pi -> ESP32):
 //   PING                              -> "PONG <fw>"
-//   STATUS                            -> "STATUS M1_EN=.. M1_SPD=.. M2_EN=.. M2_SPD=.. DRV=<0|1>"
+//   STATUS                            -> "STATUS M1_EN=.. M1_SPD=.. M2_EN=.. M2_SPD=.. DRV=<0|1> TMC=<ok|fail>"
 //   ENABLE   <id> <0|1>               -> "OK" / "ERR ..."
 //   JOG      <id> <dir> <speed>       -> "OK"
 //   RUNFOR   <id> <dir> <speed> <ms>  -> "OK"
 //   DISPENSE <id> <dir> <speed> <run_ms>
-//                                     -> "OK" immediately; later
-//                                        "DONE <id> <ms>" when the run completes
+//                                     -> "OK" immediately; later one of
+//                                        "DONE <id> <ms>"  (run completed)
+//                                        "JAM  <id> <ms>"  (StallGuard DIAG trip)
 //   STOP [<id>]                       -> "OK" (+ "DONE <id>" if a dispense was active)
 //
 // Async events (ESP32 -> Pi):
 //   READY <fw>                  on boot
 //   DONE <id> <ms>              a DISPENSE finished its run (or was stopped)
+//   JAM  <id> <ms>              StallGuard detected a stall during DISPENSE
 //
-// Drops are measured by rotations, not a sensor. The Pi converts the
-// configured rotations-per-dispense into run_ms (rotations * steps_per_rev
-// / speed) and the motor simply spins for that long, then reports DONE.
-// There is no drop/jam sensor in this firmware.
+// Drops are measured by rotations (run time). Jam sensing uses TMC2209
+// StallGuard4 via the DIAG pin (UART configures the threshold).
 //
 // Wiring (defaults — change in the constants block below):
-//   M1   STEP=GPIO25  DIR=GPIO26
-//   M2   STEP=GPIO32  DIR=GPIO33
+//   M1   STEP=GPIO25  DIR=GPIO26  DIAG=GPIO21  UART addr 0 (MS1/MS2 float)
+//   M2   STEP=GPIO32  DIR=GPIO33  DIAG=GPIO19  UART addr 1 (MS1=3.3V, MS2 float)
 //   EN   (shared)     GPIO27   (LOW = drivers enabled)
+//   UART Serial2      RX=GPIO16  TX=GPIO17
+//                     TX --[1kΩ]-- bus node -- RX; both PDN_UART on that node
+//   IMPORTANT: do NOT use UART0 (RX0/TX0 = GPIO3/1) — that is the Pi USB link.
 //
 // Notes:
 //   - The shared driver EN line is managed automatically: it is enabled
@@ -35,17 +38,16 @@
 //     between drops). ENABLE <id> 1 also powers the drivers immediately
 //     so there is settle time before the following DISPENSE/JOG/RUNFOR.
 //   - Every motion command (JOG/RUNFOR/DISPENSE) self-enables, and every
-//     stop (run complete, STOP, stopAll) clears the motor's enable flag,
-//     so once both motors are idle the EN line is always released. A motor
-//     is never left holding current after an operation. NOTE: this only
-//     works if each driver's EN pin is actually wired to EN_PIN (GPIO27);
-//     if a driver's EN is tied to GND it is always on and firmware cannot
-//     disable it.
+//     stop (run complete, STOP, jam, stopAll) clears the motor's enable flag,
+//     so once both motors are idle the EN line is always released.
+//   - StallGuard only fires during an active DISPENSE, and DIAG is
+//     debounced so motor EMI does not register a phantom jam.
 
 #include <Arduino.h>
+#include <TMCStepper.h>
 
 // ---------------- Configuration ----------------
-static const char* FW_VERSION = "minivend-motor-1.1";
+static const char* FW_VERSION = "minivend-motor-1.2";
 
 // Stepper pins
 static const int M1_STEP_PIN = 25;
@@ -53,32 +55,57 @@ static const int M1_DIR_PIN  = 26;
 static const int M2_STEP_PIN = 32;
 static const int M2_DIR_PIN  = 33;
 
-// Shared driver enable (LOW = enabled on most A4988/TMC2208 carriers).
+// Shared driver enable (LOW = enabled on most A4988/TMC2208/2209 carriers).
 // Tie both drivers' EN pins together to this pin.
 static const int EN_PIN = 27;
 static const bool EN_ACTIVE_LOW = true;
 
 // Auto-release the drivers this many ms after the last motor motion.
-// Steppers draw their full rated current (and get hot) whenever the
-// driver is enabled, even when standing still holding torque. A vend
-// carousel doesn't need holding torque between drops, so we cut driver
-// power shortly after each move to keep the drivers and motors cool.
-// A short grace window avoids toggling EN between back-to-back moves.
-// Set to 0 to disable auto-release (drivers stay powered once enabled).
 static const uint32_t IDLE_RELEASE_MS = 750;
 
-// Step pulse width (HIGH duration). A4988/TMC2208 datasheets say >=1us;
-// 2us is generously safe and easy to generate.
+// Step pulse width (HIGH duration).
 static const uint32_t STEP_PULSE_US = 2;
 
 // Safety: ignore step rates above this. Tune to your mechanism.
 static const uint32_t MAX_STEPS_PER_SEC = 10000;
+
+// ---- TMC2209 UART + StallGuard ----
+// Serial2 on GPIO16/17 — NOT UART0 (GPIO3/1), which the Pi uses over USB.
+static const int TMC_UART_RX = 16;
+static const int TMC_UART_TX = 17;
+static const uint32_t TMC_UART_BAUD = 115200;
+// Sense resistor on SilentStepStick-style boards (ohms).
+static const float TMC_R_SENSE = 0.11f;
+// UART addresses from MS1/MS2 straps:
+//   M1: MS1 float, MS2 float -> addr 0
+//   M2: MS1 = 3.3V, MS2 float -> addr 1
+static const uint8_t TMC_ADDR_M1 = 0;
+static const uint8_t TMC_ADDR_M2 = 1;
+// DIAG pins (HIGH = stall / driver error when StallGuard is armed).
+static const int M1_DIAG_PIN = 21;
+static const int M2_DIAG_PIN = 19;
+// Run current (mA RMS). Tune to your motors; keep heatsinks if >~1 A.
+static const uint16_t TMC_RMS_CURRENT_MA = 800;
+// Microsteps set over UART (MS1/MS2 are address pins in UART mode).
+// Match "Steps per revolution" on the Motor page (200 * microsteps).
+static const uint16_t TMC_MICROSTEPS = 16;
+// StallGuard threshold 0–255. Higher = more sensitive (trips sooner).
+// Start conservative and lower if false jams; raise if real jams miss.
+static const uint8_t TMC_SGTHRS = 40;
+// Velocity below which StallGuard is armed (TSTEP units). 0xFFFFF ≈ always on
+// while moving at typical dispense speeds.
+static const uint32_t TMC_TCOOLTHRS = 0xFFFFF;
+// Ignore DIAG for this long after a dispense starts (startup / accel noise).
+static const uint32_t DIAG_ARM_MS = 80;
+// DIAG must stay asserted this long before we call it a jam (EMI debounce).
+static const uint32_t DIAG_DEBOUNCE_MS = 25;
 
 // ---------------- Internal state ----------------
 struct Motor {
   uint8_t id;            // 1 or 2
   int stepPin;
   int dirPin;
+  int diagPin;
   bool enabledRequested; // tracks the most recent ENABLE request
   int  direction;        // -1 or +1
   uint32_t speedStepsPerS;
@@ -88,19 +115,24 @@ struct Motor {
   // DISPENSE bookkeeping
   bool dispenseActive;
   uint32_t dispenseStartMs;
+  // DIAG debounce while dispensing
+  uint32_t diagAssertedSinceMs; // 0 = not currently asserted
   // Step generation
   uint32_t intervalUs;     // computed from speedStepsPerS
   uint32_t lastStepUs;
 };
 
-static Motor m1 { 1, M1_STEP_PIN, M1_DIR_PIN, false, +1, 0, false, 0, false, 0, 0, 0 };
-static Motor m2 { 2, M2_STEP_PIN, M2_DIR_PIN, false, +1, 0, false, 0, false, 0, 0, 0 };
+static Motor m1 { 1, M1_STEP_PIN, M1_DIR_PIN, M1_DIAG_PIN, false, +1, 0, false, 0, false, 0, 0, 0, 0 };
+static Motor m2 { 2, M2_STEP_PIN, M2_DIR_PIN, M2_DIAG_PIN, false, +1, 0, false, 0, false, 0, 0, 0, 0 };
 
 static String lineBuf;
 
+// TMC drivers (UART). Constructed after Serial2 is ready in setup().
+static TMC2209Stepper* tmc1 = nullptr;
+static TMC2209Stepper* tmc2 = nullptr;
+static bool g_tmcOk = false;
+
 // ---------------- Helpers ----------------
-// Tracks the physical EN-line state and the last time a motor stepped,
-// so we can release the drivers when idle (heat reduction).
 static bool g_driverPowered = false;
 static uint32_t g_lastActiveMs = 0;
 
@@ -109,8 +141,6 @@ static void driverEnabled(bool en) {
   else               digitalWrite(EN_PIN, en ? HIGH : LOW);
 }
 
-// Set the shared driver power, remembering current state so we only
-// touch the pin on an actual transition.
 static void setDriverPower(bool on) {
   if (on == g_driverPowered) return;
   driverEnabled(on);
@@ -144,13 +174,14 @@ static void setJog(Motor& m, int dir, uint32_t speedStepsPerS) {
 // Fully stop a motor AND mark it disabled. Clearing enabledRequested here
 // guarantees the motor is no longer "active", so serviceDriverPower() cuts
 // the shared EN line once both motors are stopped — no lingering holding
-// current (and no heat) after a dispense/jog/runfor.
+// current (and no heat) after a dispense/jog/runfor/jam.
 static void stopMotor(Motor& m) {
   m.speedStepsPerS = 0;
   m.intervalUs = 0;
   m.timedActive = false;
   m.dispenseActive = false;
   m.enabledRequested = false;
+  m.diagAssertedSinceMs = 0;
 }
 
 static void stopAll() {
@@ -158,27 +189,22 @@ static void stopAll() {
   stopMotor(m2);
 }
 
-// A motor counts as "active" (drawing current / generating motion) when
-// it has been enabled and has a non-zero step rate.
 static bool motorActive(const Motor& m) {
   return m.enabledRequested && m.intervalUs != 0;
 }
 
-// Enable the shared driver line while anything is moving and release it
-// IDLE_RELEASE_MS after the last motion, to keep the drivers/motors cool.
 static void serviceDriverPower() {
   if (motorActive(m1) || motorActive(m2)) {
     g_lastActiveMs = millis();
     setDriverPower(true);
     return;
   }
-  if (IDLE_RELEASE_MS == 0) return; // auto-release disabled
+  if (IDLE_RELEASE_MS == 0) return;
   if (g_driverPowered && (uint32_t)(millis() - g_lastActiveMs) >= IDLE_RELEASE_MS) {
     setDriverPower(false);
   }
 }
 
-// Drive a single step pulse on the active motor's STEP pin if it's time.
 static void serviceStepper(Motor& m) {
   if (m.intervalUs == 0) return;
   if (!m.enabledRequested) return;
@@ -190,13 +216,10 @@ static void serviceStepper(Motor& m) {
   digitalWrite(m.stepPin, LOW);
 }
 
-// Handle the "timed" auto-stop for RUNFOR / DISPENSE run_ms. A DISPENSE
-// that reaches its run time has delivered the configured rotations, so it
-// completed successfully -> report DONE (there is no sensor/jam concept).
+// Timed auto-stop for RUNFOR / DISPENSE run_ms.
 static void serviceTimedStop(Motor& m) {
   if (!m.timedActive) return;
   if ((int32_t)(millis() - m.runUntilMs) < 0) return;
-  // Time elapsed.
   bool wasDispense = m.dispenseActive;
   uint8_t id = m.id;
   uint32_t elapsed = millis() - m.dispenseStartMs;
@@ -207,6 +230,76 @@ static void serviceTimedStop(Motor& m) {
     Serial.print(' ');
     Serial.println(elapsed);
   }
+}
+
+// StallGuard DIAG: only during DISPENSE, after arm delay, with debounce.
+static void serviceJam(Motor& m) {
+  if (!m.dispenseActive) {
+    m.diagAssertedSinceMs = 0;
+    return;
+  }
+  uint32_t now = millis();
+  if ((uint32_t)(now - m.dispenseStartMs) < DIAG_ARM_MS) {
+    m.diagAssertedSinceMs = 0;
+    return;
+  }
+  const bool diagHigh = digitalRead(m.diagPin) == HIGH;
+  if (!diagHigh) {
+    m.diagAssertedSinceMs = 0;
+    return;
+  }
+  if (m.diagAssertedSinceMs == 0) {
+    m.diagAssertedSinceMs = now;
+    return;
+  }
+  if ((uint32_t)(now - m.diagAssertedSinceMs) < DIAG_DEBOUNCE_MS) return;
+
+  uint8_t id = m.id;
+  uint32_t elapsed = now - m.dispenseStartMs;
+  stopMotor(m);
+  Serial.print("JAM ");
+  Serial.print(id);
+  Serial.print(' ');
+  Serial.println(elapsed);
+}
+
+static bool configureTmc(TMC2209Stepper& d) {
+  d.begin();
+  d.pdn_disable(true);          // PDN_UART is UART, not auto power-down
+  d.mstep_reg_select(true);     // microsteps from UART, not MS pins
+  d.I_scale_analog(false);      // current from UART, not VREF pot
+  d.rms_current(TMC_RMS_CURRENT_MA);
+  d.microsteps(TMC_MICROSTEPS);
+  d.en_spreadCycle(true);       // stronger under load; StallGuard reliable
+  d.TCOOLTHRS(TMC_TCOOLTHRS);
+  d.SGTHRS(TMC_SGTHRS);
+  d.toff(4);
+  // Version register should read 0x21 for TMC2209.
+  uint8_t ver = d.version();
+  return ver == 0x21;
+}
+
+static void initTmcDrivers() {
+  Serial2.begin(TMC_UART_BAUD, SERIAL_8N1, TMC_UART_RX, TMC_UART_TX);
+  delay(50);
+
+  tmc1 = new TMC2209Stepper(&Serial2, TMC_R_SENSE, TMC_ADDR_M1);
+  tmc2 = new TMC2209Stepper(&Serial2, TMC_R_SENSE, TMC_ADDR_M2);
+
+  // Drivers must be powered (EN low) to answer UART on some boards.
+  setDriverPower(true);
+  delay(20);
+
+  bool ok1 = configureTmc(*tmc1);
+  bool ok2 = configureTmc(*tmc2);
+  g_tmcOk = ok1 && ok2;
+
+  setDriverPower(false);
+
+  Serial.print("TMC M1=");
+  Serial.print(ok1 ? "ok" : "fail");
+  Serial.print(" M2=");
+  Serial.println(ok2 ? "ok" : "fail");
 }
 
 // ---------------- Command parser ----------------
@@ -248,8 +341,6 @@ static void handleCommand(const String& line) {
   trimmed.trim();
   if (trimmed.length() == 0) return;
 
-  String upper = trimmed;
-  upper.toUpperCase();
   String tokens[6];
   int n = parseTokens(trimmed, tokens, 6);
   if (n == 0) return;
@@ -271,7 +362,9 @@ static void handleCommand(const String& line) {
     Serial.print(" M2_SPD=");
     Serial.print(m2.speedStepsPerS);
     Serial.print(" DRV=");
-    Serial.println(g_driverPowered ? 1 : 0);
+    Serial.print(g_driverPowered ? 1 : 0);
+    Serial.print(" TMC=");
+    Serial.println(g_tmcOk ? "ok" : "fail");
     return;
   }
   if (cmd == "ENABLE") {
@@ -281,12 +374,9 @@ static void handleCommand(const String& line) {
     Motor* m = motorById((int)id);
     if (!m) { replyErr("BAD_MOTOR", "id must be 1 or 2"); return; }
     m->enabledRequested = (en != 0);
-    // Drivers share one EN pin. Power them up now if either motor is
-    // enabled so there's settle time before the next move; the idle
-    // auto-release in serviceDriverPower() drops power once motion ends.
     if (m1.enabledRequested || m2.enabledRequested) {
       setDriverPower(true);
-      g_lastActiveMs = millis(); // hold through the grace window
+      g_lastActiveMs = millis();
     }
     Serial.println("OK");
     return;
@@ -299,9 +389,10 @@ static void handleCommand(const String& line) {
     }
     Motor* m = motorById((int)id);
     if (!m) { replyErr("BAD_MOTOR", "id must be 1 or 2"); return; }
-    m->enabledRequested = true;   // motion commands self-enable
+    m->enabledRequested = true;
     m->timedActive = false;
     m->dispenseActive = false;
+    m->diagAssertedSinceMs = 0;
     setJog(*m, (dir >= 0) ? +1 : -1, (uint32_t)spd);
     Serial.println("OK");
     return;
@@ -315,10 +406,11 @@ static void handleCommand(const String& line) {
     Motor* m = motorById((int)id);
     if (!m) { replyErr("BAD_MOTOR", "id must be 1 or 2"); return; }
     if (ms <= 0) { replyErr("BAD_ARG", "ms must be > 0"); return; }
-    m->enabledRequested = true;   // motion commands self-enable
+    m->enabledRequested = true;
     setJog(*m, (dir >= 0) ? +1 : -1, (uint32_t)spd);
     m->timedActive = true;
     m->dispenseActive = false;
+    m->diagAssertedSinceMs = 0;
     m->runUntilMs = millis() + (uint32_t)ms;
     Serial.println("OK");
     return;
@@ -332,10 +424,11 @@ static void handleCommand(const String& line) {
     Motor* m = motorById((int)id);
     if (!m) { replyErr("BAD_MOTOR", "id must be 1 or 2"); return; }
     if (ms <= 0) { replyErr("BAD_ARG", "run_ms must be > 0"); return; }
-    m->enabledRequested = true;   // motion commands self-enable
+    m->enabledRequested = true;
     setJog(*m, (dir >= 0) ? +1 : -1, (uint32_t)spd);
     m->timedActive = true;
     m->dispenseActive = true;
+    m->diagAssertedSinceMs = 0;
     m->runUntilMs = millis() + (uint32_t)ms;
     m->dispenseStartMs = millis();
     Serial.println("OK");
@@ -378,14 +471,17 @@ void setup() {
   pinMode(M2_STEP_PIN, OUTPUT);
   pinMode(M2_DIR_PIN,  OUTPUT);
   pinMode(EN_PIN,      OUTPUT);
+  pinMode(M1_DIAG_PIN, INPUT);
+  pinMode(M2_DIAG_PIN, INPUT);
   driverEnabled(false);
+
+  initTmcDrivers();
 
   Serial.print("READY ");
   Serial.println(FW_VERSION);
 }
 
 void loop() {
-  // Drain incoming command bytes.
   while (Serial.available() > 0) {
     char c = (char)Serial.read();
     if (c == '\r') continue;
@@ -397,10 +493,11 @@ void loop() {
     }
   }
 
-  // Stepper service.
   serviceTimedStop(m1);
   serviceTimedStop(m2);
-  serviceDriverPower();   // power EN before stepping; release when idle
+  serviceJam(m1);
+  serviceJam(m2);
+  serviceDriverPower();
   serviceStepper(m1);
   serviceStepper(m2);
 }

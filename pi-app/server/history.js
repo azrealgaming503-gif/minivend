@@ -46,11 +46,11 @@ class HistoryStore {
   }
 
   // Append a new event. Each entry gets an id (epoch ms) and timestamp.
-  // `evt.status` is one of: queued | dispensing | done |
+  // `evt.status` is one of: queued | dispensing | done | jam |
   // skipped_no_tier | skipped_motor_offline | skipped_offline |
   // skipped_cooldown.
-  // (Legacy entries may also carry `dropped` / `jam` from the old
-  // sensor-based firmware; the UI still renders those.)
+  // (Legacy entries may also carry `dropped` from the old drop-sensor
+  // firmware; the UI still renders those.)
   add(evt) {
     const id = Date.now();
     const entry = {

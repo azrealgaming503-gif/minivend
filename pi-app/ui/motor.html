@@ -349,7 +349,9 @@
     onMessage('motor_ready',  (m) => setMotorStatus(true, m.fw));
     onMessage('motor_reply',  (m) => appendLog(m.line));
     onMessage('dispense_done', (m) => {
-      const detail = (m.ms != null) ? `done in ${m.ms}ms` : 'done';
+      const ms = (m.ms != null) ? ` in ${m.ms}ms` : '';
+      const detail = m.kind === 'jam' ? `JAM — stall detected${ms}`
+                   : `done${ms}`;
       result.textContent = `Chamber ${m.motor}: ${detail}`;
     });
 
