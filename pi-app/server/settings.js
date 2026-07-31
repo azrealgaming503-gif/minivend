@@ -106,8 +106,10 @@ const DEFAULTS = Object.freeze({
   // `stepsPerRev` is microsteps per full turn (motor steps × driver
   // microstepping). Calibrate it once with the Test dispense button until
   // "1.0 rotation" equals one physical revolution of the coil.
-  dispenseSpeed: 1200,   // steps/sec sent to the stepper during a dispense
-  stepsPerRev: 200,      // microsteps per full revolution (match your driver)
+  // At 16 microsteps (firmware TMC_MICROSTEPS), 19200 steps/s ≈ the old
+  // full-step feel of 1200 steps/s with stepsPerRev=200.
+  dispenseSpeed: 19200,  // steps/sec sent to the stepper during a dispense
+  stepsPerRev: 3200,     // 200 full steps × 16 microsteps (match TMC firmware)
   chamberDispense: {
     1: { dir: 1, rotations: 1 },
     2: { dir: 1, rotations: 1 },
@@ -263,8 +265,8 @@ class SettingsStore {
     // ----- Dispense motion -----
     let ds = parseInt(out.dispenseSpeed, 10);
     if (!Number.isFinite(ds)) ds = DEFAULTS.dispenseSpeed;
-    if (ds < 100)   ds = 100;
-    if (ds > 10000) ds = 10000;
+    if (ds < 100)    ds = 100;
+    if (ds > 25000)  ds = 25000;
     out.dispenseSpeed = ds;
 
     let spr = parseInt(out.stepsPerRev, 10);

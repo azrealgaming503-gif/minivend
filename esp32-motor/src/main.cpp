@@ -47,7 +47,7 @@
 #include <TMCStepper.h>
 
 // ---------------- Configuration ----------------
-static const char* FW_VERSION = "minivend-motor-1.4";
+static const char* FW_VERSION = "minivend-motor-1.5";
 
 // Stepper pins
 static const int M1_STEP_PIN = 25;
@@ -69,8 +69,9 @@ static const uint32_t IDLE_RELEASE_MS = 50;
 // Step pulse width (HIGH duration).
 static const uint32_t STEP_PULSE_US = 2;
 
-// Safety: ignore step rates above this. Tune to your mechanism.
-static const uint32_t MAX_STEPS_PER_SEC = 10000;
+// Safety: ignore step rates above this. At 16 microsteps, ~19200 steps/s
+// matches the old full-step feel of 1200 steps/s (200 steps/rev).
+static const uint32_t MAX_STEPS_PER_SEC = 25000;
 
 // ---- TMC2209 UART + StallGuard ----
 // Serial2 on GPIO16/17 — NOT UART0 (GPIO3/1), which the Pi uses over USB.
