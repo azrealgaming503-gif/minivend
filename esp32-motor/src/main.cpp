@@ -88,13 +88,13 @@ static const uint8_t TMC_ADDR_M2 = 1;
 static const int M1_DIAG_PIN = 21;
 static const int M2_DIAG_PIN = 19;
 // Run current (mA RMS). Tune to your motors; keep heatsinks if >~1 A.
-static const uint16_t TMC_RMS_CURRENT_MA = 800;
+static const uint16_t TMC_RMS_CURRENT_MA = 1000;
 // Microsteps set over UART (MS1/MS2 are address pins in UART mode).
 // Match "Steps per revolution" on the Motor page (200 * microsteps).
 static const uint16_t TMC_MICROSTEPS = 16;
 // StallGuard threshold 0–255. Higher = more sensitive (trips sooner).
 // Start conservative and lower if false jams; raise if real jams miss.
-static const uint8_t TMC_SGTHRS = 40;
+static const uint8_t TMC_SGTHRS = 15;
 // Velocity below which StallGuard is armed (TSTEP units). 0xFFFFF ≈ always on
 // while moving at typical dispense speeds.
 static const uint32_t TMC_TCOOLTHRS = 0xFFFFF;
