@@ -348,6 +348,13 @@
     onMessage('motor_status', (m) => setMotorStatus(m.connected, undefined, m.port));
     onMessage('motor_ready',  (m) => setMotorStatus(true, m.fw));
     onMessage('motor_reply',  (m) => appendLog(m.line));
+    onMessage('dispense_started', (m) => {
+      // Same speed should appear for both chambers on Test dispense; if not,
+      // settings are wrong. If speed matches but RPM differs, UART microsteps
+      // on that driver likely failed (see TMC M1/M2 ms= in the firmware log).
+      result.textContent = `Chamber ${m.motor}: running @ ${m.speed} steps/s`
+        + (m.max_ms != null ? ` for ${m.max_ms}ms` : '');
+    });
     onMessage('dispense_done', (m) => {
       const ms = (m.ms != null) ? ` in ${m.ms}ms` : '';
       const detail = m.kind === 'jam' ? `JAM — stall detected${ms}`

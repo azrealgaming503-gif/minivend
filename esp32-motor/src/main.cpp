@@ -47,7 +47,7 @@
 #include <TMCStepper.h>
 
 // ---------------- Configuration ----------------
-static const char* FW_VERSION = "minivend-motor-1.5";
+static const char* FW_VERSION = "minivend-motor-1.6";
 
 // Stepper pins
 static const int M1_STEP_PIN = 25;
@@ -137,7 +137,8 @@ static String lineBuf;
 // TMC drivers (UART). Constructed after Serial2 is ready in setup().
 static TMC2209Stepper* tmc1 = nullptr;
 static TMC2209Stepper* tmc2 = nullptr;
-static bool g_tmcOk = false;
+static bool g_tmc1Ok = false;
+static bool g_tmc2Ok = false;
 
 // ---------------- Helpers ----------------
 static bool g_driverPowered = false;
@@ -289,6 +290,11 @@ static void serviceJam(Motor& m) {
   Serial.println(elapsed);
 }
 
+static TMC2209Stepper* tmcById(int id) {
+  if (id == 2) return tmc2;
+  return tmc1;
+}
+
 static bool configureTmc(TMC2209Stepper& d) {
   d.begin();
   d.pdn_disable(true);          // PDN_UART is UART, not auto power-down
@@ -305,6 +311,24 @@ static bool configureTmc(TMC2209Stepper& d) {
   return ver == 0x21;
 }
 
+// Re-push microsteps/current before motion. If chamber 2 never got UART
+// config it stays on pin-strap microsteps (often 1/32 with MS1=VIO) and
+// runs much slower than chamber 1 at the same step rate.
+static void applyTmcBeforeMotion(int id) {
+  TMC2209Stepper* d = tmcById(id);
+  if (!d) return;
+  setDriverPower(true);
+  delay(2);
+  d->pdn_disable(true);
+  d->mstep_reg_select(true);
+  d->I_scale_analog(false);
+  d->rms_current(TMC_RMS_CURRENT_MA);
+  d->microsteps(TMC_MICROSTEPS);
+  d->en_spreadCycle(true);
+  d->TCOOLTHRS(TMC_TCOOLTHRS);
+  d->SGTHRS(TMC_SGTHRS);
+}
+
 static void initTmcDrivers() {
   Serial2.begin(TMC_UART_BAUD, SERIAL_8N1, TMC_UART_RX, TMC_UART_TX);
   delay(50);
@@ -316,16 +340,24 @@ static void initTmcDrivers() {
   setDriverPower(true);
   delay(20);
 
-  bool ok1 = configureTmc(*tmc1);
-  bool ok2 = configureTmc(*tmc2);
-  g_tmcOk = ok1 && ok2;
+  g_tmc1Ok = configureTmc(*tmc1);
+  delay(5);
+  g_tmc2Ok = configureTmc(*tmc2);
+
+  // Read back microsteps so a failed M2 config is obvious in the log.
+  uint16_t ms1 = tmc1->microsteps();
+  uint16_t ms2 = tmc2->microsteps();
 
   setDriverPower(false);
 
   Serial.print("TMC M1=");
-  Serial.print(ok1 ? "ok" : "fail");
+  Serial.print(g_tmc1Ok ? "ok" : "fail");
+  Serial.print(" ms=");
+  Serial.print(ms1);
   Serial.print(" M2=");
-  Serial.println(ok2 ? "ok" : "fail");
+  Serial.print(g_tmc2Ok ? "ok" : "fail");
+  Serial.print(" ms=");
+  Serial.println(ms2);
 }
 
 // ---------------- Command parser ----------------
@@ -389,8 +421,10 @@ static void handleCommand(const String& line) {
     Serial.print(m2.speedStepsPerS);
     Serial.print(" DRV=");
     Serial.print(g_driverPowered ? 1 : 0);
-    Serial.print(" TMC=");
-    Serial.println(g_tmcOk ? "ok" : "fail");
+    Serial.print(" TMC1=");
+    Serial.print(g_tmc1Ok ? "ok" : "fail");
+    Serial.print(" TMC2=");
+    Serial.println(g_tmc2Ok ? "ok" : "fail");
     return;
   }
   if (cmd == "ENABLE") {
@@ -424,6 +458,7 @@ static void handleCommand(const String& line) {
     m->dispenseActive = false;
     m->diagAssertedSinceMs = 0;
     m->diagSeenLow = false;
+    applyTmcBeforeMotion((int)id);
     setJog(*m, (dir >= 0) ? +1 : -1, (uint32_t)spd);
     Serial.println("OK");
     return;
@@ -438,6 +473,7 @@ static void handleCommand(const String& line) {
     if (!m) { replyErr("BAD_MOTOR", "id must be 1 or 2"); return; }
     if (ms <= 0) { replyErr("BAD_ARG", "ms must be > 0"); return; }
     m->enabledRequested = true;
+    applyTmcBeforeMotion((int)id);
     setJog(*m, (dir >= 0) ? +1 : -1, (uint32_t)spd);
     m->timedActive = true;
     m->dispenseActive = false;
@@ -457,6 +493,7 @@ static void handleCommand(const String& line) {
     if (!m) { replyErr("BAD_MOTOR", "id must be 1 or 2"); return; }
     if (ms <= 0) { replyErr("BAD_ARG", "run_ms must be > 0"); return; }
     m->enabledRequested = true;
+    applyTmcBeforeMotion((int)id);
     setJog(*m, (dir >= 0) ? +1 : -1, (uint32_t)spd);
     m->timedActive = true;
     m->dispenseActive = true;
