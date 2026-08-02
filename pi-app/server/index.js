@@ -316,6 +316,11 @@ app.post('/api/motor/status', (_req, res) => {
   res.json({ ok: true });
 });
 
+app.post('/api/motor/probe', (_req, res) => {
+  if (!motor.probe()) return res.status(503).json({ ok: false, err: 'motor_not_connected' });
+  res.json({ ok: true, logFile: config.motor.logFile });
+});
+
 app.post('/api/motor/cool', (_req, res) => {
   if (!motor.cool()) return res.status(503).json({ ok: false, err: 'motor_not_connected' });
   res.json({ ok: true });

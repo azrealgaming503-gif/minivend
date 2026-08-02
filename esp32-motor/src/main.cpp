@@ -47,7 +47,7 @@
 #include <TMCStepper.h>
 
 // ---------------- Configuration ----------------
-static const char* FW_VERSION = "minivend-motor-1.12.4";
+static const char* FW_VERSION = "minivend-motor-1.12.5";
 
 // Stepper pins
 static const int M1_STEP_PIN = 25;
@@ -457,7 +457,11 @@ static void handleCommand(const String& line) {
 
   if (cmd == "PING") {
     Serial.print("PONG ");
-    Serial.println(FW_VERSION);
+    Serial.print(FW_VERSION);
+    Serial.print(" TMC1=");
+    Serial.print(g_tmc1Ok ? "ok" : "fail");
+    Serial.print(" TMC2=");
+    Serial.println(g_tmc2Ok ? "ok" : "fail");
     return;
   }
   if (cmd == "STATUS") {

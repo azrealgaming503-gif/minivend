@@ -22,12 +22,24 @@ class MotorBridge extends EventEmitter {
     this.lineBuf = '';
     this.reconnectMs = 1000;
     this.lastFw = null;
+    this.lastStatus = null;
     this.log = logFile ? new MotorFwLog(logFile) : null;
+    this._log('INFO', `logger ready path=${logFile || '(disabled)'}`);
     this._open();
   }
 
   _log(kind, line) {
     if (this.log) this.log.write(kind, line);
+  }
+
+  /** Ask the ESP32 for firmware + driver/UART status (boot lines are often missed). */
+  _probeLink() {
+    if (!this.connected) return;
+    this._log('INFO', 'probe: PING + STATUS (USB-serial link + TMC UART ok/fail)');
+    this.ping();
+    setTimeout(() => {
+      if (this.connected) this.status();
+    }, 150);
   }
 
   async _resolvePort() {
@@ -62,10 +74,12 @@ class MotorBridge extends EventEmitter {
     }
 
     this.serial.on('error', (err) => {
+      this._log('INFO', `serial error: ${err.message}`);
       this.emit('warn', `serial error: ${err.message}`);
     });
     this.serial.on('close', () => {
       this.connected = false;
+      this._log('INFO', 'serial closed — USB link down');
       this.emit('disconnected');
       this._scheduleReopen('port closed');
     });
@@ -78,8 +92,10 @@ class MotorBridge extends EventEmitter {
       }
       this.connected = true;
       this.reconnectMs = 1000;
-      this._log('INFO', `connected ${resolved}`);
+      this._log('INFO', `USB-serial connected port=${resolved} baud=${this.baud}`);
       this.emit('connected', resolved);
+      // ESP32 often printed READY/TMC before we opened the port — ask again.
+      setTimeout(() => this._probeLink(), 400);
     });
   }
 
@@ -112,23 +128,44 @@ class MotorBridge extends EventEmitter {
     const head = parts[0];
     if (head === 'READY') {
       this.lastFw = parts.slice(1).join(' ');
+      this._log('INFO', `firmware ready fw=${this.lastFw}`);
       this.emit('ready', this.lastFw);
+    } else if (head === 'PONG') {
+      this.lastFw = parts.slice(1).join(' ') || this.lastFw;
+      this._log('INFO', `usb link ok fw=${this.lastFw || '?'}`);
+      this.emit('reply', line);
+    } else if (head === 'STATUS') {
+      this.lastStatus = line;
+      const tmc1 = (line.match(/TMC1=(\S+)/) || [])[1] || '?';
+      const tmc2 = (line.match(/TMC2=(\S+)/) || [])[1] || '?';
+      const drv = (line.match(/DRV=(\S+)/) || [])[1] || '?';
+      const enGpio = (line.match(/EN_GPIO=(\S+)/) || [])[1] || '?';
+      const enpol = (line.match(/ENPOL=(\S+)/) || [])[1] || '?';
+      this._log(
+        'INFO',
+        `driver status TMC_UART_M1=${tmc1} TMC_UART_M2=${tmc2} DRV=${drv} EN_GPIO=${enGpio} ENPOL=${enpol}`,
+      );
+      this.emit('reply', line);
+    } else if (head === 'TMC' || line.startsWith('TMC ')) {
+      // Boot line: "TMC M1=ok ms=16 M2=fail ms=0"
+      this._log('INFO', `tmc uart boot ${line}`);
+      this.emit('reply', line);
     } else if (head === 'DONE') {
       // A dispense finished its rotation-based run (or was stopped). The
       // firmware includes elapsed ms on run completion; a manual STOP omits it.
-      const motor = parseInt(parts[1], 10);
+      const motorId = parseInt(parts[1], 10);
       const ms = parts[2] !== undefined ? parseInt(parts[2], 10) : undefined;
       // Explicitly drop ENABLE so drivers never sit holding current / heat.
-      this.enable(motor, false);
-      this.emit('dispense_result', { motor, kind: 'done', ms });
+      this.enable(motorId, false);
+      this.emit('dispense_result', { motor: motorId, kind: 'done', ms });
     } else if (head === 'JAM') {
       // StallGuard DIAG trip during a DISPENSE.
-      const motor = parseInt(parts[1], 10);
+      const motorId = parseInt(parts[1], 10);
       const ms = parts[2] !== undefined ? parseInt(parts[2], 10) : undefined;
-      this.enable(motor, false);
-      this.emit('dispense_result', { motor, kind: 'jam', ms });
+      this.enable(motorId, false);
+      this.emit('dispense_result', { motor: motorId, kind: 'jam', ms });
     } else {
-      // Pass-through: OK, ERR, PONG, STATUS, TMC, etc.
+      // Pass-through: OK, ERR, etc.
       this.emit('reply', line);
     }
   }
@@ -151,6 +188,8 @@ class MotorBridge extends EventEmitter {
 
   ping()                       { return this._send('PING'); }
   status()                     { return this._send('STATUS'); }
+  /** Re-query link + TMC UART status into the log (same as post-connect probe). */
+  probe()                      { this._probeLink(); return this.connected; }
   cool()                       { return this._send('COOL'); }
   enpol(activeLow) {
     if (activeLow === undefined || activeLow === null) return this._send('ENPOL');
