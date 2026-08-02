@@ -24,8 +24,9 @@ UART did not set microsteps on driver 2 — usually MS1 not tied to 3.3 V
 in software.
 
 Drivers are only enabled while a move is in progress. On idle the firmware
-raises EN (disabled) and, when UART is up, also writes toff=0 once so coils
-release even if EN wiring is imperfect. Hold current is set to 0.
+raises EN (disabled) and repeatedly writes toff=0 / ihold=0 over UART.
+If shafts stay locked, use Motor page **Flip EN polarity** (some boards are
+active-high). Hold current is 0.
 
 If you see `TMC M1=fail` / `M2=fail`, UART wiring or address straps are
 wrong — see Wiring below. **Do not put the TMC UART on RX0/TX0** (GPIO

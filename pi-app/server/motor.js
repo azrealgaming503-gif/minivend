@@ -151,6 +151,11 @@ class MotorBridge extends EventEmitter {
 
   ping()                       { return this._send('PING'); }
   status()                     { return this._send('STATUS'); }
+  cool()                       { return this._send('COOL'); }
+  enpol(activeLow) {
+    if (activeLow === undefined || activeLow === null) return this._send('ENPOL');
+    return this._send(`ENPOL ${activeLow ? 1 : 0}`);
+  }
   enable(id, on)               { return this._send(`ENABLE ${id} ${on ? 1 : 0}`); }
   stop(id)                     { return this._send(id && id > 0 ? `STOP ${id}` : 'STOP'); }
   jog(id, dir, speed)          { return this._send(`JOG ${id} ${dir} ${speed}`); }

@@ -311,6 +311,25 @@ app.post('/api/stop', express.json({ limit: '4kb' }), (req, res) => {
   res.json({ ok: true });
 });
 
+app.post('/api/motor/status', (_req, res) => {
+  if (!motor.status()) return res.status(503).json({ ok: false, err: 'motor_not_connected' });
+  res.json({ ok: true });
+});
+
+app.post('/api/motor/cool', (_req, res) => {
+  if (!motor.cool()) return res.status(503).json({ ok: false, err: 'motor_not_connected' });
+  res.json({ ok: true });
+});
+
+app.post('/api/motor/enpol', express.json({ limit: '1kb' }), (req, res) => {
+  const body = req.body || {};
+  const ok = (body.active_low === true || body.active_low === false)
+    ? motor.enpol(body.active_low)
+    : motor.enpol();
+  if (!ok) return res.status(503).json({ ok: false, err: 'motor_not_connected' });
+  res.json({ ok: true });
+});
+
 // ---------- Donation pipeline ----------
 //
 // Flow:

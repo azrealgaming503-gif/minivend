@@ -156,6 +156,16 @@
         <button class="danger" id="estop" style="font-size: 18px; padding: 18px 32px;">
           ■ STOP all motors
         </button>
+        <div class="row" style="gap: 10px; flex-wrap: wrap; margin-top: 14px;">
+          <button class="ghost" id="btn-status">Status</button>
+          <button class="ghost" id="btn-cool">Force cool idle</button>
+          <button class="ghost" id="btn-enpol">Flip EN polarity</button>
+        </div>
+        <p class="meta" style="color: var(--text-2); font-size: 12px; margin: 10px 0 0; max-width: 520px;">
+          If shafts stay locked when idle: <b>Force cool idle</b>, then check the log for
+          <code>M1_TOFF=0</code> and <code>EN_GPIO</code>. Still locked? Try
+          <b>Flip EN polarity</b>. Measure the driver EN pad — with active-low idle it should be ~3.3&nbsp;V.
+        </p>
       </section>
 
       <section class="section">
@@ -224,6 +234,25 @@
         headers: { 'content-type': 'application/json' },
         body: JSON.stringify({}),
       });
+    });
+
+    document.getElementById('btn-status').addEventListener('click', async () => {
+      result.textContent = 'STATUS requested — see log';
+      await fetch('/api/motor/status', { method: 'POST' });
+    });
+    document.getElementById('btn-cool').addEventListener('click', async () => {
+      result.textContent = 'COOL sent — shafts should freewheel';
+      await fetch('/api/motor/cool', { method: 'POST' });
+      setTimeout(() => fetch('/api/motor/status', { method: 'POST' }), 250);
+    });
+    document.getElementById('btn-enpol').addEventListener('click', async () => {
+      result.textContent = 'EN polarity flipped — try shaft by hand';
+      await fetch('/api/motor/enpol', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ toggle: true }),
+      });
+      setTimeout(() => fetch('/api/motor/status', { method: 'POST' }), 250);
     });
 
     // ===== Dispense motion (direction + rotations per chamber) =====

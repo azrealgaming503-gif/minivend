@@ -47,7 +47,7 @@
 #include <TMCStepper.h>
 
 // ---------------- Configuration ----------------
-static const char* FW_VERSION = "minivend-motor-1.12.3";
+static const char* FW_VERSION = "minivend-motor-1.12.4";
 
 // Stepper pins
 static const int M1_STEP_PIN = 25;
@@ -60,7 +60,9 @@ static const int M2_DIR_PIN  = 33;
 //   HIGH = drivers off (no holding torque)
 // Both drivers' EN pins must go to this GPIO — and must NOT be tied to GND.
 static const int EN_PIN = 27;
-static const bool EN_ACTIVE_LOW = true;
+// SilentStepStick / BTT: ENN active-low. Some clones are active-high — use
+// ENPOL over the Motor page / serial if shafts stay locked at idle.
+static bool g_enActiveLow = true;
 
 // Step pulse width (HIGH duration).
 static const uint32_t STEP_PULSE_US = 2;
@@ -149,17 +151,20 @@ static bool g_driverPowered = false;
 static uint32_t g_lastActiveMs = 0;
 
 static void driverEnabled(bool en) {
-  if (EN_ACTIVE_LOW) digitalWrite(EN_PIN, en ? LOW : HIGH);
+  pinMode(EN_PIN, OUTPUT);
+  if (g_enActiveLow) digitalWrite(EN_PIN, en ? LOW : HIGH);
   else               digitalWrite(EN_PIN, en ? HIGH : LOW);
 }
 
-// Turn drivers fully off when idle:
-//   1) EN pin HIGH (active-low enable)
-//   2) if UART works, one-shot toff=0 so coils drop even if EN wiring is weak
-// UART writes only on the powered→idle edge (not every loop).
+// Always attempt UART coil-off (do not require g_tmcOk — that flag was
+// false while motors still accepted some writes, and gating skipped the kill).
 static void uartChoppersOff() {
-  if (g_tmc1Ok && tmc1) { tmc1->ihold(0); tmc1->toff(0); }
-  if (g_tmc2Ok && tmc2) { tmc2->ihold(0); tmc2->toff(0); }
+  if (!tmc1 && !tmc2) return;
+  for (int attempt = 0; attempt < 3; attempt++) {
+    if (tmc1) { tmc1->ihold(0); tmc1->toff(0); }
+    if (tmc2) { tmc2->ihold(0); tmc2->toff(0); }
+    delay(3);
+  }
 }
 
 static void setDriverPower(bool on) {
@@ -168,13 +173,14 @@ static void setDriverPower(bool on) {
     g_driverPowered = true;
     return;
   }
-  if (g_driverPowered && (g_tmc1Ok || g_tmc2Ok)) {
+  // Powered → idle edge: brief EN-on so UART lands, cut chopper, then EN off.
+  if (g_driverPowered) {
     driverEnabled(true);
-    delay(2);
+    delay(3);
     uartChoppersOff();
-    delay(1);
+    delay(2);
   }
-  driverEnabled(false);  // EN high = drivers off
+  driverEnabled(false);
   g_driverPowered = false;
 }
 
@@ -208,6 +214,17 @@ static void setJog(Motor& m, int dir, uint32_t speedStepsPerS) {
 
 static bool motorActive(const Motor& m) {
   return m.enabledRequested && m.intervalUs != 0;
+}
+
+// Re-assert coil-off every few seconds while idle (covers missed UART writes).
+static uint32_t g_lastIdleKillMs = 0;
+static void serviceIdleCoilKill() {
+  if (motorActive(m1) || motorActive(m2)) return;
+  uint32_t now = millis();
+  if (g_lastIdleKillMs != 0 && (now - g_lastIdleKillMs) < 2500) return;
+  g_lastIdleKillMs = now;
+  uartChoppersOff();
+  driverEnabled(false);
 }
 
 static void serviceAccel(Motor& m) {
@@ -345,13 +362,9 @@ static void tmcWake(TMC2209Stepper& d) {
 
 static void tmcCoilsOnFor(int id) {
   (void)id;
-  // Idle may have set toff=0 on both — wake both before any move.
-  if (g_tmc1Ok && tmc1) tmcWake(*tmc1);
-  if (g_tmc2Ok && tmc2) tmcWake(*tmc2);
-  if (!g_tmc1Ok && !g_tmc2Ok) {
-    TMC2209Stepper* d = tmcById(id);
-    if (d) tmcWake(*d);
-  }
+  // Always wake both — idle kill hits both addresses.
+  if (tmc1) tmcWake(*tmc1);
+  if (tmc2) tmcWake(*tmc2);
 }
 
 static bool configureTmc(TMC2209Stepper& d) {
@@ -458,10 +471,41 @@ static void handleCommand(const String& line) {
     Serial.print(m2.speedStepsPerS);
     Serial.print(" DRV=");
     Serial.print(g_driverPowered ? 1 : 0);
+    Serial.print(" EN_GPIO=");
+    Serial.print(digitalRead(EN_PIN));
+    Serial.print(" ENPOL=");
+    Serial.print(g_enActiveLow ? "active_low" : "active_high");
+    Serial.print(" M1_TOFF=");
+    Serial.print(tmc1 ? tmc1->toff() : 255);
+    Serial.print(" M2_TOFF=");
+    Serial.print(tmc2 ? tmc2->toff() : 255);
     Serial.print(" TMC1=");
     Serial.print(g_tmc1Ok ? "ok" : "fail");
     Serial.print(" TMC2=");
     Serial.println(g_tmc2Ok ? "ok" : "fail");
+    return;
+  }
+  if (cmd == "COOL") {
+    stopAll();
+    g_driverPowered = true;  // force idle-edge kill path
+    setDriverPower(false);
+    uartChoppersOff();
+    driverEnabled(false);
+    Serial.println("OK");
+    return;
+  }
+  if (cmd == "ENPOL") {
+    if (n >= 2) {
+      int32_t v = 1;
+      if (!parseInt(tokens[1], v)) { replyErr("BAD_INT", "ENPOL"); return; }
+      g_enActiveLow = (v != 0);
+    } else {
+      g_enActiveLow = !g_enActiveLow;
+    }
+    g_driverPowered = true;
+    setDriverPower(false);
+    Serial.print("OK ENPOL=");
+    Serial.println(g_enActiveLow ? "active_low" : "active_high");
     return;
   }
   if (cmd == "ENABLE") {
@@ -603,6 +647,7 @@ void loop() {
   serviceJam(m1);
   serviceJam(m2);
   serviceDriverPower();
+  serviceIdleCoilKill();
   serviceAccel(m1);
   serviceAccel(m2);
   serviceStepper(m1);
