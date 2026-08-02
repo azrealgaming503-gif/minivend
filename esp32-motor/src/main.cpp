@@ -47,7 +47,7 @@
 #include <TMCStepper.h>
 
 // ---------------- Configuration ----------------
-static const char* FW_VERSION = "minivend-motor-1.12.1";
+static const char* FW_VERSION = "minivend-motor-1.12.2";
 
 // Stepper pins
 static const int M1_STEP_PIN = 25;
@@ -103,6 +103,10 @@ static const uint32_t TMC_TCOOLTHRS = 0xFFFFF;
 static const uint32_t DIAG_ARM_MS = 400;
 // DIAG must stay asserted this long before we call it a jam (EMI debounce).
 static const uint32_t DIAG_DEBOUNCE_MS = 80;
+// Soft-start: longer/heavier motors (e.g. 28mm body) often buzz and hunt
+// if we jump straight to ~19200 microsteps/s from a dead stop.
+static const uint32_t ACCEL_START_SPS = 1500;
+static const uint32_t ACCEL_SPS_PER_S = 40000; // ~0.45s to reach 19200
 
 // ---------------- Internal state ----------------
 struct Motor {
@@ -112,7 +116,9 @@ struct Motor {
   int diagPin;
   bool enabledRequested; // tracks the most recent ENABLE request
   int  direction;        // -1 or +1
-  uint32_t speedStepsPerS;
+  uint32_t speedStepsPerS;       // current pulse rate (ramping)
+  uint32_t targetSpeedStepsPerS; // commanded pulse rate
+  uint32_t accelStartMs;
   // Active timed run (RUNFOR or DISPENSE backing store)
   bool timedActive;
   uint32_t runUntilMs;
@@ -127,8 +133,8 @@ struct Motor {
   uint32_t lastStepUs;
 };
 
-static Motor m1 { 1, M1_STEP_PIN, M1_DIR_PIN, M1_DIAG_PIN, false, +1, 0, false, 0, false, 0, 0, false, 0, 0 };
-static Motor m2 { 2, M2_STEP_PIN, M2_DIR_PIN, M2_DIAG_PIN, false, +1, 0, false, 0, false, 0, 0, false, 0, 0 };
+static Motor m1 { 1, M1_STEP_PIN, M1_DIR_PIN, M1_DIAG_PIN, false, +1, 0, 0, 0, false, 0, false, 0, 0, false, 0, 0 };
+static Motor m2 { 2, M2_STEP_PIN, M2_DIR_PIN, M2_DIAG_PIN, false, +1, 0, 0, 0, false, 0, false, 0, 0, false, 0, 0 };
 
 static String lineBuf;
 
@@ -173,13 +179,29 @@ static void recomputeInterval(Motor& m) {
 static void setJog(Motor& m, int dir, uint32_t speedStepsPerS) {
   m.direction = (dir >= 0) ? +1 : -1;
   digitalWrite(m.dirPin, (m.direction > 0) ? HIGH : LOW);
-  m.speedStepsPerS = speedStepsPerS;
+  uint32_t spd = speedStepsPerS;
+  if (spd > MAX_STEPS_PER_SEC) spd = MAX_STEPS_PER_SEC;
+  m.targetSpeedStepsPerS = spd;
+  m.speedStepsPerS = (spd <= ACCEL_START_SPS) ? spd : ACCEL_START_SPS;
+  m.accelStartMs = millis();
   recomputeInterval(m);
   m.lastStepUs = micros();
 }
 
 static bool motorActive(const Motor& m) {
   return m.enabledRequested && m.intervalUs != 0;
+}
+
+static void serviceAccel(Motor& m) {
+  if (!motorActive(m)) return;
+  if (m.speedStepsPerS >= m.targetSpeedStepsPerS) return;
+  uint32_t elapsedMs = millis() - m.accelStartMs;
+  uint64_t spd = (uint64_t)ACCEL_START_SPS +
+                 ((uint64_t)ACCEL_SPS_PER_S * (uint64_t)elapsedMs) / 1000ULL;
+  if (spd >= m.targetSpeedStepsPerS) spd = m.targetSpeedStepsPerS;
+  if ((uint32_t)spd == m.speedStepsPerS) return;
+  m.speedStepsPerS = (uint32_t)spd;
+  recomputeInterval(m);
 }
 
 // EN HIGH as soon as nothing is stepping.
@@ -190,6 +212,7 @@ static void releaseDriversIfIdle() {
 
 static void stopMotor(Motor& m) {
   m.speedStepsPerS = 0;
+  m.targetSpeedStepsPerS = 0;
   m.intervalUs = 0;
   m.timedActive = false;
   m.dispenseActive = false;
@@ -319,7 +342,7 @@ static bool configureTmc(TMC2209Stepper& d) {
 // EN on, then push UART settings for this move.
 static void applyTmcBeforeMotion(int id) {
   setDriverPower(true);
-  delay(2);
+  delay(15);  // longer motors need a beat to magnetize before STEP
   tmcCoilsOnFor(id);
 }
 
@@ -558,6 +581,8 @@ void loop() {
   serviceJam(m1);
   serviceJam(m2);
   serviceDriverPower();
+  serviceAccel(m1);
+  serviceAccel(m2);
   serviceStepper(m1);
   serviceStepper(m2);
 }
