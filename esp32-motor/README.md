@@ -23,8 +23,9 @@ UART did not set microsteps on driver 2 — usually MS1 not tied to 3.3 V
 (address 1) or a flaky UART bus. Fix the wiring rather than compensating
 in software.
 
-Drivers are only enabled while a move is in progress; EN goes high
-(disabled) as soon as motion stops so coils do not sit holding current.
+Drivers are only enabled while a move is in progress. On idle the firmware
+raises EN (disabled) and, when UART is up, also writes toff=0 once so coils
+release even if EN wiring is imperfect. Hold current is set to 0.
 
 If you see `TMC M1=fail` / `M2=fail`, UART wiring or address straps are
 wrong — see Wiring below. **Do not put the TMC UART on RX0/TX0** (GPIO

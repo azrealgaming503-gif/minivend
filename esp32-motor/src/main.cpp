@@ -47,7 +47,7 @@
 #include <TMCStepper.h>
 
 // ---------------- Configuration ----------------
-static const char* FW_VERSION = "minivend-motor-1.12.2";
+static const char* FW_VERSION = "minivend-motor-1.12.3";
 
 // Stepper pins
 static const int M1_STEP_PIN = 25;
@@ -153,11 +153,29 @@ static void driverEnabled(bool en) {
   else               digitalWrite(EN_PIN, en ? HIGH : LOW);
 }
 
-// Simple EN gate only — no UART spam while idle (that caused monitor errors).
+// Turn drivers fully off when idle:
+//   1) EN pin HIGH (active-low enable)
+//   2) if UART works, one-shot toff=0 so coils drop even if EN wiring is weak
+// UART writes only on the powered→idle edge (not every loop).
+static void uartChoppersOff() {
+  if (g_tmc1Ok && tmc1) { tmc1->ihold(0); tmc1->toff(0); }
+  if (g_tmc2Ok && tmc2) { tmc2->ihold(0); tmc2->toff(0); }
+}
+
 static void setDriverPower(bool on) {
-  if (on == g_driverPowered) return;
-  driverEnabled(on);
-  g_driverPowered = on;
+  if (on) {
+    driverEnabled(true);
+    g_driverPowered = true;
+    return;
+  }
+  if (g_driverPowered && (g_tmc1Ok || g_tmc2Ok)) {
+    driverEnabled(true);
+    delay(2);
+    uartChoppersOff();
+    delay(1);
+  }
+  driverEnabled(false);  // EN high = drivers off
+  g_driverPowered = false;
 }
 
 static Motor* motorById(int id) {
@@ -235,6 +253,8 @@ static void serviceDriverPower() {
     return;
   }
   setDriverPower(false);
+  // Keep holding EN off every loop while idle (pin can't float back on).
+  driverEnabled(false);
 }
 
 static void serviceStepper(Motor& m) {
@@ -310,39 +330,41 @@ static TMC2209Stepper* tmcById(int id) {
   return tmc1;
 }
 
-static void tmcCoilsOnFor(int id) {
-  TMC2209Stepper* d = tmcById(id);
-  if (!d) return;
-  d->pdn_disable(true);
-  d->mstep_reg_select(true);
-  d->I_scale_analog(false);
-  d->toff(4);
-  d->rms_current(TMC_RMS_CURRENT_MA);
-  d->microsteps(TMC_MICROSTEPS);
-  d->en_spreadCycle(true);
-  d->TCOOLTHRS(TMC_TCOOLTHRS);
-  d->SGTHRS(TMC_SGTHRS);
-}
-
-static bool configureTmc(TMC2209Stepper& d) {
-  d.begin();
+static void tmcWake(TMC2209Stepper& d) {
   d.pdn_disable(true);
   d.mstep_reg_select(true);
   d.I_scale_analog(false);
-  d.rms_current(TMC_RMS_CURRENT_MA);
+  d.rms_current(TMC_RMS_CURRENT_MA, 0.0f);  // run current on, hold = 0
+  d.ihold(0);
   d.microsteps(TMC_MICROSTEPS);
   d.en_spreadCycle(true);
   d.TCOOLTHRS(TMC_TCOOLTHRS);
   d.SGTHRS(TMC_SGTHRS);
-  d.toff(4);
+  d.toff(4);  // chopper on for motion (idle uses toff=0)
+}
+
+static void tmcCoilsOnFor(int id) {
+  (void)id;
+  // Idle may have set toff=0 on both — wake both before any move.
+  if (g_tmc1Ok && tmc1) tmcWake(*tmc1);
+  if (g_tmc2Ok && tmc2) tmcWake(*tmc2);
+  if (!g_tmc1Ok && !g_tmc2Ok) {
+    TMC2209Stepper* d = tmcById(id);
+    if (d) tmcWake(*d);
+  }
+}
+
+static bool configureTmc(TMC2209Stepper& d) {
+  d.begin();
+  tmcWake(d);
   uint8_t ver = d.version();
   return ver == 0x21;
 }
 
-// EN on, then push UART settings for this move.
+// EN on, then restore chopper / current before STEP pulses.
 static void applyTmcBeforeMotion(int id) {
   setDriverPower(true);
-  delay(15);  // longer motors need a beat to magnetize before STEP
+  delay(15);
   tmcCoilsOnFor(id);
 }
 
@@ -363,7 +385,7 @@ static void initTmcDrivers() {
   uint16_t ms1 = tmc1->microsteps();
   uint16_t ms2 = tmc2->microsteps();
 
-  setDriverPower(false);   // EN high — idle, no hold
+  setDriverPower(false);   // EN off (+ toff=0 if UART ok)
 
   Serial.print("TMC M1=");
   Serial.print(g_tmc1Ok ? "ok" : "fail");
