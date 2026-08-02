@@ -9,6 +9,10 @@
 //   4. Dispensing line      — "Dropping <chamber label>…" at the bottom,
 //                             updates to "Dropped!" / "Jam" / etc.
 //
+// If a StreamElements overlay URL is configured, that page is kept loaded
+// fullscreen (OBS browser-source style) and the built-in alert UI is skipped
+// for that event type — SE drives the celebration over its own socket.
+//
 // State machine driven by WebSocket events from the server:
 //   donation              -> show overlay (status: queued or thanks)
 //   donation_dispensing   -> status: dispensing
@@ -58,6 +62,10 @@ import './press-guard.js';
 let stickerUrl = '/img/blu-happy.png';
 let donationStickerUrl = null;  // custom donation overlay GIF (overrides blu-happy)
 let redeemStickerUrl   = null;  // custom redeem overlay GIF (optional)
+// StreamElements OBS browser-source URLs. When set, a persistent iframe
+// layer stays loaded (like OBS) and the built-in alert UI is skipped.
+let donationSeOverlayUrl = null;
+let redeemSeOverlayUrl   = null;
 // Overlay hold durations (ms). Configurable via settings and refreshed
 // from /api/state + settings_changed. donationHoldMs covers both the
 // after-dispense hold and alert-only tips; redeemHoldMs is the redeem
@@ -99,6 +107,44 @@ function applyStickerUrl(url) {
   updateDonationSticker(false);
 }
 
+// =================================================================
+// StreamElements overlay layers (always-on, OBS-style)
+// =================================================================
+function ensureSeLayer(id, url) {
+  let layer = document.getElementById(id);
+  if (!url) {
+    if (layer) layer.remove();
+    return;
+  }
+  if (!layer) {
+    layer = document.createElement('div');
+    layer.id = id;
+    layer.className = 'se-overlay-layer';
+    layer.innerHTML = `<iframe title="StreamElements overlay" allow="autoplay; fullscreen"></iframe>`;
+    document.body.appendChild(layer);
+  }
+  const iframe = layer.querySelector('iframe');
+  if (iframe && iframe.dataset.src !== url) {
+    iframe.dataset.src = url;
+    iframe.src = url;
+  }
+}
+
+function syncSeLayers() {
+  // One shared layer if both kinds point at the same SE overlay URL.
+  const donation = donationSeOverlayUrl || null;
+  const redeem = redeemSeOverlayUrl || null;
+  if (donation && redeem && donation === redeem) {
+    ensureSeLayer('se-overlay-shared', donation);
+    ensureSeLayer('se-overlay-donation', null);
+    ensureSeLayer('se-overlay-redeem', null);
+    return;
+  }
+  ensureSeLayer('se-overlay-shared', null);
+  ensureSeLayer('se-overlay-donation', donation);
+  ensureSeLayer('se-overlay-redeem', redeem);
+}
+
 function refreshEnv() {
   return fetch('/api/state')
     .then((r) => r.json())
@@ -116,8 +162,11 @@ function refreshEnv() {
       if (j.stickerUrl) applyStickerUrl(j.stickerUrl);
       donationStickerUrl = j.donationOverlayUrl || null;
       redeemStickerUrl   = j.redeemOverlayUrl || null;
+      donationSeOverlayUrl = j.donationSeOverlayUrl || null;
+      redeemSeOverlayUrl   = j.redeemSeOverlayUrl || null;
       updateDonationSticker(false);
       updateRedeemSticker();
+      syncSeLayers();
     })
     .catch(() => {});
 }
@@ -177,8 +226,7 @@ function showOverlay() {
 }
 
 function hideOverlay() {
-  if (!overlay) return;
-  overlay.classList.remove('visible');
+  if (overlay) overlay.classList.remove('visible');
   document.body.classList.remove('alert-active');
   if (state.hideTimer)   { clearTimeout(state.hideTimer);   state.hideTimer = null; }
   if (state.safetyTimer) { clearTimeout(state.safetyTimer); state.safetyTimer = null; }
@@ -200,20 +248,32 @@ function chamberLabelFor(motor, fallback) {
          fallback || `Chamber ${motor}`;
 }
 
-function show(evt) {
-  setFields(evt);
-  const label = chamberLabelFor(evt.motor, evt.chamberLabel);
-  if (label) setDispense(`Dropping ${label}…`, 'queued');
-  else       setDispense('Thanks for the tip!', 'no_dispense');
-  showOverlay();
-  state.currentId = evt.id;
-
+function armDonationTimers(evt) {
   if (state.hideTimer)   clearTimeout(state.hideTimer);
   if (state.safetyTimer) clearTimeout(state.safetyTimer);
   state.safetyTimer = setTimeout(hideOverlay, HOLD_IF_STUCK_MS);
   // Alerts with no associated dispense (e.g. alertsAllAmounts=true,
   // sub-tier tip) auto-hide on their own short timer.
   if (!evt.motor) state.hideTimer = setTimeout(hideOverlay, donationHoldMs);
+}
+
+function show(evt) {
+  state.currentId = evt.id;
+
+  // SE overlay page is already loaded; it plays alerts via SE's own
+  // realtime feed. We only pause the idle animation for the tip window.
+  if (donationSeOverlayUrl) {
+    document.body.classList.add('alert-active');
+    armDonationTimers(evt);
+    return;
+  }
+
+  setFields(evt);
+  const label = chamberLabelFor(evt.motor, evt.chamberLabel);
+  if (label) setDispense(`Dropping ${label}…`, 'queued');
+  else       setDispense('Thanks for the tip!', 'no_dispense');
+  showOverlay();
+  armDonationTimers(evt);
 }
 
 onMessage('donation', (m) => {
@@ -226,27 +286,32 @@ onMessage('donation_dispensing', (m) => {
     show({ id: m.id, name: m.name, amount: m.amount, motor: m.motor,
            chamberLabel: m.chamberLabel, currency: 'USD' });
   }
+  if (donationSeOverlayUrl) return;
   const label = chamberLabelFor(m.motor, m.chamberLabel);
   setDispense(`Dropping ${label}…`, 'dispensing');
 });
 
 onMessage('donation_done', (m) => {
   if (state.currentId !== m.id) return;
-  const label = chamberLabelFor(m.motor) || 'Chamber';
-  if (m.kind === 'dropped')   setDispense(`${label} dropped!`, 'dropped');
-  else if (m.kind === 'jam')  setDispense(`${label} jammed — please check`, 'jam');
-  else                        setDispense('Done', 'done');
+  if (!donationSeOverlayUrl) {
+    const label = chamberLabelFor(m.motor) || 'Chamber';
+    if (m.kind === 'dropped')   setDispense(`${label} dropped!`, 'dropped');
+    else if (m.kind === 'jam')  setDispense(`${label} jammed — please check`, 'jam');
+    else                        setDispense('Done', 'done');
+  }
   if (state.hideTimer) clearTimeout(state.hideTimer);
   state.hideTimer = setTimeout(hideOverlay, donationHoldMs);
 });
 
 onMessage('donation_skipped', (m) => {
   if (state.currentId !== m.id) return;
-  setDispense(
-    m.reason === 'motor_offline' ? 'Motor offline — check device' :
-    m.reason === 'no_tier'       ? 'Thanks for the tip!' : 'Skipped',
-    'skipped',
-  );
+  if (!donationSeOverlayUrl) {
+    setDispense(
+      m.reason === 'motor_offline' ? 'Motor offline — check device' :
+      m.reason === 'no_tier'       ? 'Thanks for the tip!' : 'Skipped',
+      'skipped',
+    );
+  }
   if (state.hideTimer) clearTimeout(state.hideTimer);
   state.hideTimer = setTimeout(hideOverlay, donationHoldMs);
 });
@@ -258,8 +323,11 @@ onMessage('sticker_changed', (m) => {
 onMessage('overlay_changed', (m) => {
   donationStickerUrl = m.donation || null;
   redeemStickerUrl   = m.redeem || null;
+  donationSeOverlayUrl = m.donationSe || null;
+  redeemSeOverlayUrl   = m.redeemSe || null;
   updateDonationSticker(false);
   updateRedeemSticker();
+  syncSeLayers();
 });
 
 // =================================================================
@@ -317,6 +385,9 @@ function updateRedeemSticker() {
 }
 
 function showRedeem(evt) {
+  // SE overlay (always loaded) handles redemptions via SE realtime.
+  if (redeemSeOverlayUrl) return;
+
   if (!redeemOverlay) redeemOverlay = buildRedeemOverlay();
   redeemOverlay.querySelector('[data-redeemer]').textContent   = evt.name || 'Someone';
   redeemOverlay.querySelector('[data-redeem-name]').textContent = evt.redemption || 'a reward';

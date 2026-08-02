@@ -280,7 +280,15 @@ class AssetStore {
     ensureDir(this.idleDir);
     ensureDir(this.alertsDir);
     ensureDir(this.overlaysDir);
-    this.state = { activeIdle: null, activeAlert: null, donationOverlay: null, redeemOverlay: null };
+    this.state = {
+      activeIdle: null,
+      activeAlert: null,
+      donationOverlay: null,
+      redeemOverlay: null,
+      // StreamElements OBS browser-source URLs (paste from SE overlay editor).
+      donationSeOverlayUrl: null,
+      redeemSeOverlayUrl: null,
+    };
     this._load();
     // Auto-pick something if nothing's chosen yet — prefer packs over flat
     // files since they're usually the curated artist asset.
@@ -394,6 +402,50 @@ class AssetStore {
     const name = this.getOverlay(kind);
     return name ? `/assets/overlays/${encodeURIComponent(name)}` : null;
   }
+
+  // ----- StreamElements overlay links (OBS browser-source URL) -----
+  _seOverlayKey(kind) {
+    if (kind === 'donation') return 'donationSeOverlayUrl';
+    if (kind === 'redeem')   return 'redeemSeOverlayUrl';
+    throw new Error(`bad overlay kind: ${kind}`);
+  }
+
+  seOverlayUrl(kind) {
+    const url = this.state[this._seOverlayKey(kind)];
+    return (typeof url === 'string' && url) ? url : null;
+  }
+
+  setSeOverlayUrl(kind, url) {
+    this._overlayKey(kind); // validate kind
+    const key = this._seOverlayKey(kind);
+    if (!url) {
+      this.state[key] = null;
+      this._save();
+      return null;
+    }
+    this.state[key] = normalizeSeOverlayUrl(url);
+    this._save();
+    return this.state[key];
+  }
+
+  clearSeOverlayUrl(kind) {
+    return this.setSeOverlayUrl(kind, null);
+  }
+}
+
+// Accept an OBS-style StreamElements (or any https) overlay URL.
+function normalizeSeOverlayUrl(raw) {
+  const s = String(raw || '').trim();
+  if (!s) throw new Error('empty url');
+  let u;
+  try { u = new URL(s); } catch (_) {
+    throw new Error('invalid url');
+  }
+  if (u.protocol !== 'https:' && u.protocol !== 'http:') {
+    throw new Error('url must start with https://');
+  }
+  if (s.length > 2000) throw new Error('url too long');
+  return u.toString();
 }
 
 function mount(app, { store, broadcast }) {
@@ -435,12 +487,17 @@ function mount(app, { store, broadcast }) {
     },
   });
 
+  function overlayPayload() {
+    return {
+      donation:   store.overlayUrl('donation'),
+      redeem:     store.overlayUrl('redeem'),
+      donationSe: store.seOverlayUrl('donation'),
+      redeemSe:   store.seOverlayUrl('redeem'),
+    };
+  }
+
   app.get('/api/assets/overlay', (_req, res) => {
-    res.json({
-      ok: true,
-      donation: store.overlayUrl('donation'),
-      redeem:   store.overlayUrl('redeem'),
-    });
+    res.json({ ok: true, ...overlayPayload() });
   });
 
   app.post('/api/assets/overlay/:kind', (req, res) => {
@@ -452,7 +509,7 @@ function mount(app, { store, broadcast }) {
       if (err) return res.status(400).json({ ok: false, err: err.message });
       if (!req.file) return res.status(400).json({ ok: false, err: 'no_file' });
       store.setOverlay(kind, req.file.filename);
-      const urls = { donation: store.overlayUrl('donation'), redeem: store.overlayUrl('redeem') };
+      const urls = overlayPayload();
       broadcast({ type: 'overlay_changed', ...urls });
       res.json({ ok: true, url: urls[kind], ...urls });
     });
@@ -464,7 +521,34 @@ function mount(app, { store, broadcast }) {
       return res.status(400).json({ ok: false, err: 'bad_kind' });
     }
     store.clearOverlay(kind);
-    const urls = { donation: store.overlayUrl('donation'), redeem: store.overlayUrl('redeem') };
+    const urls = overlayPayload();
+    broadcast({ type: 'overlay_changed', ...urls });
+    res.json({ ok: true, ...urls });
+  });
+
+  // ----- StreamElements overlay URL (paste from SE overlay editor) -----
+  app.post('/api/assets/overlay-se/:kind', express.json({ limit: '8kb' }), (req, res) => {
+    const kind = req.params.kind;
+    if (kind !== 'donation' && kind !== 'redeem') {
+      return res.status(400).json({ ok: false, err: 'bad_kind' });
+    }
+    try {
+      const url = store.setSeOverlayUrl(kind, (req.body && req.body.url) || '');
+      const urls = overlayPayload();
+      broadcast({ type: 'overlay_changed', ...urls });
+      res.json({ ok: true, url, ...urls });
+    } catch (e) {
+      res.status(400).json({ ok: false, err: e.message || 'bad_url' });
+    }
+  });
+
+  app.delete('/api/assets/overlay-se/:kind', (req, res) => {
+    const kind = req.params.kind;
+    if (kind !== 'donation' && kind !== 'redeem') {
+      return res.status(400).json({ ok: false, err: 'bad_kind' });
+    }
+    store.clearSeOverlayUrl(kind);
+    const urls = overlayPayload();
     broadcast({ type: 'overlay_changed', ...urls });
     res.json({ ok: true, ...urls });
   });

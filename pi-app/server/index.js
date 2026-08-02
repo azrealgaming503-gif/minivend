@@ -172,8 +172,10 @@ app.get('/api/state', (_req, res) => {
     dispense: config.dispense,
     settings: settings.getAll(),
     stickerUrl: resolveStickerUrl(),
-    donationOverlayUrl: store.overlayUrl('donation'),
-    redeemOverlayUrl:   store.overlayUrl('redeem'),
+    donationOverlayUrl:   store.overlayUrl('donation'),
+    redeemOverlayUrl:     store.overlayUrl('redeem'),
+    donationSeOverlayUrl: store.seOverlayUrl('donation'),
+    redeemSeOverlayUrl:   store.seOverlayUrl('redeem'),
   });
 });
 

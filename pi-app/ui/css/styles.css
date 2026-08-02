@@ -385,6 +385,23 @@ a { color: var(--accent); text-decoration: none; }
 }
 .alert-overlay.visible { opacity: 1; pointer-events: auto; }
 
+/* StreamElements OBS browser-source layer: always loaded when a link is
+   saved. Transparent + non-interactive so idle/menu taps still work. */
+.se-overlay-layer {
+  position: fixed;
+  inset: 0;
+  z-index: 90;
+  pointer-events: none;
+  background: transparent;
+  overflow: hidden;
+}
+.se-overlay-layer iframe {
+  width: 100%;
+  height: 100%;
+  border: 0;
+  background: transparent;
+}
+
 .alert-stack {
   flex: 1;
   display: grid;
@@ -621,6 +638,16 @@ a { color: var(--accent); text-decoration: none; }
 .dropzone-title { font-weight: 600; }
 .dropzone-hint { color: var(--text-2); font-size: 13px; }
 .dropzone-actions { display: flex; gap: 8px; margin-top: 6px; flex-wrap: wrap; }
+
+.se-url-form { display: flex; flex-direction: column; gap: 10px; }
+.se-url-label { font-weight: 600; }
+.se-url-form input[type="url"] {
+  width: 100%;
+  box-sizing: border-box;
+  font-size: 15px;
+}
+.se-url-actions { align-items: center; gap: 8px; flex-wrap: wrap; }
+.se-url-status { color: var(--text-2); font-size: 13px; }
 
 /* ===== Generic page chrome (settings, games launcher) ===== */
 .page {
