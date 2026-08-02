@@ -47,7 +47,7 @@
 #include <TMCStepper.h>
 
 // ---------------- Configuration ----------------
-static const char* FW_VERSION = "minivend-motor-1.12.7";
+static const char* FW_VERSION = "minivend-motor-1.12.8";
 
 // Stepper pins
 static const int M1_STEP_PIN = 25;
@@ -60,11 +60,9 @@ static const int M2_DIR_PIN  = 33;
 //   HIGH = drivers off (no holding torque)
 // Both drivers' EN pins must go to this GPIO — and must NOT be tied to GND.
 static const int EN_PIN = 27;
-// Default active-high: idle drives EN LOW. (Prior active_low left EN_GPIO=0
-// at idle = drivers still on for true ENN boards that were mis-wired, and
-// matched clone boards that enable on HIGH. Use Motor page Flip EN polarity
-// if shafts stay locked.)
-static bool g_enActiveLow = false;
+// SilentStepStick / BTT: ENN active-low (LOW = motor on). Flip via ENPOL
+// on the Motor page if needed.
+static bool g_enActiveLow = true;
 
 // Step pulse width (HIGH duration).
 static const uint32_t STEP_PULSE_US = 2;
@@ -147,6 +145,7 @@ static TMC2209Stepper* tmc1 = nullptr;
 static TMC2209Stepper* tmc2 = nullptr;
 static bool g_tmc1Ok = false;
 static bool g_tmc2Ok = false;
+static bool g_uartBusUp = false;
 
 // ---------------- Helpers ----------------
 static bool g_driverPowered = false;
@@ -164,38 +163,55 @@ static bool enGpioIsEnabledLevel() {
   return g_enActiveLow ? (v == LOW) : (v == HIGH);
 }
 
-// Always attempt UART coil-off (do not require g_tmcOk — that flag was
-// false while motors still accepted some writes, and gating skipped the kill).
+// ESP32 UART TX idles HIGH. That holds PDN_UART high and disables the
+// TMC's automatic standstill current cut — which is why motors stayed cool
+// *before* UART was wired, then held/heated after. At idle we release the
+// bus and pull PDN low again (pre-UART behavior).
+static void tmcUartBusStart() {
+  if (g_uartBusUp) return;
+  Serial2.begin(TMC_UART_BAUD, SERIAL_8N1, TMC_UART_RX, TMC_UART_TX);
+  delay(5);
+  g_uartBusUp = true;
+}
+
+static void tmcUartBusReleaseForStandstill() {
+  if (g_uartBusUp) {
+    Serial2.end();
+    g_uartBusUp = false;
+  }
+  // Drive TX low through the 1kΩ into PDN; RX high-Z with pulldown.
+  pinMode(TMC_UART_TX, OUTPUT);
+  digitalWrite(TMC_UART_TX, LOW);
+  pinMode(TMC_UART_RX, INPUT_PULLDOWN);
+}
+
 static void uartChoppersOff() {
-  if (!tmc1 && !tmc2) return;
-  for (int attempt = 0; attempt < 3; attempt++) {
+  if (!g_uartBusUp || (!tmc1 && !tmc2)) return;
+  for (int attempt = 0; attempt < 2; attempt++) {
     if (tmc1) { tmc1->ihold(0); tmc1->toff(0); }
     if (tmc2) { tmc2->ihold(0); tmc2->toff(0); }
-    delay(3);
+    delay(2);
   }
 }
 
 static void setDriverPower(bool on) {
   if (on) {
+    tmcUartBusStart();
     driverEnabled(true);
     g_driverPowered = true;
     return;
   }
-  // Powered → idle edge: brief EN-on so UART lands, cut chopper, then EN off.
   if (g_driverPowered) {
+    tmcUartBusStart();
     driverEnabled(true);
-    delay(3);
-    uartChoppersOff();
     delay(2);
+    uartChoppersOff();
+    delay(1);
   }
   driverEnabled(false);
   g_driverPowered = false;
-  delay(1);
-  if (enGpioIsEnabledLevel()) {
-    // Pin still at "motor on" after we asked for off — short to GND, wrong
-    // polarity, or EN not actually driven. Shows up in motor-fw.log as RX.
-    Serial.println("WARN EN_STUCK_ON check EN wiring or Flip EN polarity");
-  }
+  // Critical: let PDN fall so standstill current cut works like pre-UART.
+  tmcUartBusReleaseForStandstill();
 }
 
 static Motor* motorById(int id) {
@@ -230,15 +246,15 @@ static bool motorActive(const Motor& m) {
   return m.enabledRequested && m.intervalUs != 0;
 }
 
-// Re-assert coil-off every few seconds while idle (covers missed UART writes).
+// Keep PDN pulled low while idle (do not re-open UART here).
 static uint32_t g_lastIdleKillMs = 0;
 static void serviceIdleCoilKill() {
   if (motorActive(m1) || motorActive(m2)) return;
   uint32_t now = millis();
   if (g_lastIdleKillMs != 0 && (now - g_lastIdleKillMs) < 2500) return;
   g_lastIdleKillMs = now;
-  uartChoppersOff();
   driverEnabled(false);
+  tmcUartBusReleaseForStandstill();
 }
 
 static void serviceAccel(Motor& m) {
@@ -388,15 +404,16 @@ static bool configureTmc(TMC2209Stepper& d) {
   return ver == 0x21;
 }
 
-// EN on, then restore chopper / current before STEP pulses.
+// EN on + UART bus up, then restore chopper / current before STEP pulses.
 static void applyTmcBeforeMotion(int id) {
+  tmcUartBusStart();
   setDriverPower(true);
   delay(15);
   tmcCoilsOnFor(id);
 }
 
 static void initTmcDrivers() {
-  Serial2.begin(TMC_UART_BAUD, SERIAL_8N1, TMC_UART_RX, TMC_UART_TX);
+  tmcUartBusStart();
   delay(50);
 
   tmc1 = new TMC2209Stepper(&Serial2, TMC_R_SENSE, TMC_ADDR_M1);
@@ -409,10 +426,31 @@ static void initTmcDrivers() {
   delay(5);
   g_tmc2Ok = configureTmc(*tmc2);
 
-  uint16_t ms1 = tmc1->microsteps();
-  uint16_t ms2 = tmc2->microsteps();
+  // If both fail, try RX/TX swapped once (common wiring mix-up).
+  if (!g_tmc1Ok && !g_tmc2Ok) {
+    Serial.println("TMC retry with RX/TX swapped");
+    Serial2.end();
+    g_uartBusUp = false;
+    Serial2.begin(TMC_UART_BAUD, SERIAL_8N1, TMC_UART_TX, TMC_UART_RX);
+    g_uartBusUp = true;
+    delay(50);
+    g_tmc1Ok = configureTmc(*tmc1);
+    delay(5);
+    g_tmc2Ok = configureTmc(*tmc2);
+    if (!g_tmc1Ok && !g_tmc2Ok) {
+      // Restore instructed pin map for STEP/DIR-only + PDN standstill.
+      Serial2.end();
+      g_uartBusUp = false;
+      tmcUartBusStart();
+    } else {
+      Serial.println("TMC NOTE using swapped RX/TX pin map");
+    }
+  }
 
-  setDriverPower(false);   // EN off (+ toff=0 if UART ok)
+  uint16_t ms1 = g_tmc1Ok ? tmc1->microsteps() : 0;
+  uint16_t ms2 = g_tmc2Ok ? tmc2->microsteps() : 0;
+
+  setDriverPower(false);   // EN off + release PDN for cool idle
 
   Serial.print("TMC M1=");
   Serial.print(g_tmc1Ok ? "ok" : "fail");
@@ -422,6 +460,9 @@ static void initTmcDrivers() {
   Serial.print(g_tmc2Ok ? "ok" : "fail");
   Serial.print(" ms=");
   Serial.println(ms2);
+  if (!g_tmc1Ok && !g_tmc2Ok) {
+    Serial.println("TMC WARN uart fail — idle pulls PDN low for standstill cut (pre-UART cool)");
+  }
 }
 
 // ---------------- Command parser ----------------
@@ -508,10 +549,8 @@ static void handleCommand(const String& line) {
   }
   if (cmd == "COOL") {
     stopAll();
-    g_driverPowered = true;  // force idle-edge kill path
-    setDriverPower(false);
-    uartChoppersOff();
-    driverEnabled(false);
+    g_driverPowered = true;
+    setDriverPower(false);  // includes PDN bus release
     Serial.println("OK");
     return;
   }

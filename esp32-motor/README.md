@@ -23,10 +23,10 @@ UART did not set microsteps on driver 2 — usually MS1 not tied to 3.3 V
 (address 1) or a flaky UART bus. Fix the wiring rather than compensating
 in software.
 
-Drivers are only enabled while a move is in progress. On idle the firmware
-raises EN (disabled) and repeatedly writes toff=0 / ihold=0 over UART.
-If shafts stay locked, use Motor page **Flip EN polarity** (some boards are
-active-high). Hold current is 0.
+Drivers are only enabled while a move is in progress. At idle the firmware
+raises EN **and releases the UART pins**, pulling PDN_UART low. That restores
+the TMC automatic standstill current cut that worked before UART was wired
+(ESP32 TX idle-high was holding PDN high and keeping full hold current on).
 
 If you see `TMC M1=fail` / `M2=fail`, UART wiring or address straps are
 wrong — see Wiring below. **Do not put the TMC UART on RX0/TX0** (GPIO
