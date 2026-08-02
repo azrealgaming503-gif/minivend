@@ -47,7 +47,7 @@
 #include <TMCStepper.h>
 
 // ---------------- Configuration ----------------
-static const char* FW_VERSION = "minivend-motor-1.12.6";
+static const char* FW_VERSION = "minivend-motor-1.12.7";
 
 // Stepper pins
 static const int M1_STEP_PIN = 25;
@@ -60,9 +60,11 @@ static const int M2_DIR_PIN  = 33;
 //   HIGH = drivers off (no holding torque)
 // Both drivers' EN pins must go to this GPIO — and must NOT be tied to GND.
 static const int EN_PIN = 27;
-// SilentStepStick / BTT: ENN active-low. Some clones are active-high — use
-// ENPOL over the Motor page / serial if shafts stay locked at idle.
-static bool g_enActiveLow = true;
+// Default active-high: idle drives EN LOW. (Prior active_low left EN_GPIO=0
+// at idle = drivers still on for true ENN boards that were mis-wired, and
+// matched clone boards that enable on HIGH. Use Motor page Flip EN polarity
+// if shafts stay locked.)
+static bool g_enActiveLow = false;
 
 // Step pulse width (HIGH duration).
 static const uint32_t STEP_PULSE_US = 2;
