@@ -47,7 +47,7 @@
 #include <TMCStepper.h>
 
 // ---------------- Configuration ----------------
-static const char* FW_VERSION = "minivend-motor-1.12";
+static const char* FW_VERSION = "minivend-motor-1.12.1";
 
 // Stepper pins
 static const int M1_STEP_PIN = 25;
@@ -87,7 +87,7 @@ static const uint8_t TMC_ADDR_M2 = 1;
 static const int M1_DIAG_PIN = 21;
 static const int M2_DIAG_PIN = 19;
 // Run current (mA RMS). Tune to your motors; keep heatsinks if >~1 A.
-static const uint16_t TMC_RMS_CURRENT_MA = 1000;
+static const uint16_t TMC_RMS_CURRENT_MA = 1200;
 // Microsteps set over UART (MS1/MS2 are address pins in UART mode).
 // Match "Steps per revolution" on the Motor page (200 * microsteps).
 static const uint16_t TMC_MICROSTEPS = 16;

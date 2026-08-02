@@ -61,7 +61,7 @@ UART addresses (MS1/MS2; floating = GND via internal pull-down):
 
 Also: VIO = 3.3 V, common GND, bulk cap (100 µF) on each driver's VMOT.
 
-Firmware sets SpreadCycle, 16 microsteps, and ~800 mA RMS over UART.
+Firmware sets SpreadCycle, 16 microsteps, and ~1200 mA RMS over UART.
 Match **"Steps per revolution"** on the Motor page to `200 × microsteps`
 (e.g. 3200 for 1/16). Tune `TMC_SGTHRS` in `src/main.cpp` if jams are
 too sensitive / not sensitive enough.
