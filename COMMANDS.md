@@ -80,7 +80,17 @@ Run from the firmware folder, with the ESP32 plugged into the PC by USB.
 |---|---|
 | `journalctl -u minivend-server -f` | Live-tail the server log (watch donations + motor events). |
 | `journalctl -u minivend-server -n 100 --no-pager` | Show the last 100 log lines. |
+| `tail -f /opt/minivend/pi-app/logs/motor-fw.log` | Live-tail the ESP32 firmware serial log (TX/RX lines). |
+| `tail -n 100 /opt/minivend/pi-app/logs/motor-fw.log` | Show the last 100 firmware serial lines. |
 | `curl -X POST localhost:3000/hooks/test -H 'content-type: application/json' -d '{"name":"Test","amount":5}'` | Fire a fake $5 donation to test the alert overlay + dispense. |
+
+Filter the firmware log (boot / TMC / errors / jams):
+
+```bash
+grep -E 'READY|TMC|ERR|JAM|STATUS' /opt/minivend/pi-app/logs/motor-fw.log
+```
+
+> Firmware serial log path is `MOTOR_LOG_FILE` (default `./logs/motor-fw.log` under the pi-app). Rotates to `motor-fw.log.1` at ~1 MB. Appears after the server has talked to the ESP32 at least once.
 
 ### Maintenance / fixes
 | Command | What it does |
