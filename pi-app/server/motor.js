@@ -145,6 +145,18 @@ class MotorBridge extends EventEmitter {
         'INFO',
         `driver status TMC_UART_M1=${tmc1} TMC_UART_M2=${tmc2} DRV=${drv} EN_GPIO=${enGpio} ENPOL=${enpol}`,
       );
+      if (String(enGpio) === '0' && enpol === 'active_low') {
+        this._log(
+          'INFO',
+          'WARN EN looks ON (EN_GPIO=0 + active_low) — motors will hold/heat; Flip EN polarity or check EN short to GND',
+        );
+      }
+      if (tmc1 === 'fail' && tmc2 === 'fail') {
+        this._log(
+          'INFO',
+          'WARN TMC UART bus dead (both fail) — check GPIO16/17 + 1k on TX + PDN_UART to both drivers',
+        );
+      }
       this.emit('reply', line);
     } else if (head === 'TMC' || line.startsWith('TMC ')) {
       // Boot line: "TMC M1=ok ms=16 M2=fail ms=0"

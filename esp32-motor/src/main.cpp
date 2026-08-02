@@ -47,7 +47,7 @@
 #include <TMCStepper.h>
 
 // ---------------- Configuration ----------------
-static const char* FW_VERSION = "minivend-motor-1.12.5";
+static const char* FW_VERSION = "minivend-motor-1.12.6";
 
 // Stepper pins
 static const int M1_STEP_PIN = 25;
@@ -156,6 +156,12 @@ static void driverEnabled(bool en) {
   else               digitalWrite(EN_PIN, en ? HIGH : LOW);
 }
 
+// True when the EN GPIO is at the level that *enables* the drivers.
+static bool enGpioIsEnabledLevel() {
+  const int v = digitalRead(EN_PIN);
+  return g_enActiveLow ? (v == LOW) : (v == HIGH);
+}
+
 // Always attempt UART coil-off (do not require g_tmcOk — that flag was
 // false while motors still accepted some writes, and gating skipped the kill).
 static void uartChoppersOff() {
@@ -182,6 +188,12 @@ static void setDriverPower(bool on) {
   }
   driverEnabled(false);
   g_driverPowered = false;
+  delay(1);
+  if (enGpioIsEnabledLevel()) {
+    // Pin still at "motor on" after we asked for off — short to GND, wrong
+    // polarity, or EN not actually driven. Shows up in motor-fw.log as RX.
+    Serial.println("WARN EN_STUCK_ON check EN wiring or Flip EN polarity");
+  }
 }
 
 static Motor* motorById(int id) {
@@ -487,6 +499,9 @@ static void handleCommand(const String& line) {
     Serial.print(g_tmc1Ok ? "ok" : "fail");
     Serial.print(" TMC2=");
     Serial.println(g_tmc2Ok ? "ok" : "fail");
+    if (!motorActive(m1) && !motorActive(m2) && enGpioIsEnabledLevel()) {
+      Serial.println("WARN EN_STUCK_ON idle but EN gpio still enabling drivers");
+    }
     return;
   }
   if (cmd == "COOL") {
