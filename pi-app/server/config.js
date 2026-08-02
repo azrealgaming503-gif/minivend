@@ -38,6 +38,8 @@ const config = {
   motor: {
     port: asStr('MOTOR_PORT', 'AUTO'),
     baud: asInt('MOTOR_BAUD', 115200),
+    // Serial TX/RX + connect events for Pi Connect / SSH: `tail -f` this file.
+    logFile: path.resolve(__dirname, '..', asStr('MOTOR_LOG_FILE', './logs/motor-fw.log')),
   },
   assetsDir: path.resolve(__dirname, '..', asStr('ASSETS_DIR', './assets')),
   gamesDir: path.resolve(__dirname, '..', asStr('GAMES_DIR', './ui/games')),

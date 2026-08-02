@@ -53,6 +53,7 @@ function broadcast(obj) {
 const motor = new MotorBridge(config.motor);
 motor.on('connected', (port) => {
   console.log(`[motor] connected on ${port}`);
+  console.log(`[motor] firmware log: ${config.motor.logFile}`);
   broadcast({ type: 'motor_status', connected: true, port });
 });
 motor.on('disconnected', () => {

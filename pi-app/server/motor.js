@@ -10,9 +10,10 @@
 
 const { EventEmitter } = require('events');
 const { SerialPort } = require('serialport');
+const { MotorFwLog } = require('./motor-fw-log');
 
 class MotorBridge extends EventEmitter {
-  constructor({ port = 'AUTO', baud = 115200 } = {}) {
+  constructor({ port = 'AUTO', baud = 115200, logFile = null } = {}) {
     super();
     this.portName = port;
     this.baud = baud;
@@ -21,7 +22,12 @@ class MotorBridge extends EventEmitter {
     this.lineBuf = '';
     this.reconnectMs = 1000;
     this.lastFw = null;
+    this.log = logFile ? new MotorFwLog(logFile) : null;
     this._open();
+  }
+
+  _log(kind, line) {
+    if (this.log) this.log.write(kind, line);
   }
 
   async _resolvePort() {
@@ -72,6 +78,7 @@ class MotorBridge extends EventEmitter {
       }
       this.connected = true;
       this.reconnectMs = 1000;
+      this._log('INFO', `connected ${resolved}`);
       this.emit('connected', resolved);
     });
   }
@@ -79,6 +86,7 @@ class MotorBridge extends EventEmitter {
   _scheduleReopen(reason) {
     this.connected = false;
     this.serial = null;
+    this._log('INFO', `reconnect in ${this.reconnectMs}ms (${reason})`);
     this.emit('warn', `reconnect in ${this.reconnectMs}ms (${reason})`);
     const delay = this.reconnectMs;
     this.reconnectMs = Math.min(this.reconnectMs * 2, 30000);
@@ -99,6 +107,7 @@ class MotorBridge extends EventEmitter {
   }
 
   _handleLine(line) {
+    this._log('RX', line);
     const parts = line.split(/\s+/);
     const head = parts[0];
     if (head === 'READY') {
@@ -126,11 +135,16 @@ class MotorBridge extends EventEmitter {
 
   _send(line) {
     if (!this.connected || !this.serial) {
+      this._log('INFO', `dropped (not connected): ${line}`);
       this.emit('warn', `dropped command (not connected): ${line}`);
       return false;
     }
+    this._log('TX', line);
     this.serial.write(`${line}\n`, (err) => {
-      if (err) this.emit('warn', `write error: ${err.message}`);
+      if (err) {
+        this._log('INFO', `write error: ${err.message}`);
+        this.emit('warn', `write error: ${err.message}`);
+      }
     });
     return true;
   }

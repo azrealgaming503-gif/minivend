@@ -5,3 +5,4 @@ assets/idle/*
 assets/alerts/*
 !assets/idle/.gitkeep
 !assets/alerts/.gitkeep
+logs/
