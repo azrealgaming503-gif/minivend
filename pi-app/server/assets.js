@@ -14,9 +14,13 @@
 
 const fs = require('fs');
 const path = require('path');
+const crypto = require('crypto');
 const { spawn } = require('child_process');
 const express = require('express');
 const multer = require('multer');
+
+// Targets a StreamElements overlay URL can be assigned to on the Overlays page.
+const SE_OVERLAY_TARGETS = ['donation', 'dispense', 'redeem', 'idle'];
 
 const VIDEO_EXTS = new Set(['.mp4', '.webm', '.mov', '.m4v']);
 const IMAGE_EXTS = new Set(['.gif', '.webp', '.png', '.jpg', '.jpeg']);
@@ -285,11 +289,12 @@ class AssetStore {
       activeAlert: null,
       donationOverlay: null,
       redeemOverlay: null,
-      // StreamElements OBS browser-source URLs (paste from SE overlay editor).
-      donationSeOverlayUrl: null,
-      redeemSeOverlayUrl: null,
+      // StreamElements OBS browser-source overlays (Overlays page).
+      // [{ id, name, url, targets: ['donation'|'dispense'|'redeem'|'idle'] }]
+      seOverlays: [],
     };
     this._load();
+    this._migrateSeOverlays();
     // Auto-pick something if nothing's chosen yet — prefer packs over flat
     // files since they're usually the curated artist asset.
     if (!this.state.activeIdle) {
@@ -403,33 +408,97 @@ class AssetStore {
     return name ? `/assets/overlays/${encodeURIComponent(name)}` : null;
   }
 
-  // ----- StreamElements overlay links (OBS browser-source URL) -----
-  _seOverlayKey(kind) {
-    if (kind === 'donation') return 'donationSeOverlayUrl';
-    if (kind === 'redeem')   return 'redeemSeOverlayUrl';
-    throw new Error(`bad overlay kind: ${kind}`);
-  }
-
-  seOverlayUrl(kind) {
-    const url = this.state[this._seOverlayKey(kind)];
-    return (typeof url === 'string' && url) ? url : null;
-  }
-
-  setSeOverlayUrl(kind, url) {
-    this._overlayKey(kind); // validate kind
-    const key = this._seOverlayKey(kind);
-    if (!url) {
-      this.state[key] = null;
-      this._save();
-      return null;
+  // ----- StreamElements overlay links (Overlays page) -----
+  _migrateSeOverlays() {
+    if (!Array.isArray(this.state.seOverlays)) this.state.seOverlays = [];
+    const legacy = [];
+    const d = this.state.donationSeOverlayUrl;
+    const r = this.state.redeemSeOverlayUrl;
+    if (typeof d === 'string' && d) {
+      legacy.push({ url: d, name: 'Donations', targets: ['donation'] });
     }
-    this.state[key] = normalizeSeOverlayUrl(url);
-    this._save();
-    return this.state[key];
+    if (typeof r === 'string' && r) {
+      const same = legacy.find((e) => e.url === r);
+      if (same) {
+        if (!same.targets.includes('redeem')) same.targets.push('redeem');
+        if (!same.name || same.name === 'Donations') same.name = 'Donations + redeems';
+      } else {
+        legacy.push({ url: r, name: 'Channel point redeems', targets: ['redeem'] });
+      }
+    }
+    if (legacy.length && this.state.seOverlays.length === 0) {
+      for (const row of legacy) {
+        try {
+          this.state.seOverlays.push({
+            id: crypto.randomUUID(),
+            name: row.name,
+            url: normalizeSeOverlayUrl(row.url),
+            targets: sanitizeSeTargets(row.targets),
+          });
+        } catch (_) { /* skip bad legacy url */ }
+      }
+      this.state.donationSeOverlayUrl = null;
+      this.state.redeemSeOverlayUrl = null;
+      this._save();
+    }
   }
 
-  clearSeOverlayUrl(kind) {
-    return this.setSeOverlayUrl(kind, null);
+  listSeOverlays() {
+    if (!Array.isArray(this.state.seOverlays)) return [];
+    return this.state.seOverlays.map((o) => ({
+      id: o.id,
+      name: o.name || '',
+      url: o.url,
+      targets: Array.isArray(o.targets) ? o.targets.slice() : [],
+    }));
+  }
+
+  seUrlForTarget(target) {
+    const hit = this.listSeOverlays().find((o) => o.targets.includes(target));
+    return hit ? hit.url : null;
+  }
+
+  // Back-compat shim used by /api/state.
+  seOverlayUrl(kind) {
+    if (kind === 'donation' || kind === 'redeem') return this.seUrlForTarget(kind);
+    return null;
+  }
+
+  addSeOverlay({ name, url, targets }) {
+    const entry = {
+      id: crypto.randomUUID(),
+      name: String(name || '').trim().slice(0, 80),
+      url: normalizeSeOverlayUrl(url),
+      targets: sanitizeSeTargets(targets),
+    };
+    if (!entry.targets.length) throw new Error('pick at least one target');
+    if (!Array.isArray(this.state.seOverlays)) this.state.seOverlays = [];
+    this.state.seOverlays.push(entry);
+    this._save();
+    return entry;
+  }
+
+  updateSeOverlay(id, { name, url, targets }) {
+    const list = this.state.seOverlays || [];
+    const idx = list.findIndex((o) => o.id === id);
+    if (idx < 0) throw new Error('not_found');
+    const cur = list[idx];
+    if (name != null) cur.name = String(name || '').trim().slice(0, 80);
+    if (url != null) cur.url = normalizeSeOverlayUrl(url);
+    if (targets != null) {
+      cur.targets = sanitizeSeTargets(targets);
+      if (!cur.targets.length) throw new Error('pick at least one target');
+    }
+    this._save();
+    return { id: cur.id, name: cur.name, url: cur.url, targets: cur.targets.slice() };
+  }
+
+  removeSeOverlay(id) {
+    const list = this.state.seOverlays || [];
+    const next = list.filter((o) => o.id !== id);
+    if (next.length === list.length) throw new Error('not_found');
+    this.state.seOverlays = next;
+    this._save();
   }
 }
 
@@ -446,6 +515,16 @@ function normalizeSeOverlayUrl(raw) {
   }
   if (s.length > 2000) throw new Error('url too long');
   return u.toString();
+}
+
+function sanitizeSeTargets(targets) {
+  const src = Array.isArray(targets) ? targets : [];
+  const out = [];
+  for (const t of src) {
+    const key = String(t || '').toLowerCase();
+    if (SE_OVERLAY_TARGETS.includes(key) && !out.includes(key)) out.push(key);
+  }
+  return out;
 }
 
 function mount(app, { store, broadcast }) {
@@ -491,8 +570,11 @@ function mount(app, { store, broadcast }) {
     return {
       donation:   store.overlayUrl('donation'),
       redeem:     store.overlayUrl('redeem'),
-      donationSe: store.seOverlayUrl('donation'),
-      redeemSe:   store.seOverlayUrl('redeem'),
+      seOverlays: store.listSeOverlays(),
+      donationSe: store.seUrlForTarget('donation'),
+      redeemSe:   store.seUrlForTarget('redeem'),
+      dispenseSe: store.seUrlForTarget('dispense'),
+      idleSe:     store.seUrlForTarget('idle'),
     };
   }
 
@@ -526,31 +608,54 @@ function mount(app, { store, broadcast }) {
     res.json({ ok: true, ...urls });
   });
 
-  // ----- StreamElements overlay URL (paste from SE overlay editor) -----
-  app.post('/api/assets/overlay-se/:kind', express.json({ limit: '8kb' }), (req, res) => {
-    const kind = req.params.kind;
-    if (kind !== 'donation' && kind !== 'redeem') {
-      return res.status(400).json({ ok: false, err: 'bad_kind' });
-    }
+  // ----- StreamElements overlays (Overlays page) -----
+  app.get('/api/assets/overlay-se', (_req, res) => {
+    res.json({ ok: true, overlays: store.listSeOverlays(), targets: SE_OVERLAY_TARGETS });
+  });
+
+  app.post('/api/assets/overlay-se', express.json({ limit: '16kb' }), (req, res) => {
     try {
-      const url = store.setSeOverlayUrl(kind, (req.body && req.body.url) || '');
+      const body = req.body || {};
+      const entry = store.addSeOverlay({
+        name: body.name,
+        url: body.url,
+        targets: body.targets,
+      });
       const urls = overlayPayload();
       broadcast({ type: 'overlay_changed', ...urls });
-      res.json({ ok: true, url, ...urls });
+      res.json({ ok: true, overlay: entry, ...urls });
     } catch (e) {
-      res.status(400).json({ ok: false, err: e.message || 'bad_url' });
+      res.status(400).json({ ok: false, err: e.message || 'bad_overlay' });
     }
   });
 
-  app.delete('/api/assets/overlay-se/:kind', (req, res) => {
-    const kind = req.params.kind;
-    if (kind !== 'donation' && kind !== 'redeem') {
-      return res.status(400).json({ ok: false, err: 'bad_kind' });
+  app.put('/api/assets/overlay-se/:id', express.json({ limit: '16kb' }), (req, res) => {
+    try {
+      const body = req.body || {};
+      const entry = store.updateSeOverlay(req.params.id, {
+        name: body.name,
+        url: body.url,
+        targets: body.targets,
+      });
+      const urls = overlayPayload();
+      broadcast({ type: 'overlay_changed', ...urls });
+      res.json({ ok: true, overlay: entry, ...urls });
+    } catch (e) {
+      const code = e.message === 'not_found' ? 404 : 400;
+      res.status(code).json({ ok: false, err: e.message || 'bad_overlay' });
     }
-    store.clearSeOverlayUrl(kind);
-    const urls = overlayPayload();
-    broadcast({ type: 'overlay_changed', ...urls });
-    res.json({ ok: true, ...urls });
+  });
+
+  app.delete('/api/assets/overlay-se/:id', (req, res) => {
+    try {
+      store.removeSeOverlay(req.params.id);
+      const urls = overlayPayload();
+      broadcast({ type: 'overlay_changed', ...urls });
+      res.json({ ok: true, ...urls });
+    } catch (e) {
+      const code = e.message === 'not_found' ? 404 : 400;
+      res.status(code).json({ ok: false, err: e.message || 'delete_failed' });
+    }
   });
 
   // Full description of the active idle pick. Replaces the old 302 endpoint.
@@ -728,4 +833,4 @@ function mountGames(app, { gamesDir }) {
   });
 }
 
-module.exports = { AssetStore, mount, mountGames, normalizeIdleUpload };
+module.exports = { AssetStore, mount, mountGames, normalizeIdleUpload, SE_OVERLAY_TARGETS };

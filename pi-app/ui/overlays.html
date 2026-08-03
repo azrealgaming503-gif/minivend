@@ -1,0 +1,299 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, user-scalable=no" />
+  <title>Overlays · MiniVend</title>
+  <link rel="stylesheet" href="/css/styles.css" />
+  <style>
+    .overlay-card {
+      border: 1px solid var(--stroke);
+      border-radius: 12px;
+      background: var(--surface);
+      padding: 14px 16px;
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+      margin-bottom: 12px;
+    }
+    .overlay-card-title { font-weight: 600; font-size: 16px; }
+    .overlay-card-url {
+      color: var(--text-2);
+      font-size: 12px;
+      word-break: break-all;
+    }
+    .overlay-targets {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px 14px;
+    }
+    .overlay-targets label {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      font-size: 13px;
+      color: var(--text);
+    }
+    .overlay-chip {
+      display: inline-block;
+      font-size: 11px;
+      letter-spacing: 0.04em;
+      text-transform: uppercase;
+      color: var(--text-2);
+      border: 1px solid var(--stroke);
+      border-radius: 999px;
+      padding: 2px 8px;
+      margin: 0 4px 4px 0;
+    }
+  </style>
+</head>
+<body class="theme-pastel">
+  <div class="page">
+    <header class="page-header">
+      <h1>Overlays</h1>
+      <a href="/menu"><button class="ghost">← Menu</button></a>
+    </header>
+
+    <div class="page-body">
+
+      <section class="section">
+        <h2>StreamElements overlays</h2>
+        <p class="meta" style="color: var(--text-2); font-size: 13px; margin: 0 0 12px;">
+          Build an overlay in StreamElements, copy the <strong>OBS browser
+          source</strong> URL, then add it here and choose where it should
+          appear on the kiosk. The Pi keeps assigned overlays loaded like
+          OBS. Built-in donation / redeem alerts are skipped for any
+          target that has an SE overlay.
+        </p>
+        <div id="overlay-list"></div>
+        <p id="overlay-empty" class="meta" style="color: var(--text-2); font-size: 13px;">
+          No StreamElements overlays yet.
+        </p>
+      </section>
+
+      <section class="section">
+        <h2>Add overlay</h2>
+        <div class="se-url-form">
+          <label class="se-url-label" for="ov-name">Name (optional)</label>
+          <input id="ov-name" type="text" placeholder="e.g. Tip alert"
+                 data-keyboard-title="Overlay name" />
+
+          <label class="se-url-label" for="ov-url">StreamElements URL</label>
+          <input id="ov-url" type="url" inputmode="url" autocomplete="off"
+                 placeholder="https://streamelements.com/overlay/…"
+                 data-keyboard-title="StreamElements overlay link" />
+
+          <div style="font-weight: 600; margin-top: 4px;">Show for</div>
+          <div class="overlay-targets" id="ov-targets">
+            <label><input type="checkbox" value="donation" checked /> Donations</label>
+            <label><input type="checkbox" value="dispense" /> Dropper activation</label>
+            <label><input type="checkbox" value="redeem" /> Channel point redeems</label>
+            <label><input type="checkbox" value="idle" /> Idle screen</label>
+          </div>
+
+          <div class="row se-url-actions">
+            <button type="button" class="primary" id="ov-add">Add overlay</button>
+            <span class="meta se-url-status" id="ov-status"></span>
+          </div>
+        </div>
+      </section>
+
+      <section class="section">
+        <h2>Built-in image overlays</h2>
+        <p class="meta" style="color: var(--text-2); font-size: 13px; margin: 0 0 12px;">
+          GIF/image stickers for the built-in alerts still live on
+          <strong>Donations</strong> and <strong>Channel point redeems</strong>.
+          They are ignored when an SE overlay is assigned to that target.
+        </p>
+      </section>
+
+    </div>
+  </div>
+
+  <script type="module">
+    import { onMessage } from '/js/ws-client.js';
+    import '/js/alerts.js';
+    import { attachKeyboard } from '/js/keyboard.js';
+    attachKeyboard();
+
+    const TARGET_LABELS = {
+      donation: 'Donations',
+      dispense: 'Dropper',
+      redeem: 'Redeems',
+      idle: 'Idle',
+    };
+
+    const listEl = document.getElementById('overlay-list');
+    const emptyEl = document.getElementById('overlay-empty');
+    const nameInput = document.getElementById('ov-name');
+    const urlInput = document.getElementById('ov-url');
+    const statusEl = document.getElementById('ov-status');
+    const addBtn = document.getElementById('ov-add');
+
+    function selectedTargets(root) {
+      return [...root.querySelectorAll('input[type="checkbox"]:checked')]
+        .map((el) => el.value);
+    }
+
+    function setStatus(msg) { statusEl.textContent = msg || ''; }
+
+    function render(overlays) {
+      listEl.innerHTML = '';
+      const rows = Array.isArray(overlays) ? overlays : [];
+      emptyEl.hidden = rows.length > 0;
+      for (const o of rows) {
+        const card = document.createElement('div');
+        card.className = 'overlay-card';
+        card.dataset.id = o.id;
+        const chips = (o.targets || []).map((t) =>
+          `<span class="overlay-chip">${TARGET_LABELS[t] || t}</span>`).join('');
+        card.innerHTML = `
+          <div class="row" style="justify-content: space-between; gap: 10px; align-items: flex-start;">
+            <div style="min-width: 0; flex: 1;">
+              <div class="overlay-card-title">${escapeHtml(o.name || 'Untitled overlay')}</div>
+              <div class="overlay-card-url">${escapeHtml(o.url)}</div>
+              <div style="margin-top: 6px;">${chips || '<span class="meta">No targets</span>'}</div>
+            </div>
+            <div class="row" style="gap: 8px; flex-shrink: 0;">
+              <button type="button" class="ghost" data-edit>Edit</button>
+              <button type="button" class="danger" data-remove>Remove</button>
+            </div>
+          </div>
+          <div class="overlay-edit" hidden>
+            <label class="se-url-label">Name</label>
+            <input type="text" data-edit-name value="${escapeAttr(o.name || '')}"
+                   data-keyboard-title="Overlay name" />
+            <label class="se-url-label">URL</label>
+            <input type="url" data-edit-url value="${escapeAttr(o.url || '')}"
+                   data-keyboard-title="StreamElements overlay link" />
+            <div class="overlay-targets" data-edit-targets>
+              <label><input type="checkbox" value="donation" ${o.targets.includes('donation') ? 'checked' : ''}/> Donations</label>
+              <label><input type="checkbox" value="dispense" ${o.targets.includes('dispense') ? 'checked' : ''}/> Dropper activation</label>
+              <label><input type="checkbox" value="redeem" ${o.targets.includes('redeem') ? 'checked' : ''}/> Channel point redeems</label>
+              <label><input type="checkbox" value="idle" ${o.targets.includes('idle') ? 'checked' : ''}/> Idle screen</label>
+            </div>
+            <div class="row se-url-actions">
+              <button type="button" class="primary" data-save>Save</button>
+              <button type="button" class="ghost" data-cancel>Cancel</button>
+              <span class="meta se-url-status" data-edit-status></span>
+            </div>
+          </div>
+        `;
+        listEl.appendChild(card);
+
+        const editPanel = card.querySelector('.overlay-edit');
+        card.querySelector('[data-edit]').addEventListener('click', () => {
+          editPanel.hidden = !editPanel.hidden;
+        });
+        card.querySelector('[data-cancel]').addEventListener('click', () => {
+          editPanel.hidden = true;
+        });
+        card.querySelector('[data-remove]').addEventListener('click', async () => {
+          if (!confirm('Remove this StreamElements overlay?')) return;
+          try {
+            const j = await (await fetch(`/api/assets/overlay-se/${encodeURIComponent(o.id)}`, {
+              method: 'DELETE',
+            })).json();
+            if (j && j.ok) render(j.seOverlays);
+            else setStatus(`Error: ${(j && j.err) || 'remove failed'}`);
+          } catch (e) {
+            setStatus(`Error: ${e.message}`);
+          }
+        });
+        card.querySelector('[data-save]').addEventListener('click', async () => {
+          const st = card.querySelector('[data-edit-status]');
+          st.textContent = 'Saving…';
+          try {
+            const j = await (await fetch(`/api/assets/overlay-se/${encodeURIComponent(o.id)}`, {
+              method: 'PUT',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                name: card.querySelector('[data-edit-name]').value,
+                url: card.querySelector('[data-edit-url]').value,
+                targets: selectedTargets(card.querySelector('[data-edit-targets]')),
+              }),
+            })).json();
+            if (j && j.ok) {
+              render(j.seOverlays);
+            } else {
+              st.textContent = `Error: ${(j && j.err) || 'save failed'}`;
+            }
+          } catch (e) {
+            st.textContent = `Error: ${e.message}`;
+          }
+        });
+      }
+    }
+
+    function escapeHtml(s) {
+      return String(s)
+        .replace(/&/g, '&amp;').replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+    }
+    function escapeAttr(s) { return escapeHtml(s).replace(/'/g, '&#39;'); }
+
+    async function load() {
+      try {
+        const j = await (await fetch('/api/assets/overlay-se')).json();
+        if (j && j.ok) render(j.overlays);
+      } catch (_) {}
+    }
+
+    addBtn.addEventListener('click', async () => {
+      setStatus('Saving…');
+      try {
+        const j = await (await fetch('/api/assets/overlay-se', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            name: nameInput.value,
+            url: urlInput.value,
+            targets: selectedTargets(document.getElementById('ov-targets')),
+          }),
+        })).json();
+        if (j && j.ok) {
+          nameInput.value = '';
+          urlInput.value = '';
+          setStatus('Added.');
+          render(j.seOverlays);
+          setTimeout(() => setStatus(''), 2000);
+        } else {
+          setStatus(`Error: ${(j && j.err) || 'add failed'}`);
+        }
+      } catch (e) {
+        setStatus(`Error: ${e.message}`);
+      }
+    });
+
+    onMessage('overlay_changed', (m) => {
+      if (m && Array.isArray(m.seOverlays)) render(m.seOverlays);
+    });
+
+    load();
+
+    // Auto-return to idle.
+    let kioskIdleTimeoutMs = 30_000;
+    let autoReturnTimer = null;
+    function bumpAutoReturn() {
+      clearTimeout(autoReturnTimer);
+      autoReturnTimer = setTimeout(() => { location.href = '/'; }, kioskIdleTimeoutMs);
+    }
+    ['pointerdown', 'touchstart', 'keydown', 'mousemove'].forEach((evt) =>
+      window.addEventListener(evt, bumpAutoReturn, { passive: true })
+    );
+    bumpAutoReturn();
+    fetch('/api/state').then((r) => r.json()).then((j) => {
+      if (j && j.ok && j.settings && Number.isFinite(j.settings.kioskIdleTimeoutSec)) {
+        kioskIdleTimeoutMs = j.settings.kioskIdleTimeoutSec * 1000;
+        bumpAutoReturn();
+      }
+    }).catch(() => {});
+    onMessage('settings_changed', (m) => {
+      if (m.settings && Number.isFinite(m.settings.kioskIdleTimeoutSec)) {
+        kioskIdleTimeoutMs = m.settings.kioskIdleTimeoutSec * 1000;
+        bumpAutoReturn();
+      }
+    });
+  </script>
+</body>
+</html>

@@ -37,21 +37,11 @@
         <h2>Redeem overlay image</h2>
         <p class="meta" style="color: var(--text-2); font-size: 13px; margin: 0 0 12px;">
           Optional GIF/image shown on the redeem overlay. Drag one in or
-          tap to choose. Leave empty for text + petals only. Ignored
-          while a StreamElements overlay link (below) is set.
+          tap to choose. Leave empty for text + petals only. Ignored when
+          a StreamElements overlay is assigned to Redeems on the
+          <strong>Overlays</strong> page.
         </p>
         <div id="redeem-overlay-zone"></div>
-      </section>
-
-      <section class="section">
-        <h2>StreamElements overlay link</h2>
-        <p class="meta" style="color: var(--text-2); font-size: 13px; margin: 0 0 12px;">
-          Paste the StreamElements overlay URL (OBS browser source link).
-          The Pi keeps it loaded like OBS; SE plays redemption alerts.
-          You can use the same link as Donations if that overlay includes
-          both tip and redeem widgets.
-        </p>
-        <div id="redeem-se-form"></div>
       </section>
 
       <section class="section">
@@ -81,21 +71,13 @@
     import '/js/alerts.js';
     import { attachNumpad } from '/js/numpad.js';
     import { initOverlayUploader } from '/js/overlay-upload.js';
-    import { initSeOverlayUrl } from '/js/overlay-se-url.js';
-    import { attachKeyboard } from '/js/keyboard.js';
     attachNumpad();
-    attachKeyboard();
 
     initOverlayUploader({
       zoneId: 'redeem-overlay-zone',
       kind: 'redeem',
       title: 'Redeem overlay image',
       hint: 'Drag a GIF/PNG here, or tap to choose.',
-    });
-    initSeOverlayUrl({
-      formId: 'redeem-se-form',
-      kind: 'redeem',
-      title: 'Overlay URL',
     });
 
     const redeemAlertsInput = document.getElementById('redeem-alerts-input');

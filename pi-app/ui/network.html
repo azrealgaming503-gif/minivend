@@ -9,7 +9,7 @@
 <body class="theme-pastel">
   <div class="page">
     <header class="page-header">
-      <h1>Network &amp; accounts</h1>
+      <h1>Network</h1>
       <a href="/menu"><button class="ghost">← Menu</button></a>
     </header>
 
@@ -158,24 +158,6 @@
         </div>
       </section>
 
-      <section class="section">
-        <h2>Software updates</h2>
-        <div class="row" style="justify-content: space-between; gap: 14px; flex-wrap: wrap;">
-          <div>
-            <div>Current: <span id="sw-current">...</span></div>
-            <div id="sw-latest" class="meta" style="color: var(--text-2); font-size: 13px;"></div>
-          </div>
-          <div class="row" style="gap: 8px;">
-            <button id="sw-check">Check for updates</button>
-            <button id="sw-apply" class="primary" disabled>Apply update</button>
-          </div>
-        </div>
-        <pre id="sw-log" style="margin-top: 12px; max-height: 160px; overflow:auto;
-                                background: var(--bg); color: var(--text-2);
-                                font-size: 12px; padding: 10px; border-radius: 10px;
-                                border: 1px solid var(--stroke); display: none; white-space: pre-wrap;"></pre>
-      </section>
-
     </div>
   </div>
 
@@ -206,20 +188,19 @@
       portalFriendly.textContent = '—';
       portalDirect.textContent = '—';
       const port = location.port || '3000';
-      let ip = null, hostname = null;
+      let ip = null;
       try {
         const w = await (await fetch('/api/wifi')).json();
-        if (w && w.ok) { ip = w.ip || null; hostname = w.hostname || null; }
+        if (w && w.ok) ip = w.ip || null;
       } catch (_) {}
 
-      const friendlyUrl = hostname ? `http://${hostname}.local:${port}/menu` : null;
+      // Easy LAN name — Pi hostname should be "minivend". IP is the
+      // fallback when local DNS / mDNS isn't available on the phone.
+      const friendlyUrl = `http://minivend:${port}/menu`;
       const directUrl   = ip ? `http://${ip}:${port}/menu` : null;
-      // Encode the most broadly-reliable address (raw IP works on every
-      // phone; the .local name needs mDNS support). Fall back to whatever
-      // we have.
-      const qrUrl = directUrl || friendlyUrl;
+      const qrUrl = friendlyUrl;
 
-      portalFriendly.textContent = friendlyUrl || '(hostname unavailable)';
+      portalFriendly.textContent = friendlyUrl;
       portalDirect.textContent   = directUrl || '(IP not detected — check Wi-Fi)';
 
       if (qrUrl) {
@@ -427,58 +408,6 @@
         seJwtInput.focus();
       }, 50);
     })();
-
-    // ===== Software updates =====
-    const swCurrent = document.getElementById('sw-current');
-    const swLatest  = document.getElementById('sw-latest');
-    const swCheck   = document.getElementById('sw-check');
-    const swApply   = document.getElementById('sw-apply');
-    const swLog     = document.getElementById('sw-log');
-
-    async function refreshVersion() {
-      try {
-        const j = await (await fetch('/api/version')).json();
-        if (j.ok) {
-          const label = j.tag || j.shortCommit || j.commit || '(unknown)';
-          swCurrent.textContent = `${label}${j.branch ? ' · ' + j.branch : ''}`;
-          if (j.lastUpdate) {
-            swLatest.textContent = `Last update: ${j.lastUpdate.status} (${j.lastUpdate.when})`;
-          }
-        } else {
-          swCurrent.textContent = `(not a git checkout — OTA disabled)`;
-          swCheck.disabled = true;
-        }
-      } catch (_) { swCurrent.textContent = '(offline)'; }
-    }
-    swCheck.addEventListener('click', async () => {
-      swCheck.disabled = true; swLatest.textContent = 'checking...';
-      try {
-        const j = await (await fetch('/api/update/check')).json();
-        if (!j.ok)            { swLatest.textContent = `Check failed: ${j.err}`; swApply.disabled = true; }
-        else if (!j.hasUpdate){ swLatest.textContent = 'Up to date.';             swApply.disabled = true; }
-        else {
-          const date = j.latestDate ? new Date(j.latestDate).toLocaleString() : '';
-          swLatest.textContent =
-            `Update available: ${j.latest.slice(0, 7)} — ${j.latestMessage || ''} ${date}`;
-          swApply.disabled = false;
-        }
-      } catch (e) {
-        swLatest.textContent = `Check error: ${e.message}`;
-      } finally { swCheck.disabled = false; }
-    });
-    swApply.addEventListener('click', async () => {
-      if (!confirm('Apply update? The server will restart. If the new revision fails its health check, it will be rolled back automatically.')) return;
-      swApply.disabled = true; swCheck.disabled = true;
-      swLog.style.display = 'block';
-      swLog.textContent = 'starting update...\n';
-      try { await fetch('/api/update/apply', { method: 'POST' }); } catch (_) {}
-    });
-    onMessage('update', (m) => {
-      if (m.phase === 'starting') { swLog.style.display = 'block'; swLog.textContent += '> starting\n'; }
-      else if (m.phase === 'log') { swLog.textContent += m.line + '\n'; swLog.scrollTop = swLog.scrollHeight; }
-    });
-    onMessage('_open', () => refreshVersion());
-    refreshVersion();
 
     // Auto-return to idle.
     let kioskIdleTimeoutMs = 30_000;
