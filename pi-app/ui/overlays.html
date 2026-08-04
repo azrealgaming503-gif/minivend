@@ -171,18 +171,20 @@
               <button type="button" class="danger" data-remove>Remove</button>
             </div>
           </div>
-          <label class="toggle-row" style="margin-top: 4px;" for="ov-active-${escapeAttr(o.id)}">
-            <div class="toggle-text">
-              <div>${active ? 'Active' : 'Inactive'}</div>
-              <div class="meta" style="color: var(--text-2); font-size: 13px;">
+          <div class="row" style="margin-top: 6px; justify-content: space-between; align-items: center; gap: 12px; flex-wrap: wrap;">
+            <div class="toggle-text" style="flex: 1; min-width: 160px;">
+              <div data-active-label>${active ? 'Active' : 'Inactive'}</div>
+              <div class="meta" style="color: var(--text-2); font-size: 13px;" data-active-hint>
                 ${active
                   ? 'Showing on the kiosk for its assigned targets.'
                   : 'Saved but not shown. Built-in alerts apply if nothing else is active.'}
               </div>
             </div>
-            <input id="ov-active-${escapeAttr(o.id)}" type="checkbox" class="toggle-switch" data-active
-                   ${active ? 'checked' : ''} />
-          </label>
+            <button type="button" class="${active ? 'primary' : 'ghost'}" data-active-toggle
+                    style="min-width: 132px;">
+              ${active ? 'Turn off' : 'Turn on'}
+            </button>
+          </div>
           <div class="overlay-edit" hidden>
             <label class="se-url-label">Name</label>
             <input type="text" data-edit-name value="${escapeAttr(o.name || '')}"
@@ -212,21 +214,30 @@
         card.querySelector('[data-cancel]').addEventListener('click', () => {
           editPanel.hidden = true;
         });
-        card.querySelector('[data-active]').addEventListener('change', async (e) => {
-          const next = !!e.target.checked;
+        const activeBtn = card.querySelector('[data-active-toggle]');
+        activeBtn.addEventListener('click', async () => {
+          const next = !active;
+          activeBtn.disabled = true;
+          activeBtn.textContent = 'Saving…';
           try {
-            const j = await (await fetch(`/api/assets/overlay-se/${encodeURIComponent(o.id)}`, {
+            const r = await fetch(`/api/assets/overlay-se/${encodeURIComponent(o.id)}`, {
               method: 'PUT',
               headers: { 'Content-Type': 'application/json' },
               body: JSON.stringify({ active: next }),
-            })).json();
-            if (j && j.ok) render(j.seOverlays);
-            else {
-              e.target.checked = !next;
+            });
+            const j = await r.json();
+            if (j && j.ok) {
+              render(j.seOverlays || j.overlays || []);
+              setStatus(next ? 'Overlay turned on.' : 'Overlay turned off.');
+              setTimeout(() => setStatus(''), 2000);
+            } else {
+              activeBtn.disabled = false;
+              activeBtn.textContent = active ? 'Turn off' : 'Turn on';
               setStatus(`Error: ${(j && j.err) || 'update failed'}`);
             }
           } catch (err) {
-            e.target.checked = !next;
+            activeBtn.disabled = false;
+            activeBtn.textContent = active ? 'Turn off' : 'Turn on';
             setStatus(`Error: ${err.message}`);
           }
         });
@@ -309,6 +320,7 @@
 
     onMessage('overlay_changed', (m) => {
       if (m && Array.isArray(m.seOverlays)) render(m.seOverlays);
+      else if (m && Array.isArray(m.overlays)) render(m.overlays);
     });
 
     load();

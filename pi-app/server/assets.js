@@ -497,18 +497,18 @@ class AssetStore {
     };
   }
 
-  updateSeOverlay(id, { name, url, targets, active }) {
+  updateSeOverlay(id, patch = {}) {
     const list = this.state.seOverlays || [];
     const idx = list.findIndex((o) => o.id === id);
     if (idx < 0) throw new Error('not_found');
     const cur = list[idx];
-    if (name != null) cur.name = String(name || '').trim().slice(0, 80);
-    if (url != null) cur.url = normalizeSeOverlayUrl(url);
-    if (targets != null) {
-      cur.targets = sanitizeSeTargets(targets);
+    if ('name' in patch) cur.name = String(patch.name || '').trim().slice(0, 80);
+    if ('url' in patch) cur.url = normalizeSeOverlayUrl(patch.url);
+    if ('targets' in patch) {
+      cur.targets = sanitizeSeTargets(patch.targets);
       if (!cur.targets.length) throw new Error('pick at least one target');
     }
-    if (active != null) cur.active = !!active;
+    if ('active' in patch) cur.active = !!patch.active;
     this._save();
     return {
       id: cur.id,
@@ -658,11 +658,15 @@ function mount(app, { store, broadcast }) {
   app.put('/api/assets/overlay-se/:id', express.json({ limit: '16kb' }), (req, res) => {
     try {
       const body = req.body || {};
-      const entry = store.updateSeOverlay(req.params.id, {
-        name: body.name,
-        url: body.url,
-        targets: body.targets,
-      });
+      const patch = {};
+      if ('name' in body) patch.name = body.name;
+      if ('url' in body) patch.url = body.url;
+      if ('targets' in body) patch.targets = body.targets;
+      if ('active' in body) patch.active = body.active;
+      if (!Object.keys(patch).length) {
+        return res.status(400).json({ ok: false, err: 'empty_patch' });
+      }
+      const entry = store.updateSeOverlay(req.params.id, patch);
       const urls = overlayPayload();
       broadcast({ type: 'overlay_changed', ...urls });
       res.json({ ok: true, overlay: entry, ...urls });
