@@ -6,6 +6,9 @@
 // pops up a big-button modal pad. Tap digits, decimal/sign as
 // allowed by the input's attributes, then OK to commit.
 //
+// Only attaches on the physical kiosk (localhost). Remote PC / phone
+// browsers keep native number inputs so typing and paste work normally.
+//
 // Usage:
 //   import { attachNumpad } from '/js/numpad.js';
 //   attachNumpad();   // grabs every input[type=number] on the page
@@ -17,6 +20,8 @@
 //   min, max, step      — honored when validating
 //   data-numpad-decimal — force "decimal allowed" even if step is integer
 //   data-numpad-title   — title shown above the pad
+
+import { isKiosk } from './kiosk-sync.js';
 
 let openPad = null;
 
@@ -186,6 +191,9 @@ function attach(input) {
 }
 
 export function attachNumpad(root = document) {
+  // PC / phone on the LAN: leave native number inputs alone.
+  if (!isKiosk()) return;
+
   const inputs = root.querySelectorAll(
     'input[type=number], input[data-numpad]'
   );

@@ -7,6 +7,9 @@
 // modal QWERTY pad. Tap letters / shift / number row / etc, then
 // "Done" to commit the value back to the input.
 //
+// Only attaches on the physical kiosk (localhost). Remote PC / phone
+// browsers keep native inputs so Ctrl+V / paste works for JWTs, URLs, etc.
+//
 // Usage:
 //   import { attachKeyboard } from '/js/keyboard.js';
 //   attachKeyboard();         // grab every text input on the page
@@ -28,6 +31,8 @@
 //   data-keyboard-title="Chamber 1 label"   prompt above the pad
 //   data-keyboard-mode="email"              switch the layout/keys
 //                                           (text | email | url | password)
+
+import { isKiosk } from './kiosk-sync.js';
 
 let openPad = null;
 
@@ -203,23 +208,42 @@ function open(input) {
     press(k.dataset.key);
   });
 
-  // Physical keyboard fallback (useful when you have a USB keyboard
-  // plugged in for testing, or you're developing on a laptop).
+  // Physical keyboard / paste fallback (USB keyboard on the kiosk, or
+  // rare cases where the pad is open and a host still delivers keys).
   function onKey(e) {
     if (e.key === 'Escape')     return destroyPad();
     if (e.key === 'Enter')      return press('done');
     if (e.key === 'Backspace')  return press('back');
     if (e.key === ' ')          return press('space');
-    if (e.key && e.key.length === 1) {
+    // Let the browser fire a paste event for Ctrl/Cmd+V.
+    if ((e.ctrlKey || e.metaKey) && (e.key === 'v' || e.key === 'V')) return;
+    if (e.key && e.key.length === 1 && !e.ctrlKey && !e.metaKey) {
       e.preventDefault();
       type(e.key);
     }
   }
+  function onPaste(e) {
+    const text = (e.clipboardData || window.clipboardData)
+      ? (e.clipboardData || window.clipboardData).getData('text')
+      : '';
+    if (!text) return;
+    e.preventDefault();
+    for (const ch of text) {
+      if (Number.isFinite(maxLen) && buffer.length >= maxLen) break;
+      buffer += ch;
+    }
+    if (shift && !shiftLock) shift = false;
+    render();
+  }
   document.addEventListener('keydown', onKey);
+  document.addEventListener('paste', onPaste);
 
   openPad = {
     root,
-    cleanup: () => document.removeEventListener('keydown', onKey),
+    cleanup: () => {
+      document.removeEventListener('keydown', onKey);
+      document.removeEventListener('paste', onPaste);
+    },
   };
   render();
 }
@@ -248,6 +272,9 @@ function attach(input) {
 }
 
 export function attachKeyboard(root = document) {
+  // PC / phone on the LAN: leave native focus + paste alone.
+  if (!isKiosk()) return;
+
   const candidates = root.querySelectorAll(
     'input[type=text], input[type=email], input[type=url], ' +
     'input[type=password], input[type=search], input:not([type]), ' +
