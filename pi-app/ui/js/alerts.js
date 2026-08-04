@@ -143,16 +143,28 @@ function ensureSeLayer(id, url) {
   }
 }
 
+function isIdlePage() {
+  const p = location.pathname || '/';
+  return p === '/' || p === '/index.html';
+}
+
 function syncSeLayers() {
-  // Keep one iframe per unique URL that is assigned to any kiosk target.
-  const urls = seUrlsForTargets(['donation', 'dispense', 'redeem', 'idle']);
+  // Donation / redeem / dispense: keep loaded like OBS (all pages).
+  // Idle-only: show only on the idle home screen so Menu / settings
+  // stay usable. (iframe pointer-events are none so double-tap still works.)
+  const urls = seUrlsForTargets(['donation', 'dispense', 'redeem']);
+  if (isIdlePage()) {
+    for (const url of seUrlsForTargets(['idle'])) {
+      if (!urls.includes(url)) urls.push(url);
+    }
+  }
   const keep = new Set();
   urls.forEach((url, i) => {
     const id = `se-overlay-${i}`;
     keep.add(id);
     ensureSeLayer(id, url);
   });
-  // Drop stale layers (old indexes / removed overlays).
+  // Drop stale layers (old indexes / removed overlays / left idle page).
   for (const el of [...document.querySelectorAll('.se-overlay-layer')]) {
     if (!keep.has(el.id)) el.remove();
   }

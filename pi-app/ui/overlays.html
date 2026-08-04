@@ -89,7 +89,7 @@
             <label><input type="checkbox" value="donation" checked /> Donations</label>
             <label><input type="checkbox" value="dispense" /> Dropper activation</label>
             <label><input type="checkbox" value="redeem" /> Channel point redeems</label>
-            <label><input type="checkbox" value="idle" /> Idle screen</label>
+            <label><input type="checkbox" value="idle" /> Idle screen (home only; double-tap still opens Menu)</label>
           </div>
 
           <div class="row se-url-actions">
@@ -171,7 +171,7 @@
               <label><input type="checkbox" value="donation" ${o.targets.includes('donation') ? 'checked' : ''}/> Donations</label>
               <label><input type="checkbox" value="dispense" ${o.targets.includes('dispense') ? 'checked' : ''}/> Dropper activation</label>
               <label><input type="checkbox" value="redeem" ${o.targets.includes('redeem') ? 'checked' : ''}/> Channel point redeems</label>
-              <label><input type="checkbox" value="idle" ${o.targets.includes('idle') ? 'checked' : ''}/> Idle screen</label>
+              <label><input type="checkbox" value="idle" ${o.targets.includes('idle') ? 'checked' : ''}/> Idle screen (home only)</label>
             </div>
             <div class="row se-url-actions">
               <button type="button" class="primary" data-save>Save</button>
