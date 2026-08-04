@@ -63,18 +63,23 @@ let stickerUrl = '/img/blu-happy.png';
 let donationStickerUrl = null;  // custom donation overlay GIF (overrides blu-happy)
 let redeemStickerUrl   = null;  // custom redeem overlay GIF (optional)
 // StreamElements overlays from the Overlays page.
-// Each entry: { id, name, url, targets: ['donation'|'dispense'|'redeem'|'idle'] }
+// Each entry: { id, name, url, active, targets: [...] }
 let seOverlays = [];
 
+function seIsActive(o) {
+  return !!(o && o.active !== false);
+}
+
 function seHasTarget(target) {
-  return seOverlays.some((o) => Array.isArray(o.targets) && o.targets.includes(target));
+  return seOverlays.some((o) =>
+    seIsActive(o) && Array.isArray(o.targets) && o.targets.includes(target));
 }
 
 function seUrlsForTargets(targets) {
   const want = new Set(targets);
   const urls = [];
   for (const o of seOverlays) {
-    if (!o || !o.url || !Array.isArray(o.targets)) continue;
+    if (!seIsActive(o) || !o.url || !Array.isArray(o.targets)) continue;
     if (o.targets.some((t) => want.has(t)) && !urls.includes(o.url)) urls.push(o.url);
   }
   return urls;

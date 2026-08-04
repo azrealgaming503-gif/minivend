@@ -290,7 +290,7 @@ class AssetStore {
       donationOverlay: null,
       redeemOverlay: null,
       // StreamElements OBS browser-source overlays (Overlays page).
-      // [{ id, name, url, targets: ['donation'|'dispense'|'redeem'|'idle'] }]
+      // [{ id, name, url, active, targets: ['donation'|'dispense'|'redeem'|'idle'] }]
       seOverlays: [],
     };
     this._load();
@@ -433,6 +433,7 @@ class AssetStore {
             id: crypto.randomUUID(),
             name: row.name,
             url: normalizeSeOverlayUrl(row.url),
+            active: true,
             targets: sanitizeSeTargets(row.targets),
           });
         } catch (_) { /* skip bad legacy url */ }
@@ -441,6 +442,15 @@ class AssetStore {
       this.state.redeemSeOverlayUrl = null;
       this._save();
     }
+    // Ensure every stored overlay has an explicit active flag.
+    let touched = false;
+    for (const o of this.state.seOverlays) {
+      if (typeof o.active !== 'boolean') {
+        o.active = true;
+        touched = true;
+      }
+    }
+    if (touched) this._save();
   }
 
   listSeOverlays() {
@@ -449,12 +459,14 @@ class AssetStore {
       id: o.id,
       name: o.name || '',
       url: o.url,
+      active: o.active !== false,
       targets: Array.isArray(o.targets) ? o.targets.slice() : [],
     }));
   }
 
   seUrlForTarget(target) {
-    const hit = this.listSeOverlays().find((o) => o.targets.includes(target));
+    const hit = this.listSeOverlays().find((o) =>
+      o.active && o.targets.includes(target));
     return hit ? hit.url : null;
   }
 
@@ -464,21 +476,28 @@ class AssetStore {
     return null;
   }
 
-  addSeOverlay({ name, url, targets }) {
+  addSeOverlay({ name, url, targets, active }) {
     const entry = {
       id: crypto.randomUUID(),
       name: String(name || '').trim().slice(0, 80),
       url: normalizeSeOverlayUrl(url),
+      active: active === false ? false : true,
       targets: sanitizeSeTargets(targets),
     };
     if (!entry.targets.length) throw new Error('pick at least one target');
     if (!Array.isArray(this.state.seOverlays)) this.state.seOverlays = [];
     this.state.seOverlays.push(entry);
     this._save();
-    return entry;
+    return {
+      id: entry.id,
+      name: entry.name,
+      url: entry.url,
+      active: entry.active,
+      targets: entry.targets.slice(),
+    };
   }
 
-  updateSeOverlay(id, { name, url, targets }) {
+  updateSeOverlay(id, { name, url, targets, active }) {
     const list = this.state.seOverlays || [];
     const idx = list.findIndex((o) => o.id === id);
     if (idx < 0) throw new Error('not_found');
@@ -489,8 +508,15 @@ class AssetStore {
       cur.targets = sanitizeSeTargets(targets);
       if (!cur.targets.length) throw new Error('pick at least one target');
     }
+    if (active != null) cur.active = !!active;
     this._save();
-    return { id: cur.id, name: cur.name, url: cur.url, targets: cur.targets.slice() };
+    return {
+      id: cur.id,
+      name: cur.name,
+      url: cur.url,
+      active: cur.active !== false,
+      targets: cur.targets.slice(),
+    };
   }
 
   removeSeOverlay(id) {
